@@ -98,6 +98,8 @@ public final class TonePlayer {
                     if self.fadeOutEnd == nil, block.position >= self.startPosition + longest { self.stop() }
                     // A little past the fade's last sample, so the output's own buffer has played it.
                     if let end = self.fadeOutEnd, block.position >= end + Int64(0.1 * sampleRate) { break }
+                    // A backlog of blocks must not hold the main actor (as in `MeasurementSession`).
+                    await Task.yield()
                 }
             } catch {}
             await self?.finish()

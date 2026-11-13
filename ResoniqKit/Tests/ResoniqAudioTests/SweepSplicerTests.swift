@@ -3,7 +3,7 @@ import ResoniqDSP
 import Testing
 @testable import ResoniqAudio
 
-@Suite struct SweepSplicerTests {
+@Suite(.timeLimit(.minutes(3))) struct SweepSplicerTests {
     /// A take of the sweep heard with delay `delay`: zeros, then the sweep from `firstIndex`, at capture positions
     /// from `start`, scheduled at `scheduledAt`.
     func take(_ sweep: [Float], firstIndex: Int, scheduledAt: Int64, delay: Int, start: Int64, count: Int) -> SweepSplicer.Take {

@@ -5,7 +5,7 @@ import Testing
 /// With nothing connected the sound comes out of the phone itself; measuring that as "your left speaker" would be
 /// wrong, so every measurement fails before any sound and says why.
 @MainActor
-@Suite struct OutputRouteTests {
+@Suite(.timeLimit(.minutes(3))) struct OutputRouteTests {
     static func io(_ kind: AudioOutputRoute.Kind) -> SimulatedAudioIO {
         SimulatedAudioIO(configuration: .init(
             pacing: .immediate,

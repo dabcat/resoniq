@@ -120,9 +120,32 @@ import TabularData
 
 /// A stand-in model trained here with Create ML (a logistic regression on the feature vector): it shows the loader
 /// accepts a model that fits the contract, runs it, and refuses one that does not. It knows nothing about speakers.
+///
+/// Training runs off the concurrency pool (`OffPool`) with `trainingTimeout`: Create ML blocks its thread waiting
+/// for work it queues on that pool, so trained on a pool thread it can starve the pool on a small runner and hang
+/// every test in the process.
 enum StandIn {
+    /// The first training took 24 s on a loaded 12-core Mac (Create ML's start-up), later ones 0.04 s.
+    /// **First guess**: 120 s.
+    static let trainingTimeout: Duration = .seconds(120)
+
+    /// The default stand-in, trained once; nil where Create ML cannot train it in time, or where
+    /// `RESONIQ_TEST_CREATE_ML=unavailable` simulates that.
+    static let standard = Task<URL?, Never> {
+        guard ProcessInfo.processInfo.environment["RESONIQ_TEST_CREATE_ML"] != "unavailable" else { return nil }
+        return try? await model()
+    }
+
+    static func isAvailable() async -> Bool { await standard.value != nil }
+
     static func model(featureLength: Int = DefectFeatures.vectorLength, featureName: String = "features",
-                      classes: [String] = ["normal", "buzzing", "mechanicalRattling"]) throws -> URL {
+                      classes: [String] = ["normal", "buzzing", "mechanicalRattling"]) async throws -> URL {
+        try await OffPool.run(timeout: trainingTimeout) {
+            try train(featureLength: featureLength, featureName: featureName, classes: classes)
+        }
+    }
+
+    private static func train(featureLength: Int, featureName: String, classes: [String]) throws -> URL {
         var features: [MLShapedArray<Double>] = []
         var labels: [String] = []
         for example in 0..<60 {
@@ -160,9 +183,11 @@ extension DefectFeatures {
     }
 }
 
-@Suite(.serialized) struct StandInModelTests {
+@Suite(.serialized, .enabled("Create ML could not train a stand-in model on this machine in time") { await StandIn.isAvailable() },
+       .timeLimit(.minutes(5)))
+struct StandInModelTests {
     @Test func `a stand-in model that fits the contract loads and classifies`() async throws {
-        let url = try StandIn.model()
+        let url = try #require(await StandIn.standard.value)
         let classifier = try CoreMLDefectClassifier.load(compiledModelAt: url)
         let contract = await classifier.contract
         #expect(Set(contract.classLabels) == ["normal", "buzzing", "mechanicalRattling"])
@@ -179,15 +204,18 @@ extension DefectFeatures {
         #expect(try CoreMLDefectClassifier.load(from: bundle) == nil)
     }
 
-    @Test func `a stand-in model with the wrong inputs or classes is refused, not run`() throws {
+    @Test func `a stand-in model with the wrong inputs or classes is refused, not run`() async throws {
+        let short = try await StandIn.model(featureLength: 12)
         #expect(throws: DefectModelError.wrongShape(input: "features", expected: "[\(DefectFeatures.vectorLength)]", found: [12])) {
-            _ = try CoreMLDefectClassifier.load(compiledModelAt: try StandIn.model(featureLength: 12))
+            _ = try CoreMLDefectClassifier.load(compiledModelAt: short)
         }
+        let misnamed = try await StandIn.model(featureName: "numbers")
         #expect(throws: DefectModelError.missingInput("features")) {
-            _ = try CoreMLDefectClassifier.load(compiledModelAt: try StandIn.model(featureName: "numbers"))
+            _ = try CoreMLDefectClassifier.load(compiledModelAt: misnamed)
         }
+        let unknownClass = try await StandIn.model(classes: ["normal", "broken"])
         #expect(throws: DefectModelError.unknownClassLabel("broken")) {
-            _ = try CoreMLDefectClassifier.load(compiledModelAt: try StandIn.model(classes: ["normal", "broken"]))
+            _ = try CoreMLDefectClassifier.load(compiledModelAt: unknownClass)
         }
     }
 }

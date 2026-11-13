@@ -186,6 +186,9 @@ public final class MeasurementSession {
                     }
                     if Task.isCancelled { break blocks }
                 }
+                // Blocks already waiting in the stream arrive without a suspension; give the main actor back after
+                // each one, so a backlog cannot hold it (the screen, a cancel) for longer than one block's work.
+                await Task.yield()
             }
         } catch {
             outcome = .failed(MeasurementFailure(streamError: error))

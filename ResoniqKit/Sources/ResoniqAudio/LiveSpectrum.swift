@@ -15,7 +15,9 @@ import ResoniqDSP
 /// stream and every buffer; the only thing that crosses to the consumer is each finished `MagnitudeResponse`, a
 /// `Sendable` value, through the `AsyncStream`'s continuation. Only the newest updates are buffered (a slow consumer
 /// sees the latest bars, never a backlog). The stream ends, and the IO is stopped, when the consumer stops iterating
-/// (the stream's termination cancels the task), when its task is cancelled, or when the audio is interrupted.
+/// (the stream's termination cancels the task), when its task is cancelled, or when the audio is interrupted. The
+/// task yields after every block, so a backlog of blocks never holds a thread of the concurrency pool for longer
+/// than one block's analysis.
 public struct LiveSpectrum: Sendable {
     /// Updates a second of captured audio. 15: smooth enough to read as movement, cheap enough to ignore.
     public static let updateRate: Double = 15
@@ -60,6 +62,10 @@ public struct LiveSpectrum: Sendable {
                 for update in analyzer.append(block.samples) {
                     continuation.yield(update)
                 }
+                // A stream with blocks already waiting (a backlog, or a source that never makes us wait) hands the
+                // next one over without suspending; yielding here gives the thread back after every block, so the
+                // loop holds a pool thread for one block's analysis at most (a few FFTs of 16 384 samples).
+                await Task.yield()
             }
         } catch {
             // Interrupted or the route changed: the stream simply ends.

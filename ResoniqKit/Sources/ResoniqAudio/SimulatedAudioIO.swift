@@ -264,6 +264,10 @@ public final class SimulatedAudioIO: AudioIO {
                 } catch {
                     return nil
                 }
+            } else {
+                // As fast as it is read, but the reader still waits for each block, as with a real microphone.
+                await Task.yield()
+                if Task.isCancelled { return nil }
             }
             return try self.state.withLock { state throws(AudioIOError) in try state.nextBlock() }
         })

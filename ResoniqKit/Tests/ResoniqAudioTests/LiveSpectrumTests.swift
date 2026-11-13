@@ -38,6 +38,9 @@ final class ToneAudioIO: AudioIO {
         calls.withLock { $0.starts += 1 }
         let (sampleRate, frequency, amplitude, blockSize) = (sampleRate, frequency, amplitude, blockSize)
         let blocks = AsyncThrowingStream<CapturedBlock, any Error>(unfolding: { [self] in
+            // Like a real microphone, the reader waits for each block: without a suspension here a reader that never
+            // suspends either holds its thread for good (on a one-thread pool, every test stops).
+            await Task.yield()
             if Task.isCancelled { return nil }
             let index = self.calls.withLock { calls in
                 defer { calls.blocksDelivered += 1 }
@@ -64,7 +67,7 @@ final class ToneAudioIO: AudioIO {
     }
 }
 
-@Suite struct LiveSpectrumTests {
+@Suite(.timeLimit(.minutes(3))) struct LiveSpectrumTests {
     static func tone(seconds: Double, frequency: Double = 1000, amplitude: Double = 0.1, sampleRate: Double = 48000) -> [Float] {
         (0..<Int(seconds * sampleRate)).map { Float(amplitude * sin(2 * Double.pi * frequency * Double($0) / sampleRate)) }
     }

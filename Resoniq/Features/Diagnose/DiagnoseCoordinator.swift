@@ -119,6 +119,11 @@ final class ComparisonMemory {
         if kept.count != runs.count { runs = kept }
     }
 
+    /// Drops every speaker's runs: the results they belonged to were deleted.
+    func removeAll() {
+        runs = [:]
+    }
+
     /// The runs of the speaker on the other side of the pair, when it was tested in this session.
     func counterpart(for position: SpeakerPosition, in system: PersistentIdentifier) -> [RunAnalysis]? {
         let other: SpeakerPosition
@@ -199,10 +204,21 @@ final class DiagnoseCoordinator {
         return KeptIn(room: system.room?.name ?? StoreText.defaultRoomName, system: system.name)
     }
 
-    /// A player for "Hear it yourself", on the app's audio.
+    /// A player for "Hear it yourself", on the app's audio. The coordinator keeps a weak reference to the latest one,
+    /// so the app's lifecycle can stop a tone that is playing (`stopTone`).
     func makeTonePlayer() -> any FindingTonePlaying {
-        TonePlayerAdapter(player: TonePlayer(io: audio.makeIO()))
+        let player = TonePlayerAdapter(player: TonePlayer(io: audio.makeIO()))
+        tone = player
+        return player
     }
+
+    /// The scene left the foreground: a hold-to-hear tone (one VoiceOver started, with no finger to lift) stops now
+    /// instead of at its time limit.
+    func stopTone() {
+        tone?.stop()
+    }
+
+    @ObservationIgnored private weak var tone: TonePlayerAdapter?
 
     /// The selected system. Reading it tells the comparison memory which system is selected, so a change of system
     /// forgets the runs kept for the one before.
@@ -376,6 +392,15 @@ final class DiagnoseCoordinator {
 
     func closeFinding() {
         if !path.isEmpty { path.removeLast() }
+    }
+
+    /// "Delete all results" or "Delete everything": the comparison memory and the quick check's chain are dropped and
+    /// the cover closes (a result or a finding on screen may be one that was just deleted), back to Diagnose home.
+    func resetAfterDataDeletion() {
+        stopTone()
+        memory.removeAll()
+        quickHeard = []
+        close()
     }
 
     /// Leaves the cover from anywhere: stops the flow and with it the sound, then goes home.

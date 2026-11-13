@@ -51,12 +51,14 @@ struct RootView: View {
     }
 
     /// The gate for a real launch. Debug launches with `-screen` (the flows run unattended) never see the intro and
-    /// never write its flag.
+    /// never write its flag; `-resetIntro YES` shows it again in a debug build only (a Release build never reads it).
     private static var introGate: IntroGate? {
         #if DEBUG
         if UserDefaults.standard.string(forKey: "screen") != nil { return nil }
-        #endif
+        return .standard(resetRequested: UserDefaults.standard.bool(forKey: "resetIntro"))
+        #else
         return .standard()
+        #endif
     }
 }
 
@@ -142,6 +144,7 @@ struct AppShell: View {
         }
         // Optimize hands over to Measure and comes back (the seat measurement), and shows Before and after.
         .onAppear { optimize.showTab = { selection = $0 } }
+        .measureSaveAlert(measure)
     }
 
     /// The tabs read the selected system from the store, so they follow it by themselves; what the coordinators
@@ -149,6 +152,21 @@ struct AppShell: View {
     private func systemsMayHaveChanged() {
         diagnose.selectionMayHaveChanged()
         measure.selectionMayHaveChanged()
+    }
+}
+
+extension View {
+    /// The alert Measure raises when a conclusive measurement could not be saved: the store-failure alert Optimize
+    /// uses, shown once Measure's cover has gone.
+    func measureSaveAlert(_ measure: MeasureCoordinator) -> some View {
+        alert(
+            StoreText.saveFailedTitle,
+            isPresented: Binding(get: { measure.saveFailedAlert }, set: { measure.saveFailedAlert = $0 })
+        ) {
+            Button(OptimizeText.alertOK, role: .cancel) { measure.saveFailedAlert = false }
+        } message: {
+            Text(StoreText.measurementNotSaved)
+        }
     }
 }
 

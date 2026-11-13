@@ -38,6 +38,10 @@ struct AppComposition {
         guard let store = try? ResoniqStore(inMemory: inMemory, scanFiles: scanFiles), (try? store.defaultContext()) != nil else {
             return nil
         }
+        // No scan is in progress at launch: a scan file no room refers to (the app stopped on Confirm layout) and a
+        // temporary export RoomPlan left behind go.
+        _ = try? store.sweepScanFiles()
+        if !inMemory { ScanFileStore.removeTemporaryExports(in: URL.temporaryDirectory) }
         let memory = ComparisonMemory()
         let coordinator = DiagnoseCoordinator(store: store, memory: memory, audio: audio)
         #if DEBUG
@@ -52,9 +56,19 @@ struct AppComposition {
         lifecycle.onLeavingForeground { [coordinator] in
             if case .test(let flow) = coordinator.content { flow.cancel() }
         }
+        // A hold-to-hear tone on a finding (VoiceOver can start one with no finger to lift) stops too.
+        lifecycle.onLeavingForeground { [coordinator] in coordinator.stopTone() }
         lifecycle.onLeavingForeground { [measure] in measure.suspend() }
         // The scan and the AR guide close their covers, which stops the camera and the AR session.
         lifecycle.onLeavingForeground { [optimize] in optimize.suspend() }
+
+        // "Delete all results" and "Delete everything": every coordinator drops what it holds about deleted data
+        // (comparison memory, an unsaved result, a pushed screen, an open cover), from this one place.
+        store.onDataReset = { [coordinator, measure, optimize] in
+            coordinator.resetAfterDataDeletion()
+            measure.resetAfterDataDeletion()
+            optimize.resetAfterDataDeletion()
+        }
         return AppComposition(
             store: store, memory: memory, coordinator: coordinator, measure: measure, optimize: optimize,
             lifecycle: lifecycle)

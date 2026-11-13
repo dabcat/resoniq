@@ -50,7 +50,8 @@ struct MeasureTab: View {
             isPresented: Binding(
                 get: { coordinator.content != nil },
                 set: { if !$0 { coordinator.close() } }
-            )
+            ),
+            onDismiss: coordinator.coverDismissed
         ) {
             MeasureCover()
         }

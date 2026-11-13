@@ -78,14 +78,16 @@ Screen names, by file (each file's `names` list is the authority):
 
 `App/DebugScreens.swift` asks each provider in turn, one line each. Fixtures (`DiagnoseFixtures.swift`, `MeasureFixtures.swift`, `OptimizeFixtures.swift`) are Kit reports built from the mockups' numbers.
 
-## Not wired in this branch
+## First launch, Settings, rooms
 
-Read from the code at the time of writing; each is a gap between a screen that exists and the app that reaches it.
-
-- **The intro is never shown.** `IntroView` exists and is reachable only through the debug names; `RootView` does not read `IntroGate.isShown`.
-- **Settings is unreachable.** The Settings icon on Diagnose home calls `onSettings`, and `DiagnoseTab` passes `{}` (`Features/Diagnose/DiagnoseTab.swift:18`). `SettingsScreen` is reachable through the debug name only.
-- **The room and system switcher does nothing.** `TabHome` passes an empty action to `ResoniqContextSwitcher` (`App/TabHome.swift:46`), so `RoomsSheet` is reachable through the debug names only.
-- **No privacy manifest** (`PrivacyInfo.xcprivacy`) is in the target.
+- **First launch.** `AppShell` shows `IntroView` while `IntroGate` says the intro has not been finished.
+  "Try it on a speaker" finishes the gate and calls `DiagnoseCoordinator.startFirstTest()`; "Skip intro" lands
+  on Diagnose. A `-screen` launch never shows the intro and never writes the flag.
+- **Settings** opens as a sheet from the icon button on Diagnose home (`DiagnoseTab`).
+- **Rooms and systems.** The switcher on every tab calls the `openRooms` environment action, set once in
+  `RootView`, which presents `RoomsSheet`. When either sheet closes, `systemsChanged` tells each coordinator
+  that the selection may have changed; deleting data calls each coordinator's `resetAfterDataDeletion()`.
+- **Privacy manifest**: `Resources/PrivacyInfo.xcprivacy`.
 
 ## Optimize: what is stored and when
 

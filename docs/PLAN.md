@@ -16,17 +16,16 @@ launch the app and test a speaker immediately.
 | — | Repo foundation: spec, design, vault, agent rules, screen templates | done | — | #1 |
 | 0 | Setup: project, package, theme, fonts, icon, tab shell | done | [phase-0-setup](plans/phase-0-setup.md) | #2 |
 | 1 | DSP core: signals, FFT, response, THD, noise floor, clipping | done | [phase-1-dsp](plans/phase-1-dsp.md) | #3 |
-| 2 | Diagnose flow | done | [phase-2-diagnose](plans/phase-2-diagnose.md) | |
-| 3 | Measure flow | done | [phase-3-measure](plans/phase-3-measure.md) | |
-| 4 | Optimize: room scan and layout | done | [phase-4-room](plans/phase-4-room.md) | |
-| 5 | Optimize: AR guidance and before/after | done | [phase-5-ar](plans/phase-5-ar.md) | |
-| 6 | AI diagnostics and finish | active | [phase-6-ai-finish](plans/phase-6-ai-finish.md) | |
+| 2 | Diagnose flow | done | [phase-2-diagnose](plans/phase-2-diagnose.md) | #4 |
+| 3 | Measure flow | done | [phase-3-measure](plans/phase-3-measure.md) | #4 |
+| 4 | Optimize: room scan and layout | done | [phase-4-room](plans/phase-4-room.md) | #4 |
+| 5 | Optimize: AR guidance and before/after | done | [phase-5-ar](plans/phase-5-ar.md) | #4 |
+| 6 | AI diagnostics and finish | done | [phase-6-ai-finish](plans/phase-6-ai-finish.md) | #4 |
 
-Phases 2 and 3 are one pull request (the review fixes for phase 2 were made on the phase 3 branch), and phases
-4 to 6 followed on the same branch, so the PR cells for 2 to 6 stay empty until it is opened. "Done" means the
-code and its tests exist and the screens run in the simulator; nothing has run on an iPhone, which the
-[device checklist](device-checklist.md) is for. Phase 6 is still active: the intro, Settings and the rooms sheet
-are built but not reachable from the app, and there is no privacy manifest ([phase 6 notes](plans/phase-6-ai-finish.md)).
+Phases 2 to 6 are one pull request: the review fixes for phase 2 were made on the phase 3 branch, and the later
+phases followed on it. "Done" means the code and its tests exist, the screens run in the simulator on simulated
+audio and scripted scan and AR sources, and an independent review's findings are fixed. Nothing has run on an
+iPhone; the [device checklist](device-checklist.md) is the list of what the owner must verify there.
 
 ## Phases
 
@@ -60,9 +59,6 @@ design spec, accessibility pass.
   first-guess threshold are unverified; the simulator runs the same flows on simulated audio, a scripted scan
   and a scripted AR move. The steps, and which block calling a feature working, are in the
   [device checklist](device-checklist.md).
-- **Built but not reachable.** The intro, Settings and the rooms and systems sheet exist and are shown only by
-  debug screen names; Diagnose's Settings button and the room switcher do nothing yet
-  ([App](modules/App.md)). There is no privacy manifest.
 - **No training data** for the speaker-defect classifier. The Core ML slots ship empty and the report says
   nothing on a model's behalf; collecting recordings is planned in
   [the dataset plan](research/2026-11-13-defect-dataset-plan.md).

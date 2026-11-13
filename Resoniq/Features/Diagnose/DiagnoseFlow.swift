@@ -389,7 +389,10 @@ final class DiagnoseFlow {
         let analyses = await withTaskGroup(of: (Int, RunAnalysis).self) { group in
             for (index, run) in result.runs.enumerated() {
                 group.addTask {
-                    (index, RunAnalyzer.analyze(recording: run.samples, sweep: result.sweep, noiseFloor: result.noiseFloor))
+                    let tied = run.sweepTiedSound.flatMap { SweepTiedSound(lower: $0.lowerBound, upper: $0.upperBound) }
+                    return (index, RunAnalyzer.analyze(
+                        recording: run.samples, sweep: result.sweep, noiseFloor: result.noiseFloor, sweepTiedSound: tied
+                    ))
                 }
             }
             var collected: [(Int, RunAnalysis)] = []

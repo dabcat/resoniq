@@ -30,14 +30,30 @@ public struct Finding: Sendable, Codable, Identifiable, Equatable {
         /// A driver's band whose signal over the room's noise was too low to assess (`inconclusive`): "Couldn't check
         /// the woofer". Nothing is said about it, healthy or not.
         case notAssessed
+        /// Sound tied to the sweep's position came back at the same place in at least two runs
+        /// (`SweepTiedSound`), and no measured buzz explains it: "Something may be rattling around 200 Hz."
+        /// `inferred`, never measured; the room or something near the speaker vibrating would sound the same.
+        case rattle
 
         /// Whether the finding is a suspected defect (drawn as a deviation, named in the verdict).
         public var isDeviation: Bool {
             switch self {
-            case .responseDip, .responsePeak, .distortion, .leftRightDifference, .quietBand: true
+            case .responseDip, .responsePeak, .distortion, .leftRightDifference, .quietBand, .rattle: true
             case .topEndDip, .even, .invalidRecording, .distortionUnclear, .notAssessed: false
             }
         }
+    }
+
+    /// The session's observation that sound tied to the sweep came back, added to a measured buzz at the same place
+    /// (`SweepTiedSound`): the two are one finding with both pieces of evidence.
+    public struct SweepTiedEvidence: Sendable, Codable, Equatable {
+        /// Where it was heard, the median of the runs' ranges.
+        public let range: FrequencyRange
+        /// The valid runs it was heard in, out of the valid runs compared.
+        public let runsHeard: Int
+        public let runsCompared: Int
+        /// "I also heard sound tied to the test tone there in 2 of 3 runs."
+        public let statement: String
     }
 
     /// How sure an inferred finding is. Never high from one microphone position.
@@ -119,6 +135,10 @@ public struct Finding: Sendable, Codable, Identifiable, Equatable {
     /// A model's agreement with this finding (`ModelAdvice`), set only on an `inferred` finding; it adds a line and
     /// changes nothing else. Nil when no model said anything.
     public internal(set) var modelSupport: ModelEvidence? = nil
+    /// On a `distortion` finding, the session's observation that sound tied to the sweep came back at the same
+    /// place; its `statement` is also the last sentence of `detail`. Nil otherwise; optional, so findings stored
+    /// before it still decode.
+    public internal(set) var sweepTied: SweepTiedEvidence? = nil
 
     /// The one driver concerned, when there is one.
     public var band: DriverBand? { bands.count == 1 ? bands[0] : nil }

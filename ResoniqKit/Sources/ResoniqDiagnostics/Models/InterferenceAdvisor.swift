@@ -171,7 +171,7 @@ public enum InterferenceAdvisor {
 extension RunRecord {
     /// This record with the interference heard during it, for a run whose recording was judged too noisy.
     public func adding(interference: InterferenceReport?) -> RunRecord {
-        RunRecord(check: check, measurement: measurement, interference: interference)
+        RunRecord(check: check, measurement: measurement, interference: interference, sweepTiedSound: sweepTiedSound)
     }
 }
 

@@ -380,7 +380,7 @@ struct FindingScreen: View {
             let swaps: Bool
             let secondSpot: Bool
             switch finding.kind {
-            case .responseDip, .responsePeak, .distortion, .leftRightDifference, .quietBand:
+            case .responseDip, .responsePeak, .distortion, .leftRightDifference, .quietBand, .rattle:
                 swaps = speaker != .single
                 secondSpot = true
             case .topEndDip:
@@ -412,6 +412,7 @@ struct FindingScreen: View {
             case .responsePeak: "peak"
             case .leftRightDifference: "difference"
             case .quietBand: "quiet band"
+            case .rattle: "rattle"
             case .even, .invalidRecording, .distortionUnclear, .notAssessed: "problem"
             }
         }

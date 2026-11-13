@@ -19,7 +19,7 @@ Paths below are relative to `ResoniqKit/Sources/ResoniqDiagnostics/`.
 - **What the DSP measured, and nothing else.** A run is analysed only when `RecordingQuality.assess` says `.valid` and the recording holds the whole sweep (`ImpulseResponse.capturesWholeSweep`). Inside a run:
   - the response is read only inside `responseBand`, the impulse response's `trustedBand` within the grid; outside it the curve holds the edge value and nothing is raised from it;
   - THD is read only inside `HarmonicDistortion.trustedBand(order: 2, sweep:)` (80 Hz to about 9.3 kHz for `LogSweep.measurement`), and each point is a `DistortionReading`: `measured` where `SweepDistortion.isMeasurable(at:)` holds on the smoothed THD, otherwise `belowNoise` with the bound the floor gives (the floor raised by `SweepDistortion.measurableMarginDecibels`), or `notRead`.
-- **Rules of evidence** (`SpeakerDiagnosis.swift:24–38`): a deviation in every valid run is `inferred`, "3 of 3 runs", medium confidence; in fewer but at least two, `inferred` with low confidence; in one, dropped. A dip above 14 kHz is `inconclusive`. A buzz is claimed only on `measured` THD; THD above the threshold but `belowNoise` is `inconclusive` (`distortionUnclear`), never a buzz. The even statement is `measured`, and its words name exactly the stretch where every run ruled a buzz out. An invalid run is reported and nothing is drawn from it; under two valid runs nothing is concluded. No score, and words hedge ("may be buzzing").
+- **Rules of evidence** (`SpeakerDiagnosis.swift:24–38`): a deviation in every valid run is `inferred`, "3 of 3 runs", medium confidence; in fewer but at least two, `inferred` with low confidence; in one, dropped. A dip above 14 kHz is `inconclusive`. A buzz is claimed only on `measured` THD; THD above the threshold but `belowNoise` is `inconclusive` (`distortionUnclear`), never a buzz. The even statement is `measured`; a driver is in it only when its response stays within `EvenBand.decibels` (±3 dB, the one definition the seat uses too) of its trend over its judged range (woofer 50–300 Hz, mid 300 Hz–3 kHz, tweeter 3–14 kHz, cut short where a top-end dip begins) and no deviation or inconclusive finding overlaps it; between 3 and 6 dB a driver is simply left out, neither even nor suspect. Its words name the response stretch, the stretch where every run ruled a buzz out, and, when the woofer is in it, that distortion was not checked below 80 Hz. A driver whose level is 15 dB or more under the loudest other is "barely heard" (`quietBand`, `measured`, cause left open); one too close to the room's noise is `notAssessed` (`inconclusive`), and the verdict calls healthy only the drivers checked; with nothing assessed the report is not conclusive. An invalid run is reported and nothing is drawn from it; under two valid runs nothing is concluded. No score, and words hedge ("may be buzzing", "Possible buzz").
 - **Not measured: rattle.** The plan lists the non-harmonic residue (rub, rattle) among a run's numbers. The DSP measures it only on a steady tone (`ToneDistortionResult.nonHarmonicResidue`); a sweep's deconvolution has no such figure. So it is not computed, and no sentence mentions rattle (`RunAnalysis.swift:207`).
 - **Portrait outside the measured band.** The axis is 20 Hz to 20 kHz; outside the stretch every run measured, the portrait holds the width at the edge (`PortraitProfile.swift:13`, `SpeakerDiagnosis.consensusResponse` at `SpeakerDiagnosis.swift:157`). With `LogSweep.measurement` the trusted band covers the whole grid, so nothing is held.
 
@@ -44,7 +44,8 @@ Paths below are relative to `ResoniqKit/Sources/ResoniqDiagnostics/`.
 | `SpeakerReport` | `SpeakerDiagnosis.swift:5` | `verdict`, `findings` (invalid runs first, then top of the portrait down), `profile`, `runs`, `consensusResponse`, `isConclusive`, `suspectedDefects` (:21) |
 | `SpeakerDiagnosis.diagnose(runs:counterpart:thresholds:)` | `SpeakerDiagnosis.swift:43` | The report from a speaker's runs, and the other speaker's for a left/right comparison |
 | `Finding` | `Finding.swift:7` | `id`, `kind`, `frequencyRange`, `bands`, `tag`, `basis`, `confidence`, `headline`, `detail`, `sentence`, `tagLine`, `confidenceStatement`, `repeatability`, `listenFrequency`, `context`, `numbers`, `recordingProblem`; `band` (:111) |
-| `Finding.Kind` | `Finding.swift:8` | `responseDip`, `responsePeak`, `distortion`, `topEndDip`, `even`, `invalidRecording`, `leftRightDifference`, `distortionUnclear` (:25); `isDeviation` (:28) |
+| `Finding.Kind` | `Finding.swift:8` | `responseDip`, `responsePeak`, `distortion`, `topEndDip`, `even`, `invalidRecording`, `leftRightDifference`, `distortionUnclear`, `quietBand` (:29, a deviation), `notAssessed` (:32); `isDeviation` (:35) |
+| `EvenBand.decibels` | `Vocabulary.swift:20` | ±3 dB, the one definition of "even" for speakers and seats |
 | `Finding.Confidence`, `Finding.Basis`, `Finding.Numbers` | `Finding.swift:37`, `:42`, `:56` | Low/medium/high (never high from one position); "3 of 3 runs"; the numbers behind a finding, per run |
 | `EvidenceTag` | `Vocabulary.swift:4` | `measured`, `inferred`, `inconclusive`, `estimate`; `displayName` (:15) |
 | `FrequencyRange` | `Vocabulary.swift:19` | `init(lower:upper:)` (:23), `centre`, `octaves`, `contains`, `overlaps(_:toleranceOctaves:)` (:38), `widened(octaves:)` (:44) |
@@ -96,7 +97,7 @@ How the seat result is made:
 
 ## Thresholds and constants
 
-`DiagnosisThresholds.standard` (`DiagnosisThresholds.swift:131`). "First guess" means checked only against simulated speakers.
+`DiagnosisThresholds.standard` (`DiagnosisThresholds.swift:148`). "First guess" means checked only against simulated speakers.
 
 | Field | Value | Note |
 |---|---|---|
@@ -117,6 +118,8 @@ How the seat result is made:
 | `mediumConfidenceRuns` | 3 | From the plan |
 | `leftRightDecibels` | 6 dB | First guess |
 | `minimumBandSignalToNoise` | 10 dB | First guess; an octave band under it is not assessed |
+| `quietBandDecibels` | 15 dB | First guess; a driver this far under the loudest other is "barely heard" |
+| `quietBandLowerFrequency` | 100 Hz | First guess; the woofer's level is read from here to 300 Hz |
 
 `SeatThresholds.standard` (`Seat/SeatThresholds.swift:185`):
 
@@ -181,7 +184,16 @@ The suite takes about 20 s on the Mac (the seat tests add about 7 s, run in para
 - Seat: the cause is inferred, never measured; with a hint, extremes are matched to axial modes only (no tangential or oblique modes, no boundary dips).
 - Band signal-to-noise restates the frame length `NoiseFloor` uses for its bands, because that helper is internal to the DSP.
 
+## Known differences from the design files
+
+- The buzz finding hedges in its headline and sentence ("Possible buzz at 80–110 Hz", "A possible buzz around 100 Hz."), where the Diagnose mockups write "Buzz at 70–110 Hz" and "A buzz around 90 Hz.": the rule "never state a suspected defect as confirmed" wins. The range starts at 80 Hz, where THD is trusted.
+- The even statement's detail names its response stretch and, with the woofer in it, says distortion was not checked below 80 Hz ("It stays within 3 dB from 50 Hz to 14 kHz. Distortion stayed under 10 % from 80 Hz to 9.2 kHz. I couldn't check for distortion below 80 Hz."), instead of the mockup's "No distortion or rattle found."
+- New states with no mockup: "I could barely hear the woofer" (deviation), "Couldn't check the woofer" (inconclusive), the verdict "The tweeter and mid sound healthy; I couldn't check the woofer.", and "The room was too loud against the speaker for me to judge it." (not conclusive). For the seat: "I couldn't check the bass over the room's noise", "From your seat, what I could hear sounds even. The room was too noisy to check the bass.", "The room was too loud against the speakers for me to judge your seat."
+
 ## Open questions
+
+- The 10 % THD threshold at 80–110 Hz may be normal for a small woofer played loud (the review's concern): it stays a first guess until real small speakers are measured at the app's level.
+- Whether a woofer's fundamental response varying from run to run in 40–80 Hz could flag instability where THD is not read; for now distortion there is only said to be unchecked.
 
 - Every first guess above, on real speakers in real rooms: the 10 % buzz threshold, 6 dB deviations, the 5-octave trend, 10 dB band signal-to-noise.
 - Whether a healthy woofer at a loud level reads above 10 % in the deep bass, which would need a level-dependent threshold.

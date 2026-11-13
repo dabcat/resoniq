@@ -143,7 +143,8 @@ enum DiagnoseText {
         case .speakersNotConnected(let route):
             "I would play it through \u{201C}\(route.name)\u{201D}, which is part of this iPhone, not your speakers, "
                 + "so I'd be measuring the phone. I haven't played anything. "
-                + "Connect your speakers with a cable, Bluetooth or AirPlay, then try again."
+                + "Connect your speakers with a cable, Bluetooth or AirPlay, then try again. "
+                + ExternalSessionText.whyTheAppPlays
         }
     }
 

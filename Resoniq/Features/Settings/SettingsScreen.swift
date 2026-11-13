@@ -22,6 +22,7 @@ struct SettingsScreen: View {
     @State private var failed = false
     @State private var introScheduled = false
     @State private var showsLicences = false
+    @State private var showsTestSound = false
 
     private enum Deletion: Identifiable {
         case results
@@ -68,6 +69,10 @@ struct SettingsScreen: View {
                 deletion == .everything
                     ? SettingsText.deleteEverythingMessage(counts) : SettingsText.deleteResultsMessage(counts)
             )
+        }
+        .fullScreenCover(isPresented: $showsTestSound) {
+            TestSoundScreen(context: .everything, onContinue: nil, onClose: { showsTestSound = false })
+                .preferredColorScheme(.dark)
         }
         .alert(SettingsText.failureTitle, isPresented: $failed) {
             Button(SettingsText.ok, role: .cancel) {}
@@ -139,6 +144,12 @@ struct SettingsScreen: View {
             VStack(alignment: .leading, spacing: Metrics.rowGap) {
                 Text(SettingsText.testSound).bodyText()
                 Text(SettingsText.microphone).bodyText()
+                // Browse only: every test sound file, to play from another device.
+                VStack(alignment: .leading, spacing: Metrics.labelGap) {
+                    Button(TestSoundText.settingsRow) { showsTestSound = true }
+                        .buttonStyle(ResoniqInlineLinkStyle())
+                    Text(TestSoundText.settingsNote).bodyText(colour: ResoniqColor.muted)
+                }
             }
         }
     }

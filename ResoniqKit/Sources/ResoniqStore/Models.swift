@@ -22,16 +22,12 @@ public enum SpeakerPosition: String, Codable, Sendable, CaseIterable {
 public enum ReportReadError: Error, Equatable, Sendable {
     /// Written by a different version of the app than this one reads.
     case unknownSchemaVersion(Int)
-    /// The bytes do not decode as a `SpeakerReport`.
+    /// The bytes do not decode as the stored type (`SpeakerReport`, `SeatReport`, `RoomModel`...).
     case undecodable
 }
 
-public typealias Room = ResoniqSchemaV1.Room
-public typealias SoundSystem = ResoniqSchemaV1.SoundSystem
-public typealias SpeakerTest = ResoniqSchemaV1.SpeakerTest
-public typealias StoreState = ResoniqSchemaV1.StoreState
-
-/// Version 1 of the stored schema. A change to a model adds `ResoniqSchemaV2` and a stage in `ResoniqMigrationPlan`.
+/// Version 1 of the stored schema, kept as it shipped so a V1 store can migrate. Never edit it; the live models are
+/// `ResoniqSchemaV2` (the typealiases `Room`, `SoundSystem`... point there).
 public enum ResoniqSchemaV1: VersionedSchema {
     public static let versionIdentifier = Schema.Version(1, 0, 0)
     public static var models: [any PersistentModel.Type] { [Room.self, SoundSystem.self, SpeakerTest.self, StoreState.self] }
@@ -123,7 +119,3 @@ public enum ResoniqSchemaV1: VersionedSchema {
     }
 }
 
-public enum ResoniqMigrationPlan: SchemaMigrationPlan {
-    public static var schemas: [any VersionedSchema.Type] { [ResoniqSchemaV1.self] }
-    public static var stages: [MigrationStage] { [] }
-}

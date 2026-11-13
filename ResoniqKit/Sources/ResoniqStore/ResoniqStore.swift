@@ -12,26 +12,30 @@ public final class ResoniqStore {
 
     public var context: ModelContext { container.mainContext }
 
-    public init(container: ModelContainer) {
+    /// Where scan files live. Nil: the store keeps no files and never touches the disk beyond the database.
+    public let scanFiles: ScanFileStore?
+
+    public init(container: ModelContainer, scanFiles: ScanFileStore? = nil) {
         self.container = container
+        self.scanFiles = scanFiles
     }
 
     /// A store on disk (local only) or, for tests and previews, in memory.
-    public convenience init(inMemory: Bool = false) throws {
+    public convenience init(inMemory: Bool = false, scanFiles: ScanFileStore? = nil) throws {
         let configuration = ModelConfiguration(
             "Resoniq",
-            schema: Schema(versionedSchema: ResoniqSchemaV1.self),
+            schema: Schema(versionedSchema: ResoniqSchemaV2.self),
             isStoredInMemoryOnly: inMemory,
             allowsSave: true,
             groupContainer: .none,
             cloudKitDatabase: .none
         )
-        self.init(container: try Self.makeContainer(configuration))
+        self.init(container: try Self.makeContainer(configuration), scanFiles: scanFiles)
     }
 
     public static func makeContainer(_ configuration: ModelConfiguration) throws -> ModelContainer {
         try ModelContainer(
-            for: Schema(versionedSchema: ResoniqSchemaV1.self),
+            for: Schema(versionedSchema: ResoniqSchemaV2.self),
             migrationPlan: ResoniqMigrationPlan.self,
             configurations: configuration
         )
@@ -93,14 +97,17 @@ public final class ResoniqStore {
         try context.save()
     }
 
-    /// Deletes the room, its systems and their tests.
+    /// Deletes the room, its systems and everything of theirs (tests, seat measurements, optimisations), and its
+    /// scan file.
     public func delete(_ room: Room) throws {
         clearSelection(ifIn: room.systems)
+        let scanFile = room.scanFileName
         context.delete(room)
         try context.save()
+        if let scanFile { scanFiles?.delete(scanFile) }
     }
 
-    /// Deletes the system and its tests.
+    /// Deletes the system and its tests, seat measurements and optimisations.
     public func delete(_ system: SoundSystem) throws {
         clearSelection(ifIn: [system])
         context.delete(system)

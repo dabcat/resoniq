@@ -159,6 +159,14 @@ Paths below are relative to `ResoniqKit/Sources/ResoniqAudio/`.
 
 `SweepNoiseDetector` and the live gate are unaffected by the DSP's move to dBFS RMS: the detector compares a block's bins with the floor's same bins (a ratio), and adds that rise to the floor's broadband `LevelMeter` RMS, which was RMS before and after.
 
+## Loops that read captured audio
+
+Every loop that reads the capture stream (`MeasurementSession`, `SeatMeasurementSession`, `TonePlayer`,
+`LiveSpectrum`) yields after each block. The engine's stream is unbounded, so when blocks pile up it hands them
+over without suspending; without the yield a backlog would hold the main actor or a pool thread until it was
+gone. With it, a backlog holds a thread for one block's work at most. The whole package's tests pass on a
+one-thread cooperative pool (`LIBDISPATCH_COOPERATIVE_POOL_STRICT=1 swift test --package-path ResoniqKit`).
+
 ## Tests
 
 `ResoniqKit/Tests/ResoniqAudioTests/`, run on the Mac by `make test`, all on `SimulatedAudioIO` with the app's own configuration (4 s sweeps), each test as short as its rule allows (two runs where the second only needs the delay known, one where it only needs to have finished, a 6 s longest wait where the rule is the configured wait, a seat run skipped after the spot that shows the rule). One clean seat run (`CleanSeatRun`) is made once and read by every test that only looks at a clean run.

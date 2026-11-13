@@ -1,4 +1,4 @@
-import Foundation
+import Accelerate
 import Testing
 @testable import ResoniqDSP
 
@@ -260,6 +260,71 @@ import Testing
         // 0.3 % of the fundamental: −50.5 dB. 0.5 dB: the noise in the line's bins and the floor estimate.
         #expect(abs(result.nonHarmonicResidue - -50.46) < 0.5)
         #expect(abs(result.thdPercent - 1) < 0.03)
+    }
+
+    /// A tone at `frequency · (1 + ppm·10⁻⁶)`: the playback clock running fast against the recording's.
+    static func offsetTone(_ frequency: Double, ppm: Double, seconds: Double) -> [Float] {
+        let step = 2 * Double.pi * frequency * (1 + ppm * 1e-6) / sampleRate
+        let phase = vDSP.ramp(withInitialValue: 0, increment: step, count: Int(seconds * sampleRate))
+        let tone = vDSP.add(vForce.sin(phase), vDSP.add(
+            vDSP.multiply(0.02, vForce.sin(vDSP.multiply(2, phase))),
+            vDSP.multiply(0.01, vForce.sin(vDSP.multiply(5, phase)))
+        ))
+        return vDSP.doubleToFloat(vDSP.multiply(0.25, tone))
+    }
+
+    @Test(arguments: [(3000.0, 100.0, 10.0), (3000.0, 50.0, 4.0), (1000.0, 100.0, 10.0), (3000.0, 0.0, 1.0)])
+    func `a clock offset does not lose the harmonics`(frequency: Double, ppm: Double, seconds: Double) throws {
+        // √(2² + 1²) % = 2.236 %. With the lobes at the nominal multiples, a 100 ppm offset on a 10 s, 3 kHz tone read
+        // 1.38 %, lost the fifth harmonic (15 kHz is 1.5 Hz off, 15 resolution bins) and raised the residue from
+        // −90 to −35 dB, which looks like rub and buzz.
+        let result = ToneDistortion.analyze(recording: Self.offsetTone(frequency, ppm: ppm, seconds: seconds), frequency: frequency, sampleRate: Self.sampleRate)
+        let located = try #require(result.fundamentalFrequency)
+        // Located to within a fiftieth of the recording's resolution, 1 / seconds hertz.
+        #expect(abs(located - frequency * (1 + ppm * 1e-6)) < 0.02 / seconds, "located \(located) Hz")
+        #expect(abs(result.thdPercent - 2.2361) < 0.01)
+        #expect(abs(try #require(result.harmonicLevels[5]) - -40) < 0.1)
+        #expect(result.nonHarmonicResidue < -80)
+    }
+
+    @Test func `silence finds no tone and does not trap`() {
+        let result = ToneDistortion.analyze(recording: [Float](repeating: 0, count: 48000), frequency: 1000, sampleRate: Self.sampleRate)
+        #expect(!result.isToneFound)
+        #expect(result.thdPercent.isNaN && result.thdPlusNoisePercent.isNaN)
+        #expect(!result.isMeasurable)
+    }
+
+    @Test func `noise alone finds no tone instead of reading 265 %`() {
+        var generator = SeededGenerator(state: 2)
+        let noise = generator.noise(count: 48000, rms: 0.001).map(Float.init)
+        let result = ToneDistortion.analyze(recording: noise, frequency: 1000, sampleRate: Self.sampleRate)
+        #expect(!result.isToneFound)
+        #expect(result.thdPercent.isNaN)
+        #expect(result.harmonicLevels.isEmpty)
+    }
+
+    @Test(arguments: [0, 1, 400])
+    func `a recording too short to resolve the tone finds none and does not trap`(count: Int) {
+        let result = ToneDistortion.analyze(recording: [Float](repeating: 0.1, count: count), frequency: 1000, sampleRate: Self.sampleRate)
+        #expect(!result.isToneFound)
+    }
+
+    @Test(arguments: [Float.nan, .infinity])
+    func `a corrupt recording finds no tone`(value: Float) {
+        var recording = Self.tone(1000, harmonics: [2: 0.01])
+        recording[100] = value
+        #expect(!ToneDistortion.analyze(recording: recording, frequency: 1000, sampleRate: Self.sampleRate).isToneFound)
+    }
+
+    @Test func `harmonics above the noise are measurable, a clean tone's are not`() {
+        let distorted = ToneDistortion.analyze(recording: Self.tone(1000, harmonics: [2: 0.01], noiseRMS: 0.001), frequency: 1000, sampleRate: Self.sampleRate)
+        #expect(distorted.isMeasurable)
+        #expect(distorted.noiseFloorPercent < distorted.thdPercent)
+        let clean = ToneDistortion.analyze(recording: Self.tone(1000, noiseRMS: 0.001), frequency: 1000, sampleRate: Self.sampleRate)
+        #expect(clean.isToneFound)
+        #expect(!clean.isMeasurable)
+        // What can be said instead: THD is below the floor raised by the margin.
+        #expect(clean.thdPercent < clean.noiseFloorPercent * Decibels.toAmplitude(SweepDistortion.measurableMarginDecibels))
     }
 
     @Test func `a buzz of clicks on each cycle raises the residue`() {

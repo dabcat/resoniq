@@ -11,6 +11,7 @@ enum DebugScreens {
             ?? ARDebugScreens.view(named: name)
             ?? MeasureDebugScreens.view(named: name)
             ?? OptimizeDebugScreens.view(named: name)
+            ?? FinishDebugScreens.view(named: name)
     }
 }
 #endif

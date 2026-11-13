@@ -1,0 +1,65 @@
+# XcodeGen spec. `make project` generates Resoniq.xcodeproj, which is not committed.
+name: Resoniq
+
+options:
+  bundleIdPrefix: com.matovic
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+  developmentLanguage: en
+
+configFiles:
+  Debug: Config/Signing.xcconfig
+  Release: Config/Signing.xcconfig
+
+packages:
+  ResoniqKit:
+    path: ResoniqKit
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    SWIFT_APPROACHABLE_CONCURRENCY: YES
+    SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+
+targets:
+  Resoniq:
+    type: application
+    platform: iOS
+    sources:
+      - path: Resoniq
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.matovic.resoniq
+        INFOPLIST_FILE: Resoniq/Resources/Info.plist
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: 1
+        TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        CODE_SIGN_STYLE: Automatic
+    dependencies:
+      - package: ResoniqKit
+        product: ResoniqDesign
+      - package: ResoniqKit
+        product: ResoniqDSP
+      - package: ResoniqKit
+        product: ResoniqAudio
+      - package: ResoniqKit
+        product: ResoniqDiagnostics
+      - package: ResoniqKit
+        product: ResoniqRoom
+      - package: ResoniqKit
+        product: ResoniqStore
+
+schemes:
+  Resoniq:
+    build:
+      targets:
+        Resoniq: all
+    run:
+      config: Debug
+    archive:
+      config: Release

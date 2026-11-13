@@ -1,0 +1,10 @@
+// Signing for the Resoniq target.
+//
+// The Apple Developer Team ID is not committed. Put it in Config/Signing.local.xcconfig (gitignored):
+//
+//     DEVELOPMENT_TEAM = XXXXXXXXXX
+//
+// Without it the simulator still builds and runs; only a device build needs the team.
+// Choosing the team in Xcode's Signing tab instead writes it into the generated project, which is not committed.
+
+#include? "Signing.local.xcconfig"

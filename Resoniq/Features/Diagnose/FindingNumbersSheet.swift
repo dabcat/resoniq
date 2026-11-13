@@ -117,7 +117,9 @@ struct FindingNumbersSheet: View {
     }
 }
 
+#if DEBUG
 #Preview("Distortion") {
     FindingNumbersSheet(finding: DiagnoseFixtures.buzz, report: DiagnoseFixtures.buzzing)
         .preferredColorScheme(.dark)
 }
+#endif

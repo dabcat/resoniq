@@ -153,6 +153,7 @@ struct NumbersScreen: View {
 
 // MARK: - Previews
 
+#if DEBUG
 #Preview("Response") {
     NumbersScreen(report: MeasureFixtures.mockup, date: .now, onClose: {})
         .preferredColorScheme(.dark)
@@ -183,3 +184,4 @@ struct NumbersScreen: View {
         .dynamicTypeSize(.accessibility2)
         .preferredColorScheme(.dark)
 }
+#endif

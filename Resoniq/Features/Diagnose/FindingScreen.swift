@@ -425,6 +425,7 @@ struct FindingScreen: View {
     }
 }
 
+#if DEBUG
 #Preview("Buzz") {
     FindingScreen(
         finding: DiagnoseFixtures.buzz, report: DiagnoseFixtures.buzzing, speaker: .left,
@@ -474,3 +475,4 @@ struct FindingScreen: View {
     .dynamicTypeSize(.accessibility2)
     .preferredColorScheme(.dark)
 }
+#endif

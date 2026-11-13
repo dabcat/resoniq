@@ -64,6 +64,23 @@ public struct MeasurementConfiguration: Sendable, Equatable {
     /// Times one run may start over from the beginning (noise too early, lost samples) before it counts as a bad
     /// recording. *First guess*: 3.
     public var maximumRestarts: Int
+    /// Times one run may pause for noise. Past it, noise no longer pauses the run: it is recorded through, and the
+    /// recording's check decides. *First guess*: 6.
+    public var maximumPauses: Int
+    /// The longest a paused run waits for the room to quieten before the test ends as `MeasurementFailure.tooNoisy`.
+    /// *First guess*: 30 s; the screen offers "Stop and start over" meanwhile.
+    public var maximumPauseWait: Double
+    /// Noise that begins again within this much of the sweep (seconds of sweep) of where it paused the run before is
+    /// tied to the sweep (a rattle, the room's reverberation), not the room's background: the run no longer pauses for
+    /// it there and is marked (`RunRecording.sweepTiedSound`). *First guess*: 0.15 s, one and a half blocks, so the
+    /// same sound found a block early or late still counts while speech that happens to start again soon after a
+    /// resume rarely does.
+    public var sweepTiedTolerance: Double
+    /// The most two takes of a run may be out of line where they overlap, seconds, for them to be spliced. A splice
+    /// assumes the route's delay did not change between them; a Bluetooth or AirPlay route can drift, and 5 samples at
+    /// 48 kHz (0.1 ms) cost 2 dB at 3.2 kHz (1 dB after third-octave smoothing). Takes further apart start the run
+    /// over instead. *First guess*: 30 µs, about 1.5 samples at 48 kHz.
+    public var maximumSpliceMisalignment: Double
 
     public init(
         runCount: Int = 3,
@@ -81,7 +98,11 @@ public struct MeasurementConfiguration: Sendable, Equatable {
         crossfade: Double = 0.02,
         fadeIn: Double = 0.02,
         delayMargin: Double = 0.1,
-        maximumRestarts: Int = 3
+        maximumRestarts: Int = 3,
+        maximumPauses: Int = 6,
+        maximumPauseWait: Double = 30,
+        sweepTiedTolerance: Double = 0.15,
+        maximumSpliceMisalignment: Double = 0.00003
     ) {
         precondition(runCount > 0, "a test needs at least one run")
         precondition(
@@ -104,6 +125,10 @@ public struct MeasurementConfiguration: Sendable, Equatable {
         self.fadeIn = fadeIn
         self.delayMargin = delayMargin
         self.maximumRestarts = maximumRestarts
+        self.maximumPauses = maximumPauses
+        self.maximumPauseWait = maximumPauseWait
+        self.sweepTiedTolerance = sweepTiedTolerance
+        self.maximumSpliceMisalignment = maximumSpliceMisalignment
     }
 
     /// The defaults the app uses.

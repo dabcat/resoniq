@@ -52,16 +52,32 @@ public struct SimulatedSpeaker: Sendable, Hashable {
         }
     }
 
+    /// A rattle: noise that is not a harmonic, made while the signal is inside `band` and in proportion to it,
+    /// `y += level · |b| · n` with `b` the band-passed signal and `n` white noise. A loose panel or a buzzing grille:
+    /// it follows the sweep's position, so pausing for it and resuming meets it again at the same frequency.
+    public struct Rattle: Sendable, Hashable {
+        public var band: ClosedRange<Double>
+        /// Relative to the band-passed signal: 0.01 is 40 dB under it.
+        public var level: Double
+
+        public init(band: ClosedRange<Double>, level: Double) {
+            self.band = band
+            self.level = level
+        }
+    }
+
     /// Linear gain from the samples played to the microphone. 1 puts the sweep's −12 dBFS peak at the microphone
     /// before the filters.
     public var gain: Double
     public var filters: [SimulatedFilter]
     public var defect: Defect?
+    public var rattle: Rattle?
 
-    public init(gain: Double = 1, filters: [SimulatedFilter] = [], defect: Defect? = nil) {
+    public init(gain: Double = 1, filters: [SimulatedFilter] = [], defect: Defect? = nil, rattle: Rattle? = nil) {
         self.gain = gain
         self.filters = filters
         self.defect = defect
+        self.rattle = rattle
     }
 
     /// A small bookshelf speaker: rolls off below 70 Hz and above 18 kHz, with a mild presence peak.
@@ -132,6 +148,11 @@ public final class SimulatedAudioIO: AudioIO {
         public var schedulingLead: Double
         public var pacing: Pacing
         public var seed: UInt64
+        /// The room between the speakers and the microphone, or nil for none (the speakers straight into the
+        /// microphone). With a room, `SimulatedAudioIO.moveToSpot(_:)` says where the microphone is.
+        public var room: SimulatedRoom?
+        /// The output route the IO reports.
+        public var outputRoute: AudioOutputRoute
 
         public init(
             sampleRate: Double = 48000,
@@ -143,7 +164,9 @@ public final class SimulatedAudioIO: AudioIO {
             right: SimulatedSpeaker = .bookshelf,
             schedulingLead: Double = 0.05,
             pacing: Pacing = .realTime,
-            seed: UInt64 = 1
+            seed: UInt64 = 1,
+            room: SimulatedRoom? = nil,
+            outputRoute: AudioOutputRoute = .simulatedSpeakers
         ) {
             self.sampleRate = sampleRate
             self.blockSize = blockSize
@@ -155,14 +178,26 @@ public final class SimulatedAudioIO: AudioIO {
             self.schedulingLead = schedulingLead
             self.pacing = pacing
             self.seed = seed
+            self.room = room
+            self.outputRoute = outputRoute
         }
     }
 
+    /// Waits until an instant on the continuous clock; injected so a test of real-time pacing need not sleep.
+    typealias Sleeper = @Sendable (ContinuousClock.Instant) async throws -> Void
+
     public let configuration: Configuration
     private let state: Mutex<SimulationState>
+    private let sleep: Sleeper
 
-    public init(configuration: Configuration = Configuration()) {
+    public convenience init(configuration: Configuration = Configuration()) {
+        self.init(configuration: configuration, sleep: { try await Task.sleep(until: $0, clock: .continuous) })
+    }
+
+    /// With real-time pacing, each block waits by calling `sleep` with the instant its time has come.
+    init(configuration: Configuration, sleep: @escaping Sleeper) {
         self.configuration = configuration
+        self.sleep = sleep
         state = Mutex(SimulationState(configuration: configuration))
     }
 
@@ -182,6 +217,22 @@ public final class SimulatedAudioIO: AudioIO {
         state.withLock { $0.pendingError = error }
     }
 
+    /// Changes the route delay from the next sample on: a route that drifts (Bluetooth, AirPlay). For tests; change
+    /// it while nothing plays, or the sound in flight jumps.
+    public func setRouteDelay(_ seconds: Double) {
+        state.withLock { $0.delay = Int64((seconds * configuration.sampleRate).rounded()) }
+    }
+
+    /// The spot of `configuration.room` the microphone is at, 0-based; 0 when the stream starts.
+    public var currentSpot: Int { state.withLock { $0.spot } }
+
+    /// Moves the microphone to spot `index` of `configuration.room` (clamped to the room's spots) from the next
+    /// sample on. A test or the app's simulated stillness monitor calls it when the simulated phone moves; nothing in
+    /// a session does.
+    public func moveToSpot(_ index: Int) {
+        state.withLock { $0.spot = max(0, min(index, (configuration.room?.spotCount ?? 1) - 1)) }
+    }
+
     // MARK: AudioIO
 
     public func start() async throws -> CaptureStream {
@@ -194,7 +245,7 @@ public final class SimulatedAudioIO: AudioIO {
             if configuration.pacing == .realTime {
                 let index = self.state.withLock { $0.deliveredBlocks }
                 do {
-                    try await Task.sleep(until: began + .seconds(blockSeconds * Double(index + 1)), clock: .continuous)
+                    try await self.sleep(began + .seconds(blockSeconds * Double(index + 1)))
                 } catch {
                     return nil
                 }
@@ -215,6 +266,8 @@ public final class SimulatedAudioIO: AudioIO {
     public func stop() async {
         state.withLock { $0.end() }
     }
+
+    public var outputRoute: AudioOutputRoute? { configuration.outputRoute }
 }
 
 // MARK: - The simulation
@@ -266,20 +319,30 @@ struct SpeakerChain: Sendable {
     var filters: [Biquad.Running]
     var defectFilter: Biquad.Running?
     let cubic: Double
+    var rattleFilter: Biquad.Running?
+    let rattleLevel: Double
 
     init(_ speaker: SimulatedSpeaker, sampleRate: Double) {
         gain = speaker.gain
         filters = speaker.filters.map { Biquad.Running(section: $0.biquad(sampleRate: sampleRate)) }
         defectFilter = speaker.defect.map { Biquad.Running(section: Biquad.bandPass($0.band, sampleRate: sampleRate)) }
         cubic = speaker.defect?.cubic ?? 0
+        rattleFilter = speaker.rattle.map { Biquad.Running(section: Biquad.bandPass($0.band, sampleRate: sampleRate)) }
+        rattleLevel = speaker.rattle?.level ?? 0
     }
 
-    mutating func process(_ input: Double) -> Double {
+    /// One sample through the speaker. `random` is drawn from only when the speaker rattles, so a speaker without a
+    /// rattle leaves the room's noise exactly as it was.
+    mutating func process(_ input: Double, random: inout SplitMix) -> Double {
         var y = gain * input
         for index in filters.indices { y = filters[index].process(y) }
         if defectFilter != nil {
             let band = defectFilter!.process(y)
             y += cubic * band * band * band
+        }
+        if rattleFilter != nil {
+            let band = rattleFilter!.process(y)
+            y += rattleLevel * abs(band) * random.gaussian()
         }
         return y
     }
@@ -333,7 +396,7 @@ struct SimulationState: Sendable {
     }
 
     let configuration: Configuration
-    let delay: Int64
+    var delay: Int64
     let lead: Int64
     var running = false
     var position: Int64 = 0
@@ -346,6 +409,8 @@ struct SimulationState: Sendable {
     var pendingError: AudioIOError?
     var left: SpeakerChain
     var right: SpeakerChain
+    var room: RoomChain?
+    var spot = 0
     var random: SplitMix
 
     typealias Configuration = SimulatedAudioIO.Configuration
@@ -356,6 +421,7 @@ struct SimulationState: Sendable {
         lead = Int64((configuration.schedulingLead * configuration.sampleRate).rounded())
         left = SpeakerChain(configuration.left, sampleRate: configuration.sampleRate)
         right = SpeakerChain(configuration.right, sampleRate: configuration.sampleRate)
+        room = configuration.room.map { RoomChain($0, sampleRate: configuration.sampleRate) }
         random = SplitMix(state: configuration.seed)
     }
 
@@ -373,6 +439,8 @@ struct SimulationState: Sendable {
         pendingError = nil
         left = SpeakerChain(configuration.left, sampleRate: configuration.sampleRate)
         right = SpeakerChain(configuration.right, sampleRate: configuration.sampleRate)
+        room = configuration.room.map { RoomChain($0, sampleRate: configuration.sampleRate) }
+        spot = 0
         bursts = configuration.bursts.compactMap { burst in
             guard case .at(let seconds) = burst.start else { return nil }
             return resolve(burst, from: Int64((seconds * configuration.sampleRate).rounded()))
@@ -391,6 +459,8 @@ struct SimulationState: Sendable {
 
     mutating func schedule(_ samples: [Float], on channel: SpeakerChannel, mode: PlaybackMode) throws(AudioIOError) -> Int64 {
         guard running else { throw .notRunning }
+        // As `EngineAudioIO`: positions are only known once the microphone has delivered a block.
+        guard deliveredBlocks > 0 else { throw .unavailable("no microphone block yet") }
         guard !samples.isEmpty else { throw .unavailable("an empty buffer") }
         let loopIndex = items.lastIndex { $0.loops && $0.end == .max }
         switch mode {
@@ -449,7 +519,14 @@ struct SimulationState: Sendable {
                 case .both: leftInput += value; rightInput += value
                 }
             }
-            var value = left.process(Double(leftInput)) + right.process(Double(rightInput))
+            var value: Double
+            if room != nil {
+                let direct = room!.path(left.process(Double(leftInput), random: &random), spot: spot, right: false)
+                    + room!.path(right.process(Double(rightInput), random: &random), spot: spot, right: true)
+                value = room!.tail(direct)
+            } else {
+                value = left.process(Double(leftInput), random: &random) + right.process(Double(rightInput), random: &random)
+            }
             if configuration.noiseRMS > 0 { value += configuration.noiseRMS * random.gaussian() }
             for burst in bursts where capture >= burst.start && capture < burst.end {
                 value += burst.rms * random.gaussian()

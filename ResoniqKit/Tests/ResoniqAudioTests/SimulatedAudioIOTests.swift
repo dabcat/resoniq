@@ -1,5 +1,6 @@
 import Foundation
 import ResoniqDSP
+import Synchronization
 import Testing
 @testable import ResoniqAudio
 
@@ -53,29 +54,42 @@ import Testing
         #expect(after.allSatisfy { abs($0) < 1e-3 })
     }
 
-    /// Ten 10 ms blocks take at least 100 ms, and not much more than that plus however late the scheduler wakes a
-    /// plain 100 ms sleep at the same moment: the other suites' sessions check their recordings (a deconvolution
-    /// each) on the same thread pool, so the wake-up latency is the test machine's, not the IO's.
-    @Test func `real-time pacing delivers about one block per block of time`() async throws {
-        let clock = ContinuousClock()
-        async let lateness: Duration = {
-            let start = ContinuousClock.now
-            try? await Task.sleep(for: .milliseconds(100))
-            return ContinuousClock.now - start - .milliseconds(100)
-        }()
-        let io = SimulatedAudioIO(configuration: .init(blockSize: 480, pacing: .realTime))
+    /// Real-time pacing asks to wake each block one block's time after the previous, counted from the start: the
+    /// clock is injected, so the test checks the instants asked for instead of how late a loaded machine wakes.
+    @Test func `real-time pacing waits one block of time per block`() async throws {
+        let asked = Mutex<[ContinuousClock.Instant]>([])
+        let io = SimulatedAudioIO(configuration: .init(blockSize: 480, pacing: .realTime)) { instant in
+            asked.withLock { $0.append(instant) }
+        }
+        let before = ContinuousClock.now
         let stream = try await io.start()
-        let began = clock.now
         var count = 0
         for try await _ in stream.blocks {
             count += 1
             if count == 10 { break }
         }
         await io.stop()
-        let elapsed = clock.now - began
-        let schedulerLateness = await lateness
-        #expect(elapsed >= .milliseconds(95))
-        #expect(elapsed < .milliseconds(1000) + schedulerLateness, "elapsed \(elapsed), a plain sleep was \(schedulerLateness) late")
+        let instants = asked.withLock { $0 }
+        #expect(instants.count >= 10)
+        // The first wake is one block (10 ms) after the stream began, which was after `before`.
+        #expect(instants[0] - before >= .milliseconds(10))
+        for (a, b) in zip(instants, instants.dropFirst()) {
+            #expect(abs((b - a - .milliseconds(10)) / .microseconds(1)) < 1, "\(b - a)")
+        }
+    }
+
+    @Test func `real-time pacing really waits`() async throws {
+        // One coarse wall-clock check, with no upper bound that a loaded machine could break.
+        let io = SimulatedAudioIO(configuration: .init(blockSize: 480, pacing: .realTime))
+        let began = ContinuousClock.now
+        let stream = try await io.start()
+        var count = 0
+        for try await _ in stream.blocks {
+            count += 1
+            if count == 5 { break }
+        }
+        await io.stop()
+        #expect(ContinuousClock.now - began >= .milliseconds(45))
     }
 
     @Test func `a failure ends the stream with its error`() async throws {

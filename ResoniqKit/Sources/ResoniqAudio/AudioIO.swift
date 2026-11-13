@@ -50,6 +50,38 @@ public struct CaptureStream: Sendable {
     }
 }
 
+/// Where the sound goes: the kind of output and its name, as the system reports it.
+public struct AudioOutputRoute: Sendable, Hashable {
+    public enum Kind: Sendable, Hashable, CaseIterable {
+        /// The earpiece at the top of the phone.
+        case builtInReceiver
+        /// The phone's own loudspeaker.
+        case builtInSpeaker
+        /// A cable: line out, headphones, USB or HDMI audio.
+        case wired
+        case bluetooth
+        case airPlay
+        /// Anything else (a car, a simulated speaker).
+        case other
+    }
+
+    public var kind: Kind
+    /// The name the system gives the output ("Living Room", "JBL Flip 5"), for the screen.
+    public var name: String
+
+    public init(kind: Kind, name: String) {
+        self.kind = kind
+        self.name = name
+    }
+
+    /// Whether the sound comes out of the phone itself. A measurement of that is not a measurement of the user's
+    /// speakers, so the sessions refuse it (`MeasurementFailure.speakersNotConnected`).
+    public var isPhone: Bool { kind == .builtInReceiver || kind == .builtInSpeaker }
+
+    /// What `SimulatedAudioIO` reports unless told otherwise.
+    public static let simulatedSpeakers = AudioOutputRoute(kind: .other, name: "Simulated speakers")
+}
+
 /// Why the audio stopped under a measurement.
 public enum AudioIOError: Error, Sendable, Equatable {
     /// A call, an alarm, Siri or another app took the audio.
@@ -84,4 +116,12 @@ public protocol AudioIO: AnyObject, Sendable {
 
     /// Stops playback and capture, ends the stream, and releases the audio for other apps.
     func stop() async
+
+    /// Where the sound goes now; nil when it cannot be told. Read after `start()`, before anything is scheduled.
+    var outputRoute: AudioOutputRoute? { get }
+}
+
+extension AudioIO {
+    /// Unknown, for an IO that cannot tell: the measurement then goes ahead.
+    public var outputRoute: AudioOutputRoute? { nil }
 }

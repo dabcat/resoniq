@@ -19,6 +19,8 @@ struct RunRecorder {
         case didNotArrive
         /// The takes' positions did not line up for a splice; the run must start again.
         case spliceFailed
+        /// The run stayed paused for `maximumPauseWait`: the room does not quieten.
+        case tooNoisy
     }
 
     struct Recording: Equatable {
@@ -28,6 +30,10 @@ struct RunRecorder {
         var leadIn: Int
         /// Times the run was spliced.
         var spliceCount: Int
+        /// Where in the sweep, hertz, noise tied to the sweep was heard (`RunRecording.sweepTiedSound`).
+        var sweepTiedSound: ClosedRange<Double>? = nil
+        /// Each spliced take's misalignment against the one before, samples.
+        var takeOffsets: [Double] = []
     }
 
     private enum Phase: Equatable {
@@ -56,6 +62,12 @@ struct RunRecorder {
     private var phase: Phase = .playing
     private var takes: [TakeRecord] = []
     private var quietSamples = 0
+    /// Samples spent in the current pause.
+    private var pausedSamples = 0
+    /// The sweep sample arriving when noise began, for every pause of this run.
+    private var pauseIndices: [Int] = []
+    /// The sweep samples over which noise tied to the sweep was heard.
+    private var tied: ClosedRange<Int>?
 
     init(sweep: LogSweep, sweepSamples: [Float], configuration: MeasurementConfiguration) {
         self.sweep = sweep
@@ -102,6 +114,11 @@ struct RunRecorder {
         case .done:
             return .none
         case .paused(let resume):
+            pausedSamples += block.samples.count
+            if pausedSamples > count(configuration.maximumPauseWait) {
+                phase = .done
+                return .tooNoisy
+            }
             quietSamples = quietEnough ? quietSamples + block.samples.count : 0
             guard quietSamples >= count(configuration.resumeHold) else { return .none }
             quietSamples = 0
@@ -122,12 +139,21 @@ struct RunRecorder {
         let sweepEnd = current.take.sweepOrigin + Int64(sweepSamples.count)
         let arrived = delay.map { sweepEnd + Int64($0 + count(configuration.minimumTail)) }
 
+        var noisy = noisy
         if noisy {
             let onset = block.position - Int64(count(configuration.noiseGuard))
             // Noise after the sweep's end has arrived only shortens the decay: stop there.
             if let arrived, onset >= arrived {
                 return finish(at: onset)
             }
+            if let delay, !shouldPause(atSweepIndex: Int(onset - current.take.sweepOrigin) - delay) {
+                noisy = false
+            }
+        }
+        if noisy {
+            let onset = block.position - Int64(count(configuration.noiseGuard))
+            if let delay { pauseIndices.append(Int(onset - current.take.sweepOrigin) - delay) }
+            pausedSamples = 0
             stopPlayback()
             if let delay, let plan = SweepSplicer.plan(
                 noiseOnset: onset,
@@ -164,6 +190,32 @@ struct RunRecorder {
         return .none
     }
 
+    /// Whether noise beginning at sweep sample `index` should pause the run. Not when it is tied to the sweep: it
+    /// began again within `sweepTiedTolerance` of where it paused the run before, or it continues sound already found
+    /// tied there. Not when the run has paused `maximumPauses` times: it is recorded through and the check decides.
+    private mutating func shouldPause(atSweepIndex index: Int) -> Bool {
+        let tolerance = count(configuration.sweepTiedTolerance)
+        if let range = tied, index >= range.lowerBound - tolerance, index <= range.upperBound + tolerance {
+            tied = min(range.lowerBound, index)...max(range.upperBound, index)
+            return false
+        }
+        if let earlier = pauseIndices.first(where: { abs($0 - index) <= tolerance }) {
+            tied = min(earlier, index)...max(earlier, index)
+            return false
+        }
+        return pauseIndices.count < configuration.maximumPauses
+    }
+
+    /// `tied` in hertz, the sweep's frequencies over those samples (a block's worth on either side, where the noise was
+    /// heard).
+    private var tiedFrequencies: ClosedRange<Double>? {
+        guard let tied else { return nil }
+        let block = count(configuration.blockDuration)
+        let low = sweep.frequency(at: Double(max(tied.lowerBound, 0)) / sampleRate)
+        let high = sweep.frequency(at: Double(min(tied.upperBound + block, sweepSamples.count)) / sampleRate)
+        return low...max(low, high)
+    }
+
     private mutating func resume(_ resume: Resume, after block: CapturedBlock, schedule: ([Float]) throws -> Int64) throws -> Event {
         switch resume {
         case .splice(let plan):
@@ -189,9 +241,15 @@ struct RunRecorder {
         phase = .done
         guard let first = takes.first, let last = takes.last else { return .spliceFailed }
         var composite = first.take
+        var offsets: [Double] = []
         do {
             for index in takes.indices.dropFirst() {
                 guard let crossfadeAt = takes[index - 1].crossfadeOut else { return .spliceFailed }
+                // The route's delay must not have changed between the takes: compare them where they overlap.
+                if let offset = misalignment(of: takes[index].take, after: takes[index - 1].take, crossfadeAt: crossfadeAt) {
+                    guard abs(offset) <= configuration.maximumSpliceMisalignment * sampleRate else { return .spliceFailed }
+                    offsets.append(offset)
+                }
                 // The handover position on the composite's (the first take's) timeline.
                 let shift = takes[index - 1].take.sweepOrigin - first.take.sweepOrigin
                 composite = try SweepSplicer.splice(
@@ -208,7 +266,59 @@ struct RunRecorder {
         let from = Int(first.take.sweepOrigin - Int64(leadIn) - composite.start)
         let to = Int(end - (last.take.sweepOrigin - first.take.sweepOrigin) - composite.start)
         guard from >= 0, to > from, to <= composite.samples.count else { return .spliceFailed }
-        return .finished(Recording(samples: Array(composite.samples[from..<to]), leadIn: leadIn, spliceCount: takes.count - 1))
+        return .finished(Recording(
+            samples: Array(composite.samples[from..<to]),
+            leadIn: leadIn,
+            spliceCount: takes.count - 1,
+            sweepTiedSound: tiedFrequencies,
+            takeOffsets: offsets
+        ))
+    }
+}
+
+extension RunRecorder {
+    /// The widest misalignment searched for between two takes, samples: 0.5 ms. A peak at the edge of the search
+    /// counts as misaligned.
+    static let misalignmentSearch = 24
+
+    /// How far `next` lies from `previous` (samples, positive when later) over the stretch both hold of the same
+    /// sound, the `resumeOverlap` before the crossfade less the guard, the crossfade, the fade in and the delay
+    /// margin; nil when the takes do not hold enough of it to compare. Infinity when the best match is at the edge
+    /// of the search.
+    func misalignment(of next: SweepSplicer.Take, after previous: SweepSplicer.Take, crossfadeAt: Int64) -> Double? {
+        let length = count(configuration.resumeOverlap - configuration.noiseGuard - configuration.crossfade
+            - configuration.fadeIn - configuration.delayMargin)
+        guard length >= count(0.05) else { return nil }
+        let from = Int(crossfadeAt - previous.start) - length
+        guard from >= 0, from + length <= previous.samples.count else { return nil }
+        let shift = next.sweepOrigin - previous.sweepOrigin
+        let nextFrom = Int(crossfadeAt + shift - next.start) - length
+        let lag = Self.misalignment(previous.samples[from..<(from + length)], against: next.samples, at: nextFrom,
+                                    searching: Self.misalignmentSearch)
+        return lag
+    }
+
+    /// The lag `L`, to a fraction of a sample, at which `window[window.startIndex + j]` best matches
+    /// `other[start + j + L]`, searched over ±`search` samples (cross-correlation with a parabola through the peak).
+    /// Nil when `other` does not cover the search; infinity when the peak is at its edge.
+    static func misalignment(_ window: ArraySlice<Float>, against other: [Float], at start: Int, searching search: Int) -> Double? {
+        guard start - search >= 0, start + window.count + search <= other.count, !window.isEmpty else { return nil }
+        let a = Array(window)
+        var scores = [Double](repeating: 0, count: 2 * search + 1)
+        other.withUnsafeBufferPointer { b in
+            for lag in -search...search {
+                var sum = 0.0
+                let base = start + lag
+                for j in a.indices { sum += Double(a[j]) * Double(b[base + j]) }
+                scores[lag + search] = sum
+            }
+        }
+        guard let best = scores.indices.max(by: { scores[$0] < scores[$1] }) else { return nil }
+        guard best > 0, best < scores.count - 1 else { return .infinity }
+        let (before, centre, after) = (scores[best - 1], scores[best], scores[best + 1])
+        let curvature = before - 2 * centre + after
+        let fraction = curvature < 0 ? min(max(0.5 * (before - after) / curvature, -0.5), 0.5) : 0
+        return Double(best - search) + fraction
     }
 }
 

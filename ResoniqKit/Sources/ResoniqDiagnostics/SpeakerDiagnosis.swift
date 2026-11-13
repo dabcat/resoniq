@@ -16,6 +16,11 @@ public struct SpeakerReport: Sendable, Codable, Equatable {
     public let consensusResponse: [Float]?
     /// Whether enough runs were valid to conclude anything (`DiagnosisThresholds.minimumValidRuns`).
     public let isConclusive: Bool
+    /// Lines a model added (`ModelAdvice`): at most one from the defect classifier and one from the anomaly check,
+    /// each `inferred` with low confidence. They are not deviations and never change the verdict or a finding above.
+    /// Nil when no model said anything, which is always the case while no model ships; optional, so reports stored
+    /// before it still decode.
+    public internal(set) var modelFindings: [ModelFinding]? = nil
 
     /// The findings that are suspected defects.
     public var suspectedDefects: [Finding] { findings.filter(\.kind.isDeviation) }
@@ -220,7 +225,8 @@ public enum SpeakerDiagnosis {
                 listenFrequency: nil,
                 context: nil,
                 numbers: nil,
-                recordingProblem: problem
+                recordingProblem: problem,
+                interference: records.first { $0.check.problem == problem && $0.interference != nil }?.interference
             )
         }
     }

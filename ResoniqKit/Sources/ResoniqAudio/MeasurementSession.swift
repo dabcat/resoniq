@@ -138,25 +138,14 @@ public final class MeasurementSession {
     }
 
     private func measure() async -> State {
-        var access = permission.status
-        if access == .undetermined {
-            access = await permission.request() ? .granted : .denied
-        }
-        guard access == .granted else { return .failed(.permissionDenied) }
+        guard await MeasurementOpening.hasAccess(permission) else { return .failed(.permissionDenied) }
         guard !Task.isCancelled else { return .failed(.cancelled) }
 
         state = .measuringNoiseFloor
         let stream: CaptureStream
-        do {
-            stream = try await io.start()
-        } catch {
-            return .failed(.audioUnavailable(String(describing: error)))
-        }
-        guard stream.sampleRate >= MeasurementConfiguration.minimumSampleRate else {
-            await io.stop()
-            return .failed(.audioUnavailable(
-                "the input runs at \(Int(stream.sampleRate)) Hz; the measurement sweep needs \(Int(MeasurementConfiguration.minimumSampleRate)) Hz"
-            ))
+        switch await MeasurementOpening.open(io) {
+        case .success(let opened): stream = opened
+        case .failure(let failure): return .failed(failure)
         }
         stillness.start()
         defer { stillness.stop() }
@@ -181,15 +170,8 @@ public final class MeasurementSession {
                     if Task.isCancelled { break blocks }
                 }
             }
-        } catch let error as AudioIOError {
-            outcome = switch error {
-            case .interrupted: .failed(.interrupted)
-            case .routeChanged: .failed(.routeChanged)
-            case .unavailable(let reason): .failed(.audioUnavailable(reason))
-            case .notRunning: .failed(.audioUnavailable("the audio stopped"))
-            }
         } catch {
-            outcome = .failed(.audioUnavailable(String(describing: error)))
+            outcome = .failed(MeasurementFailure(streamError: error))
         }
         io.stopPlayback()
         await io.stop()
@@ -203,42 +185,47 @@ public final class MeasurementSession {
         let sampleRate: Double
         let sweep: LogSweep
         let sweepSamples: [Float]
-        let blockLength: Int
+        let channel: SpeakerChannel
+        let configuration: MeasurementConfiguration
         var reblocker: Reblocker
-        var settleRemaining: Int
-        var floorSamples: [Float] = []
+        var listener: FloorListener
         var floor: NoiseFloorReport?
         var detector: SweepNoiseDetector?
         var tracker = ArrivalTracker()
-        var recorder: RunRecorder?
+        var performer: RunPerformer
         var run = 1
-        var attempt = 1
-        var note: RunNote?
-        var phoneMoved = false
-        /// Whether a block of this run clipped; it will be judged clipped when it ends.
-        var clipped = false
-        /// Times this run started again from the beginning.
-        var restarts = 0
         var recordings: [RunRecording] = []
 
         init(sampleRate: Double, channel: SpeakerChannel, configuration: MeasurementConfiguration, thresholds: QualityThresholds) {
             self.sampleRate = sampleRate
+            self.channel = channel
+            self.configuration = configuration
             sweep = configuration.sweep(sampleRate: sampleRate)
             sweepSamples = sweep.samples()
-            blockLength = configuration.samples(configuration.blockDuration, at: sampleRate)
+            let blockLength = configuration.samples(configuration.blockDuration, at: sampleRate)
             reblocker = Reblocker(length: blockLength)
-            settleRemaining = configuration.samples(configuration.settleDuration, at: sampleRate)
+            listener = FloorListener(
+                sampleRate: sampleRate,
+                sweep: sweep,
+                blockLength: blockLength,
+                configuration: configuration,
+                thresholds: thresholds
+            )
+            performer = RunPerformer(channel: channel, sweep: sweep, sweepSamples: sweepSamples, configuration: configuration)
+        }
+
+        /// The next run starts afresh: first attempt, no note, no restarts.
+        mutating func nextRun() {
+            run += 1
+            performer = RunPerformer(channel: channel, sweep: sweep, sweepSamples: sweepSamples, configuration: configuration)
         }
     }
 
     private func restartAfterGap(_ test: inout TestRun) {
         if test.floor == nil {
-            test.floorSamples = []
-        } else if test.recorder != nil {
-            io.stopPlayback()
-            test.recorder = nil
-            test.note = .restarted(.timelineUnreliable)
-            test.restarts += 1
+            test.listener.reset()
+        } else {
+            test.performer.restartAfterGap(io: io)
         }
     }
 
@@ -254,78 +241,44 @@ public final class MeasurementSession {
         let steady = stillness.isSteady
         let clipped = ClippingDetector.detect(block.samples, thresholds: thresholds).isClipped
 
-        guard var recorder = test.recorder else {
-            if test.restarts > configuration.maximumRestarts {
-                return runFailed(.interruptedRepeatedly, in: &test)
-            }
+        guard test.performer.isRecording else {
             // A new run (or a repeated or restarted one) starts with this block.
-            var recorder = RunRecorder(sweep: test.sweep, sweepSamples: test.sweepSamples, configuration: configuration)
-            try recorder.begin(with: block) { try io.schedule($0, on: channel, mode: .once) }
-            test.recorder = recorder
-            test.phoneMoved = false
-            test.clipped = clipped
-            state = .playing(run: test.run, note: test.note)
-            report(block, assessment: assessment, quiet: quiet, steady: steady, clipped: clipped, test: test)
-            return nil
-        }
-
-        if clipped { test.clipped = true }
-        // A clipped sweep is full of harmonics the detector does not take out, so it reads as noise. Once a run has
-        // clipped it is not paused: it will be judged clipped when it ends.
-        let noisy = assessment.isTooNoisy && !test.clipped
-
-        if !recorder.isPaused {
-            if let origin = recorder.sweepOrigin {
-                test.tracker.observe(
-                    assessment,
-                    noisy: noisy,
-                    blockCentre: block.position + Int64(block.samples.count / 2),
-                    sweepOrigin: origin,
-                    sweep: test.sweep,
-                    maximumDelay: configuration.samples(configuration.maximumRouteDelay, at: test.sampleRate)
-                )
+            switch try test.performer.begin(with: block, clipped: clipped, io: io) {
+            case .playing(let note):
+                state = .playing(run: test.run, note: note)
+                report(block, assessment: assessment, quiet: quiet, steady: steady, clipped: clipped, test: test)
+                return nil
+            case .failed(let problem):
+                return .failed(.recordingUnusable(problem))
+            default:
+                return nil
             }
-            if !steady { test.phoneMoved = true }
         }
 
-        let io = io
-        let channel = channel
-        let event = try recorder.consume(
+        let step = try test.performer.consume(
             block,
-            noisy: noisy,
-            quietEnough: quiet,
-            delay: test.tracker.delay,
-            schedule: { try io.schedule($0, on: channel, mode: .once) },
-            stopPlayback: { io.stopPlayback() }
+            assessment: assessment,
+            quiet: quiet,
+            steady: steady,
+            clipped: clipped,
+            tracker: &test.tracker,
+            sampleRate: test.sampleRate,
+            io: io
         )
-        test.recorder = recorder
         report(block, assessment: assessment, quiet: quiet, steady: steady, clipped: clipped, test: test)
 
-        switch event {
-        case .none:
+        switch step {
+        case .none, .repeating:
             return nil
         case .paused(let frequency):
             state = .paused(run: test.run, resumeFrequency: frequency)
             return nil
-        case .resumed(let restarted):
-            if let restarted {
-                test.note = .restarted(restarted)
-                test.restarts += 1
-                if test.restarts > configuration.maximumRestarts {
-                    return runFailed(.interruptedRepeatedly, in: &test)
-                }
-            }
-            state = .playing(run: test.run, note: test.note)
+        case .playing(let note):
+            state = .playing(run: test.run, note: note)
             return nil
-        case .spliceFailed:
-            io.stopPlayback()
-            test.recorder = nil
-            test.note = .restarted(.timelineUnreliable)
-            test.restarts += 1
-            return nil
-        case .didNotArrive:
-            return runFailed(.didNotArrive, in: &test)
-        case .finished(let recording):
+        case .failed(let problem):
+            return .failed(.recordingUnusable(problem))
+        case .recorded(let recording):
             return await check(recording, in: &test)
         }
     }
@@ -343,25 +296,9 @@ public final class MeasurementSession {
             isPhoneSteady: stillness.isSteady,
             routeDelay: nil
         )
-        if test.settleRemaining > 0 {
-            test.settleRemaining -= block.samples.count
-            return
-        }
-        test.floorSamples += block.samples
-        let needed = configuration.samples(configuration.noiseFloorDuration, at: test.sampleRate)
-        guard test.floorSamples.count >= needed else { return }
-        let report = NoiseFloor.measure(test.floorSamples, sampleRate: test.sampleRate, thresholds: thresholds)
-        if report.isSteady, report.rmsDecibels <= thresholds.resumeCeilingDecibels {
-            test.floor = report
-            test.detector = SweepNoiseDetector(
-                noiseFloor: test.floorSamples,
-                sweep: test.sweep,
-                blockLength: test.blockLength,
-                thresholds: thresholds
-            )
-        } else {
-            // Not a floor yet: someone talked, or the room is too loud. Keep listening, half a window at a time.
-            test.floorSamples.removeFirst(needed / 2)
+        if let (floor, detector) = test.listener.listen(block) {
+            test.floor = floor
+            test.detector = detector
         }
     }
 
@@ -373,17 +310,9 @@ public final class MeasurementSession {
         clipped: Bool,
         test: TestRun
     ) {
-        let paused = test.recorder?.isPaused ?? false
+        let paused = test.performer.isPaused
         let delay = test.tracker.delay
-        var frequency: Double?
-        var fraction: Double?
-        if !paused, let delay, let origin = test.recorder?.sweepOrigin {
-            let heard = Double(block.position + Int64(block.samples.count / 2) - origin - Int64(delay))
-            if heard >= 0, heard <= Double(test.sweepSamples.count) {
-                fraction = heard / Double(test.sweepSamples.count)
-                frequency = test.sweep.frequency(at: heard / test.sampleRate)
-            }
-        }
+        let arriving = test.performer.arriving(at: block, delay: delay, sampleRate: test.sampleRate)
         let mark = test.floor.map {
             SoundLevel(dBFS: min($0.rmsDecibels + thresholds.resumeMarginDecibels, thresholds.resumeCeilingDecibels))
         }
@@ -391,8 +320,8 @@ public final class MeasurementSession {
         progress = MeasurementProgress(
             run: test.run,
             runCount: runCount,
-            frequency: frequency,
-            sweepFraction: fraction,
+            frequency: arriving?.frequency,
+            sweepFraction: arriving?.fraction,
             roomLevel: room,
             quietEnoughLevel: mark,
             isRoomQuiet: paused ? quiet : room.dBFS <= (mark?.dBFS ?? .infinity),
@@ -409,62 +338,38 @@ public final class MeasurementSession {
         state = .checking(run: test.run)
         let (verdict, problem) = await Self.check(recording.samples, sweep: test.sweep, floor: floor, thresholds: thresholds)
         guard !Task.isCancelled else { return nil }
-        if let problem {
-            return runFailed(problem, in: &test)
-        }
-        test.recordings.append(RunRecording(
-            run: test.run,
-            samples: recording.samples,
-            sampleRate: test.sampleRate,
-            leadIn: recording.leadIn,
-            arrivalDelay: test.tracker.delay.map { Double(recording.leadIn + $0) / test.sampleRate },
+        let conclusion = test.performer.conclude(
+            recording,
             verdict: verdict,
-            spliceCount: recording.spliceCount,
-            phoneMoved: test.phoneMoved,
-            attempt: test.attempt
-        ))
+            problem: problem,
+            run: test.run,
+            delay: test.tracker.delay,
+            sampleRate: test.sampleRate,
+            io: io
+        )
+        switch conclusion {
+        case .repeating:
+            return nil
+        case .failed(let problem):
+            return .failed(.recordingUnusable(problem))
+        case .kept(let kept):
+            test.recordings.append(kept)
+        }
         if test.recordings.count == runCount {
             return .finished(MeasurementResult(channel: channel, sweep: test.sweep, noiseFloor: floor, runs: test.recordings))
         }
-        test.run += 1
-        test.attempt = 1
-        test.note = nil
-        test.restarts = 0
-        test.recorder = nil
+        test.nextRun()
         return nil
     }
 
-    /// A bad run is repeated once; a second bad recording ends the test.
-    private func runFailed(_ problem: RunProblem, in test: inout TestRun) -> State? {
-        io.stopPlayback()
-        guard test.attempt == 1 else { return .failed(.recordingUnusable(problem)) }
-        test.attempt = 2
-        test.note = .repeating(problem)
-        test.restarts = 0
-        test.recorder = nil
-        return nil
-    }
-
-    /// Checks a finished recording, off the main actor (a run's recording is a quarter of a million samples and the
-    /// second check deconvolves it): nil `problem` when the run can be kept.
-    ///
-    /// 1. `RecordingQuality.assess`: anything but `.valid` (clipped, too quiet, too noisy, silent, corrupt) is
-    ///    `.unusable` with that verdict.
-    /// 2. Whether the recording holds the whole sweep, from the deconvolved response
-    ///    (`ImpulseResponse.capturesWholeSweep`): when it does not, the run is `.didNotArrive`. This, not the live
-    ///    arrival estimate, is the authority: the estimate only decides when the recorder stops listening, and the
-    ///    response's delay is exact. When the estimate was early and the recording stopped before the sweep's end
-    ///    arrived, this is where it shows.
+    /// Checks a finished recording off the main actor: `RunPerformer.check`, which says what is checked.
     @concurrent nonisolated static func check(
         _ samples: [Float],
         sweep: LogSweep,
         floor: NoiseFloorReport,
         thresholds: QualityThresholds
     ) async -> (verdict: RecordingVerdict, problem: RunProblem?) {
-        let verdict = RecordingQuality.assess(recording: samples, noiseFloor: floor, thresholds: thresholds)
-        guard case .valid = verdict else { return (verdict, .unusable(verdict)) }
-        let response = Deconvolution.impulseResponse(recording: samples, sweep: sweep)
-        return (verdict, response.capturesWholeSweep ? nil : .didNotArrive)
+        await RunPerformer.check(samples, sweep: sweep, floor: floor, thresholds: thresholds)
     }
 }
 

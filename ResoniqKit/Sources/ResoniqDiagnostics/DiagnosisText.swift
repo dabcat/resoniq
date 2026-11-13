@@ -260,7 +260,8 @@ public enum DiagnosisText {
         response: [FrequencyRange],
         distortionBelow threshold: Float,
         over range: FrequencyRange?,
-        uncheckedBelow: Float?
+        uncheckedBelow: Float?,
+        rollOffBelow: Float? = nil
     ) -> Words {
         let list = bandList(bands)
         let capitalised = list.prefix(1).uppercased() + list.dropFirst()
@@ -268,6 +269,7 @@ public enum DiagnosisText {
         // Only harmonic distortion is measured from a sweep. A rattle is only ever inferred from sound tied to the
         // sweep, and its absence proves nothing, so the even statement never mentions rattle.
         var detail = "It stays within \(decibels(EvenBand.decibels)) dB \(response.map(span).joined(separator: " and "))."
+        if let rollOffBelow { detail += " " + rollOff(below: rollOffBelow) }
         if let range {
             detail += " Distortion stayed under \(percent(threshold)) % \(span(range))."
             if let uncheckedBelow { detail += " I couldn't check for distortion below \(frequency(uncheckedBelow))." }
@@ -353,18 +355,78 @@ public enum DiagnosisText {
     static let notAssessedVerdict = "The room was too loud against the speaker for me to judge it."
 
     /// The verdict over what was assessed. `unchecked` are the drivers that could not be assessed, top first, and
-    /// `checked` the rest: "healthy" is said only of the checked ones.
-    static func verdict(suspected: [Finding], unchecked: [DriverBand] = [], checked: [DriverBand] = DriverBand.allCases.reversed()) -> String {
+    /// `checked` the rest. `uncleared` are checked drivers that are neither in the even statement nor named by any
+    /// finding (a response 3 to 6 dB off its trend, such as a bass roll-off): no fault was found in them, but they are
+    /// not called healthy either. "Healthy" is said only of the checked drivers that are not uncleared.
+    static func verdict(
+        suspected: [Finding],
+        unchecked: [DriverBand] = [],
+        checked: [DriverBand] = DriverBand.allCases.reversed(),
+        uncleared: [DriverBand] = []
+    ) -> String {
+        let uncleared = uncleared.filter { checked.contains($0) && !unchecked.contains($0) }
+        let healthy = checked.filter { !uncleared.contains($0) }
         let base: String = switch suspected.count {
         case 0: healthyVerdict
         case 1: "Sounds healthy, except \(clause(for: suspected[0]))."
         case 2: "Sounds healthy, except \(clause(for: suspected[0])) and \(clause(for: suspected[1]))."
         default: "I found \(suspected.count) things worth a closer look."
         }
-        guard !unchecked.isEmpty else { return base }
-        let missing = "I couldn't check the \(bandList(unchecked))"
-        guard suspected.isEmpty, !checked.isEmpty else { return "\(base) \(missing)." }
-        return "The \(bandList(checked)) \(checked.count == 1 ? "sounds" : "sound") healthy; \(missing)."
+        if suspected.isEmpty, healthy.isEmpty, !uncleared.isEmpty {
+            let missing = unchecked.isEmpty ? "" : " I couldn't check the \(bandList(unchecked))."
+            return "I found no fault, but the \(bandList(uncleared)) \(uncleared.count == 1 ? "isn't" : "aren't") clearly even.\(missing)"
+        }
+        var notes: [String] = []
+        if !unchecked.isEmpty { notes.append("I couldn't check the \(bandList(unchecked))") }
+        if !uncleared.isEmpty {
+            let one = uncleared.count == 1
+            notes.append("the \(bandList(uncleared)) \(one ? "isn't" : "aren't") clearly even, but I found no fault in \(one ? "it" : "them")")
+        }
+        guard !notes.isEmpty else { return base }
+        let missing = notes.joined(separator: ", and ")
+        guard suspected.isEmpty, !healthy.isEmpty else {
+            return "\(base) \(missing.prefix(1).uppercased() + missing.dropFirst())."
+        }
+        return "The \(bandList(healthy)) \(healthy.count == 1 ? "sounds" : "sound") healthy; \(missing)."
+    }
+
+    /// What the even statement adds about a driver it leaves out although no finding names it: where its response
+    /// strays from the notes around it (`off`, by up to `offBy` dB), where its distortion could not be checked
+    /// (`uncheckedDistortion`; `belowFrequency` when that stretch runs from the bottom of the driver), and the highest
+    /// distortion measured over the buzz threshold that did not make a buzz (`overPercent` at `overFrequency`). With
+    /// no `off` stretch, the distortion short of a buzz is the reason, and it comes first.
+    static func leftOut(
+        _ band: DriverBand,
+        off: FrequencyRange?,
+        offBy: Float,
+        uncheckedDistortion: FrequencyRange?,
+        belowFrequency: Float?,
+        overPercent: Float?,
+        overFrequency: Float?
+    ) -> String {
+        let name = bandInSentence(band)
+        let subject = "\(name.prefix(1).uppercased() + name.dropFirst()) isn't in this:"
+        var short: String?
+        if let overPercent, let overFrequency {
+            short = "reached \(percent(overPercent)) % around \(frequency(overFrequency)), short of what I'd call a buzz."
+        }
+        var text = if let off {
+            "\(subject) around \(range(off)) it's up to \(decibels(offBy)) dB off the notes around it."
+        } else {
+            "\(subject) its distortion \(short ?? "was not ruled out.")"
+        }
+        if let belowFrequency {
+            text += " I couldn't check it for distortion below \(frequency(belowFrequency))."
+        } else if let uncheckedDistortion {
+            text += " I couldn't check it for distortion around \(range(uncheckedDistortion))."
+        }
+        if off != nil, let short { text += " Its distortion \(short)" }
+        return text
+    }
+
+    /// The natural bass roll-off, a plain measured line: "Bass rolls off below 70 Hz."
+    static func rollOff(below frequency: Float) -> String {
+        "Bass rolls off below \(self.frequency(frequency))."
     }
 
     /// What a report says when the phone moved while a run played (`SpeakerReport.phoneMovedRuns`), the same words

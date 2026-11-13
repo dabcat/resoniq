@@ -207,7 +207,8 @@ public enum SeatText {
         "Around \(self.frequency(frequency)) the \(rightLouder ? "right" : "left") speaker is louder. It could be the speakers, their settings or what is near them."
     }
 
-    static let causeHeadline = "It's the room, not the speakers"
+    /// Hedged: the cause is inferred, never stated as fact (the mockup says "It's the room, not the speakers").
+    static let causeHeadline = "It's probably the room, not the speakers"
 
     /// "Inferred from room size. Moving speakers should help."
     static func causeTagLine(_ basis: SeatBasis) -> String {

@@ -74,7 +74,7 @@ public struct SeatFinding: Sendable, Codable, Equatable, Identifiable {
         case rest
         /// How closely left matches right (a deviation when they differ beyond `SeatThresholds.leftRightDecibels`).
         case leftRight
-        /// "It's the room, not the speakers": always `inferred`, with its `basis`.
+        /// "It's probably the room, not the speakers": always `inferred`, with its `basis`.
         case roomCause
         /// A spot whose recording could not be used.
         case invalidSpot

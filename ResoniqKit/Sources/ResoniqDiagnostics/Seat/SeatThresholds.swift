@@ -82,8 +82,10 @@ public struct SeatThresholds: Sendable, Equatable {
     public var spotDisagreementDecibels: Float
 
     /// An extreme lies on a room mode when its frequency is within this many octaves of an axial mode computed from
-    /// the room's size. **First guess**: 1/24 octave (3 %): a scan's dimensions are good to a few centimetres, and
-    /// real walls shift a mode a little; wider, and the modes of a large room would cover the whole bass by chance.
+    /// the room's size. **First guess**: 1/48 octave (1.5 %): a scan's dimensions are good to a few centimetres (under
+    /// 1 % of a living room's length), and real walls shift a mode a little. At 1/24 octave a third of 30–200 Hz lay on
+    /// an axial mode of a 4.2 × 5.6 m room, so a feature matched one by chance as often as not; at 1/48 it is 17 %
+    /// (`SeatDiagnosis.modeCoincidenceShare`), and the cause also asks for a mode's shape (`SeatDiagnosis.cause`).
     public var roomModeOctaves: Float
 
     /// Axial modes are computed up to this frequency, in hertz: `bassUpperFrequency`.
@@ -198,7 +200,7 @@ public struct SeatThresholds: Sendable, Equatable {
         leftRightDecibels: 3,
         narrowOctaves: 0.5,
         spotDisagreementDecibels: 3,
-        roomModeOctaves: 1.0 / 24,
+        roomModeOctaves: 1.0 / 48,
         roomModeUpperFrequency: 200,
         distortionFrequency: 1000,
         distortionSmoothingFraction: 3,

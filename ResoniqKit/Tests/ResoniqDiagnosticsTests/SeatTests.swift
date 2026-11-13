@@ -54,7 +54,7 @@ let dipTolerance = 2.0
         #expect(shown.map(\.headline) == [
             "One bass note booms, one nearly vanishes",
             "Voices and treble are even, left matches right",
-            "It's the room, not the speakers",
+            "It's probably the room, not the speakers",
         ])
         #expect(shown.map(\.tag) == [.measured, .measured, .inferred])
         #expect(shown.map(\.tagLine) == [
@@ -211,6 +211,40 @@ let dipTolerance = 2.0
         #expect(report.rightCurve == nil)
         #expect(report.findings.map(\.headline) == ["Voices and treble are even"])
         #expect(!report.numbers.contains { $0.label == "L / R" })
+    }
+
+    /// A typical living room: 4.2 × 5.6 m, 2.5 m high.
+    static let livingRoom = RoomHint(width: 4.2, length: 5.6, height: 2.5)
+
+    @Test func `a broad bass peak the same at every spot is not blamed on the room by coincidence`() {
+        // One +6 dB peak about two thirds of an octave wide, no spot-to-spot spread, slid across the bass.
+        var blamed: [Float] = []
+        var centre: Float = 35
+        while centre < 150 {
+            let report = SeatDiagnosis.diagnose(spots: handSpots { bell($0, centre: centre, gain: 6, width: 0.4) }, room: Self.livingRoom)
+            if report.findings.contains(where: { $0.kind == .roomCause }) { blamed.append(centre) }
+            centre *= pow(2, 1.0 / 24)
+        }
+        print("broad peak blamed on the room at \(blamed.map { Int($0) }) Hz")
+        #expect(blamed.isEmpty)
+    }
+
+    @Test func `a narrow bass peak on a mode of the room is put down to it, hedged`() throws {
+        let mode = Float(343.0 / (2 * 5.6) * 2) // 61.25 Hz
+        let report = SeatDiagnosis.diagnose(spots: handSpots { bell($0, centre: mode, gain: 8, width: 0.06) }, room: Self.livingRoom)
+        let cause = try #require(report.findings.first { $0.kind == .roomCause })
+        #expect(cause.basis == .roomSize)
+        #expect(cause.headline == "It's probably the room, not the speakers")
+    }
+
+    @Test func `the mode test's chance of a coincidence in a typical room is small`() {
+        // The share of 30–200 Hz (log frequency) within `roomModeOctaves` of an axial mode of the living room: the
+        // chance that a bass feature at a random frequency lands on a mode.
+        let share = SeatDiagnosis.modeCoincidenceShare(Self.livingRoom)
+        let large = SeatDiagnosis.modeCoincidenceShare(RoomHint(width: 5, length: 7, height: 2.7))
+        print("chance coincidence: living room \(share), larger room \(large)")
+        #expect(share < 0.2)
+        #expect(large < 0.25)
     }
 }
 

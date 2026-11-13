@@ -3,6 +3,7 @@ import Observation
 import ResoniqDiagnostics
 import ResoniqRoom
 import ResoniqStore
+import SwiftData
 
 /// Everything the Measure tab does besides drawing: which flow or live view is on screen, what was kept, whether The
 /// numbers are pushed. It decides navigation and what to save; every judgement about the seat comes from the Kit.
@@ -47,6 +48,21 @@ final class MeasureCoordinator {
     init(store: ResoniqStore, audio: AudioEnvironment) {
         self.store = store
         self.audio = audio
+        shownSystem = (try? store.defaultContext())?.system.persistentModelID
+    }
+
+    /// The system the numbers and the unsaved measurement belong to.
+    @ObservationIgnored private var shownSystem: PersistentIdentifier?
+
+    /// The rooms sheet or Settings closed: when the selected system is another one, drops what belonged to the
+    /// system before (an unsaved measurement, The numbers).
+    func selectionMayHaveChanged() {
+        let current = system?.persistentModelID
+        guard current != shownSystem else { return }
+        shownSystem = current
+        unsaved = nil
+        numbers = nil
+        path = []
     }
 
     // MARK: Reading

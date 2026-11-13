@@ -8,15 +8,21 @@ import SwiftUI
 /// the findings pushed from it. `DiagnoseCoordinator` decides what is shown; this only lays it out.
 struct DiagnoseTab: View {
     @Environment(DiagnoseCoordinator.self) private var coordinator
+    @Environment(\.systemsChanged) private var systemsChanged
+    @State private var showsSettings = false
 
     var body: some View {
         DiagnoseHomeContainer(
             onListen: { coordinator.startTest($0) },
             onOpenSpeaker: coordinator.openSpeaker,
             onQuickCheck: coordinator.startQuickCheck,
-            // No Settings screen yet: it is designed in phase 6.
-            onSettings: {}
+            onSettings: { showsSettings = true }
         )
+        // A sheet: Settings is a side trip from an icon button, and it draws its own header with "Done". "Delete
+        // everything" recreates the default room and system, so closing it refreshes what belongs to the system.
+        .sheet(isPresented: $showsSettings, onDismiss: { systemsChanged() }) {
+            SettingsScreen(onClose: { showsSettings = false })
+        }
         .fullScreenCover(
             isPresented: Binding(
                 get: { coordinator.content != nil },

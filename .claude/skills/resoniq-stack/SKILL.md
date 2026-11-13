@@ -29,9 +29,15 @@ No third-party Swift dependencies, no networking, no analytics.
 1. `make test` while writing Kit code. The test comes first.
 2. `make build` before a pull request: generates the project and builds for the simulator, unsigned.
 3. `make run` installs and launches in the simulator; `make run TAB=measure` (or `optimize`) opens a Debug
-   build on that tab.
+   build on that tab, and `make run SCREEN=<name>` opens one screen in a fixed state. The names are the
+   `names` lists in `Resoniq/App/DebugScreens*.swift`.
 4. `make screenshot` writes `.build/screenshot.png`. Read the image and compare it with the mockup before
    calling a screen done.
+5. To run a whole flow unattended, launch with `xcrun simctl launch booted com.matovic.resoniq …` (`make`
+   passes only `-initialTab` and `-screen`): `-screen measure-flow` (or `optimize-flow`, `app-flow`) with
+   `-autostart YES` presses the start button and runs it to its result on simulated audio;
+   `-simulatedNoise YES` adds the noise that pauses a run. Other arguments: `Resoniq/App/RootView.swift`,
+   `AppComposition.swift`, `AudioEnvironment.swift`.
 
 A build log worth keeping goes to `.build/`, which git ignores.
 
@@ -64,6 +70,12 @@ LiDAR and AR are verified on a device, never in the simulator.
 - **An app source file**: create it under `Resoniq/`, then `make project`. Folders are picked up whole.
 - **A Kit module or dependency between modules**: `ResoniqKit/Package.swift`, then the product under
   `dependencies` in `project.yml`, then the module's note in `docs/modules/`.
+- **A screen**: a view with plain inputs (display values and closures), a `…Display.swift` mapping from the
+  Kit value, a container that reads the coordinator or the store, and a debug name: one `case` and one `names`
+  entry in `DebugScreens+<Area>.swift`, with a fixture. Look at an existing screen of the same tab first.
+- **A text that depends on a result**: in the Kit module's `…Text.swift`, never in a view.
+- **A store model change**: a new `ResoniqSchemaV<n>` (move the typealiases), a migration stage and its test;
+  [ResoniqStore](../../../docs/modules/ResoniqStore.md) says how.
 - **A token**: `design/tokens.json` and `ResoniqKit/Sources/ResoniqDesign/Tokens/` in the same commit.
 - **A shared component**: `ResoniqKit/Sources/ResoniqDesign/Components/`, listed in
   [the module note](../../../docs/modules/ResoniqDesign.md) with its `file:line`.
@@ -99,6 +111,13 @@ only to the entry points.
 - **The asset catalog repeats two colours** (`AccentColor` = `lime`, `LaunchBackground` = `ink`). Change them
   with the tokens.
 - **Driving taps in the simulator** needs AXe, which Homebrew cannot build until the Command Line Tools are
-  updated. Until then, open a tab with `make run TAB=…` and screenshot it.
+  updated. Until then, use `make run SCREEN=…` or `-autostart YES` and screenshot.
+- **A Kit enum that gains a case breaks the app's exhaustive switches** (the `…Display.swift` files). Add the
+  case there in the same change.
+- **Parallel branches conflict in `DebugScreens.swift`.** Keep it to one line per provider; each branch adds
+  its screens in its own `DebugScreens+<Area>.swift`.
+- **The app target has no test target.** A decision worth testing belongs in the Kit.
+- **A worktree agent starts on an old commit.** Its first command: `git fetch origin && git reset --hard
+  origin/<the feature branch>`.
 - **SourceKit reports "No such module 'ResoniqDesign'"** in app files until the project has been built once.
   Trust `make build`.

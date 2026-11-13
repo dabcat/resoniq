@@ -27,4 +27,10 @@ import Testing
             #expect(ResoniqFont.resourceBundle.url(forResource: name, withExtension: "txt") != nil)
         }
     }
+
+    @Test func `the licences are readable with their copyright lines`() {
+        let licences = ResoniqFont.licences()
+        #expect(licences.map(\.family) == ["Instrument Sans", "IBM Plex Mono"])
+        #expect(licences.allSatisfy { $0.copyright.contains("Copyright") && $0.text.contains("SIL Open Font License") })
+    }
 }

@@ -462,3 +462,94 @@ struct MigrationTests {
         #expect(store.progress(in: system) == OptimizeProgress(scanned: true, measured: true))
     }
 }
+
+@MainActor
+struct StoreDataTests {
+    let container: ModelContainer
+    let store: ResoniqStore
+    let room: Room
+    let system: SoundSystem
+
+    init() throws {
+        container = try ResoniqStore.inMemoryContainer()
+        store = ResoniqStore(container: container)
+        (room, system) = try store.defaultContext()
+    }
+
+    private func fill() throws -> SoundSystem {
+        let other = try store.addSystem(name: "Bar", kind: .soundbar, to: room)
+        let second = try store.addRoom(name: "Study")
+        try store.addSystem(name: "Desk", kind: .singleSpeaker, to: second)
+        try store.keep(V2Fixtures.seatReport(), in: system)
+        try store.keep(V2Fixtures.seatReport(), in: other)
+        try store.keep(V2Fixtures.seatReport(), in: other)
+        return other
+    }
+
+    @Test func countsWhatIsKept() throws {
+        _ = try fill()
+        let counts = try store.counts()
+        #expect(counts == StoreCounts(rooms: 2, systems: 3, speakerTests: 0, seatMeasurements: 3, roomScans: 0))
+        #expect(counts.results == 3)
+    }
+
+    @Test func countsWhatADeletionTakesAlong() throws {
+        let other = try fill()
+        #expect(StoreCounts(system: other).seatMeasurements == 2)
+        let roomCounts = StoreCounts(room: room)
+        #expect(roomCounts.systems == 2 && roomCounts.seatMeasurements == 3)
+    }
+
+    @Test func deleteAllResultsKeepsRoomsAndSystems() throws {
+        _ = try fill()
+        try store.deleteAllResults()
+        #expect(try store.counts() == StoreCounts(rooms: 2, systems: 3))
+    }
+
+    @Test func deleteEverythingRecreatesTheDefaultsAndSelectsThem() throws {
+        _ = try fill()
+        room.scanFileName = "scan.usdz"
+        try store.deleteEverything()
+        #expect(try store.counts() == StoreCounts(rooms: 1, systems: 1))
+        let rooms = try store.rooms()
+        #expect(rooms.first?.name == StoreText.defaultRoomName)
+        #expect(store.selectedSystem?.name == StoreText.defaultSystemName)
+    }
+
+    @Test func theLastRoomAndTheLastSystemOfARoomStay() throws {
+        #expect(try !store.canDelete(room))
+        #expect(!store.canDelete(system))
+        let other = try fill()
+        #expect(try store.canDelete(room))
+        #expect(store.canDelete(other))
+        #expect(!store.canDelete(try #require(try store.rooms().last?.orderedSystems.first)))
+    }
+
+    @Test func defaultNamesCountFromTheExisting() {
+        #expect(StoreText.newRoomName(existing: 1) == "Room 2")
+        #expect(StoreText.newSystemName(existing: 1) == "Speakers 2")
+    }
+}
+
+struct IntroGateTests {
+    final class Flag: IntroFlagStore {
+        var isFinished = false
+    }
+
+    @Test func shownUntilFinishedOnceAndAgainAfterReset() {
+        let gate = IntroGate(flag: Flag())
+        #expect(gate.isShown)
+        gate.finish()
+        #expect(!gate.isShown)
+        gate.reset()
+        #expect(gate.isShown)
+    }
+
+    @Test func standardGateReadsTheResetArgument() throws {
+        let defaults = try #require(UserDefaults(suiteName: "intro-\(UUID().uuidString)"))
+        IntroGate(flag: UserDefaultsIntroFlag(defaults)).finish()
+        #expect(!IntroGate.standard(defaults: defaults).isShown)
+        defaults.set(true, forKey: "resetIntro")
+        #expect(IntroGate.standard(defaults: defaults).isShown)
+    }
+}

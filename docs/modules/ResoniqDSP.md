@@ -1,7 +1,7 @@
 ---
 type: "module"
 spec_module: "A"
-phase: 1
+phase: 3
 status: "active"
 tags:
   - "module"

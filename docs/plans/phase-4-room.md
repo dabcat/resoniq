@@ -1,7 +1,7 @@
 ---
 type: "plan"
 phase: 4
-status: "planned"
+status: "done"
 tags:
   - "plan/phase-4"
 ---
@@ -59,12 +59,26 @@ Rules a suggestion must follow:
 
 | # | Task | Module | Model | Status |
 |---|---|---|---|---|
-| 1 | Room model, geometry, edits, manual room, layout guess, modes, boundary interference, placement advisor | Room | Opus | todo |
-| 2 | RoomPlan conversion and the scan session wrapper (permission, capability check, capture, result), ported from the reference | Room, App | Opus | todo |
-| 3 | Store: a room's layout and its scan file; `SeatMeasurement` linked to the layout it was taken in | Store | Sonnet | todo |
-| 4 | Components: room plan (walls, windows, doors, furniture, speakers, seat, measured spots, problem hatching, suggested outline, legend, dragging), progress tracker | Design | Sonnet | todo |
-| 5 | Screens: Optimize home, Scan (camera with overlay, floor-plan inset, instruction), Confirm layout (plan, 3D, add subwoofer, add a seat, fix a wall), manual room entry | App | Sonnet / Opus for scan | todo |
-| 6 | Check in the simulator (everything but the scan); module note | — | Fable | todo |
+| 1 | Room model, geometry, edits, manual room, layout guess, modes, boundary interference, placement advisor | Room | Opus | done |
+| 2 | RoomPlan conversion and the scan session wrapper (permission, capability check, capture, result), ported from the reference | Room, App | Opus | done; never run on a LiDAR device |
+| 3 | Store: a room's layout and its scan file; `SeatMeasurement` linked to the layout it was taken in | Store | Sonnet | done |
+| 4 | Components: room plan (walls, windows, doors, furniture, speakers, seat, measured spots, problem hatching, suggested outline, legend, dragging), progress tracker | Design | Sonnet | done |
+| 5 | Screens: Optimize home, Scan (camera with overlay, floor-plan inset, instruction), Confirm layout (plan, 3D, add subwoofer, add a seat, fix a wall), manual room entry | App | Sonnet / Opus for scan | done |
+| 6 | Check in the simulator (everything but the scan); module note | — | Fable | module note done; the comparison with the mockups is not recorded |
 
 Done when: `make test` and `make build` pass; in the simulator a room entered by hand goes from Optimize home
 through Confirm layout to a suggestion on the plan. Scanning needs a LiDAR device and is verified by the owner.
+
+## Notes
+
+**What differs from the plan.**
+
+- RoomPlan cannot see loudspeakers. After a scan `LayoutGuess` places a stereo pair against the wall the seat faces and a seat on the largest sofa, and marks them as guessed; Confirm layout exists to correct them. `RoomText.layoutGuessHint` says they were guessed, where the mockup says "I spotted the speakers from the scan". The wording is for the owner to confirm.
+- The scan runs on the app's own `ARSession` with `RoomCaptureView`, ported from RoomScan ([reference](../reference/iosar-roomplan-arkit.md)). In the simulator, where RoomPlan cannot run, `ScriptedRoomScanSource` acts out a scan. The scan's USDZ is kept in Application Support and stays in the backup.
+- A seat measurement keeps a snapshot of the layout it was taken in (bytes), instead of a link to a layout record.
+- Confirm layout adds what the plan listed (subwoofer, a seat) and a "Fix a wall" with no designed screen: a hand-entered room reopens manual entry, a scanned room offers a scan again.
+- Moves are limited to what the Kit allows (clear of walls and furniture); each item can also be moved and turned with buttons, which is the VoiceOver route.
+- The mockups say "35 cm" where the advisor's constants give 40 cm for the same case; the owner is asked in [ResoniqRoom](../modules/ResoniqRoom.md).
+- Without LiDAR the scan screen is replaced by the unsupported state and manual entry (width, length, height).
+
+**Not verified until a device test.** The scan on a LiDAR iPhone: RoomPlan on the app's session, the capture overlay, processing and export, the labels' projection, the camera permission prompt and the denied state, real scans through the converter (doors and windows' parents, whether RoomPlan's +z is an object's front). The no-LiDAR path on a phone without LiDAR. The full list is in [ResoniqRoom](../modules/ResoniqRoom.md) and the [device checklist](../device-checklist.md).

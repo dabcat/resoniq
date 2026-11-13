@@ -39,6 +39,14 @@ struct ComponentGallery: View {
                 section("Hold to hear") { hold }
                 section("Evidence tag") { tags }
                 section("Run overlay") { overlay }
+                Text("Measure").font(ResoniqFont.title3).foregroundStyle(ResoniqColor.ivory)
+                section("Response curve") { responseCurves }
+                section("Left and right") { channels }
+                section("Average building") { averages }
+                section("Spots diagram") { spotsDiagrams }
+                section("Values table") { values }
+                section("Numbered steps") { steps }
+                section("Spectrum bars") { spectrum }
             }
             .padding(.horizontal, ResoniqSpace.screenInset)
             .padding(.vertical, ResoniqSpace.s6)
@@ -170,6 +178,122 @@ struct ComponentGallery: View {
             )
         }
         .resoniqPanel()
+    }
+}
+
+// MARK: - Measure
+
+private extension ComponentGallery {
+    private var seatExtremes: [ResponseCurve.Extreme] {
+        [
+            .init(frequency: 41, level: 9, label: "41 Hz +9 dB"),
+            .init(frequency: 61, level: -11, label: "61 Hz \u{2212}11 dB"),
+        ]
+    }
+
+    var responseCurves: some View {
+        VStack(spacing: ResoniqSpace.s3) {
+            ResponseCurve(
+                levels: PreviewCurves.seat, evenBand: 3, range: 12, extremes: seatExtremes, drawsOnAppear: true,
+                title: "Loudness at your seat", detail: "Even band \u{00B1}3 dB",
+                accessibilityLabel: "Loudness across pitch at the seat. Below 100 hertz the line swings far outside the even band; above that it stays inside."
+            )
+            .resoniqPanel()
+            ResponseCurve(
+                levels: PreviewCurves.improved, evenBand: 3, range: 12, before: PreviewCurves.seat,
+                legend: [
+                    ResoniqLegendEntry("Before", color: ResoniqColor.muted, isDashed: true),
+                    ResoniqLegendEntry("After", color: ResoniqColor.teal),
+                ],
+                accessibilityLabel: "Before and after. The peak at 41 hertz is lower and the dip at 61 hertz is much shallower."
+            )
+            .resoniqPanel()
+            ResponseCurve(
+                levels: PreviewCurves.seat.map { $0 * 0.2 }, evenBand: 3, range: 12, title: "An even room",
+                accessibilityLabel: "The response stays inside the even band across the whole range."
+            )
+            .resoniqPanel()
+            ResponseCurve(levels: [], evenBand: 3, range: 12, title: "No data", accessibilityLabel: "No measurement yet.")
+                .resoniqPanel()
+        }
+    }
+
+    var channels: some View {
+        ChannelComparisonChart(
+            left: PreviewCurves.seat,
+            right: PreviewCurves.seat.enumerated().map { index, level in level + 1.2 * sin(Double(index) / 6) },
+            caption: "1/3-octave smoothing",
+            accessibilityLabel: "Left and right speaker response at the seat on a decibel grid. Both swing up at 41 hertz and down at 61 hertz, then run close together within 3 decibels."
+        )
+        .resoniqPanel()
+    }
+
+    var averages: some View {
+        VStack(spacing: ResoniqSpace.s3) {
+            AverageBuildingCurve(
+                traces: [PreviewCurves.seat], average: PreviewCurves.improved, evenBand: 3, range: 12,
+                title: "Building the average", detail: "1 of 3 in",
+                accessibilityLabel: "The first spot's line is drawn faintly; the average is being built over it."
+            )
+            .resoniqPanel()
+            AverageBuildingCurve(
+                traces: [PreviewCurves.seat, PreviewCurves.improved],
+                average: PreviewCurves.seat.indices.map { (PreviewCurves.seat[$0] + PreviewCurves.improved[$0]) / 2 },
+                evenBand: 3, range: 12, isBuilding: false,
+                title: "Building the average", detail: "2 of 3 in",
+                accessibilityLabel: "Two spots are in; their average is drawn over their faint lines."
+            )
+            .resoniqPanel()
+        }
+    }
+
+    var spotsDiagrams: some View {
+        VStack(spacing: ResoniqSpace.s3) {
+            SpotsDiagram(.guide, accessibilityLabel: "Seen from above: both speakers play toward a sofa. Three measuring spots sit in a row at head height, the middle one first.")
+                .resoniqPanel(insets: EdgeInsets())
+            SpotsDiagram(.guide, spots: [.upcoming, .upcoming, .upcoming], isPlaying: false, accessibilityLabel: "Both speakers are quiet. Three spots wait.")
+                .resoniqPanel(insets: EdgeInsets())
+            SpotsDiagram(.running, spots: [.active, .done, .upcoming], accessibilityLabel: "Three spots in a row. The middle one is done; the phone slides to the left one.")
+                .resoniqPanel(insets: EdgeInsets())
+            SpotsDiagram(.running, spots: [.done, .done, .active], accessibilityLabel: "Two spots are done; the phone moves to the right one.")
+                .resoniqPanel(insets: EdgeInsets())
+        }
+    }
+
+    var values: some View {
+        ResoniqValuesTable(rows: [
+            .init("41 Hz", value: "+9.2 dB", word: "peak", evidence: .measured, isDeviation: true, spokenValue: "plus 9.2 decibels"),
+            .init("61 Hz", value: "\u{2212}11.4 dB", word: "dip", evidence: .measured, isDeviation: true, spokenValue: "minus 11.4 decibels"),
+            .init("L / R", value: "\u{00B1}1.2 dB", word: "match", evidence: .measured, spokenLabel: "Left against right", spokenValue: "within 1.2 decibels"),
+            .init("1 kHz", value: "0.4 %", word: "distortion", evidence: .measured),
+            .init("< 80 Hz", value: "\u{2248} 0.6 s", word: "decay", evidence: .estimate),
+            .init("Seat", value: "?", word: "unclear", evidence: .inconclusive),
+            .init("Room", value: "5 m", word: "inferred", evidence: .inferred),
+        ])
+    }
+
+    var steps: some View {
+        VStack(spacing: 0) {
+            ResoniqNumberedStep(1, "Phone at ear height, screen facing the ceiling")
+            ResoniqNumberedStep(2, "Volume where you normally keep it", showsSeparator: true)
+            ResoniqNumberedStep(3, "Stay quiet while the tones play", showsSeparator: true)
+        }
+    }
+
+    var spectrum: some View {
+        let bands = (0..<30).map { index -> Double in
+            let t = Double(index) / 29
+            return -30 - 40 * t + 18 * exp(-pow((t - 0.25) / 0.08, 2)) + 5 * sin(t * 40)
+        }
+        return VStack(spacing: ResoniqSpace.s3) {
+            SpectrumBars(
+                levels: bands, title: "Live", detail: "dB per third octave",
+                accessibilityLabel: "Loudest around 90 hertz; treble is quiet."
+            )
+            .resoniqPanel()
+            SpectrumBars(levels: [], title: "Waiting for sound", accessibilityLabel: "No sound yet.")
+                .resoniqPanel()
+        }
     }
 }
 

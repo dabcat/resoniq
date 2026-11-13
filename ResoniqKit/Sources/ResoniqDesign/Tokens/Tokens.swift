@@ -39,7 +39,7 @@ public enum ResoniqColor {
 }
 
 public enum ResoniqGradient {
-    private static let stops: [Gradient.Stop] = [
+    static let stops: [Gradient.Stop] = [
         .init(color: ResoniqColor.indigo, location: 0),
         .init(color: ResoniqColor.teal, location: 0.55),
         .init(color: ResoniqColor.lime, location: 1),

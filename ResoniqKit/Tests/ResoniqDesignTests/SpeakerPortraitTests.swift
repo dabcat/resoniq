@@ -87,6 +87,82 @@ import Testing
         #expect(PortraitGeometry.halfWidth(at: 0.5, widths: []) == 0)
     }
 
+    // MARK: Smoothness
+
+    /// The left edge of the portrait as a polyline, bottom to top, each Bezier piece sampled `perPiece` times.
+    private func leftEdge(_ widths: [Double], perPiece: Int = 24) -> [CGPoint] {
+        let path = SpeakerPortraitShape(widths: widths).path(in: Self.frame)
+        var points: [CGPoint] = []
+        var current = CGPoint.zero
+        var finished = false
+        path.forEach { element in
+            guard !finished else { return }
+            switch element {
+            case .move(let to):
+                current = to
+                points.append(to)
+            case .curve(let to, let control1, let control2):
+                for step in 1...perPiece {
+                    let t = CGFloat(step) / CGFloat(perPiece)
+                    let u = 1 - t
+                    points.append(CGPoint(
+                        x: u * u * u * current.x + 3 * u * u * t * control1.x + 3 * u * t * t * control2.x + t * t * t * to.x,
+                        y: u * u * u * current.y + 3 * u * u * t * control1.y + 3 * u * t * t * control2.y + t * t * t * to.y
+                    ))
+                }
+                current = to
+            case .line:
+                finished = true
+            default:
+                break
+            }
+        }
+        return points
+    }
+
+    @Test(arguments: [
+        [0, 0.5, 0.9, 0.6, 0],
+        [0, 0.3, 0.8, 0.8, 0.3, 0],
+        [0, 0.9, 0.2, 0.9, 0],
+        [0.2, 0.5, 0.7, 0.4, 0.1, 0.0, 0.4, 0.4, 0],
+    ] as [[Double]])
+    func `a coarse portrait has no abrupt direction change along its edge`(widths: [Double]) {
+        let points = leftEdge(widths)
+        #expect(points.count > 10)
+        var worst = 0.0
+        for index in 1..<(points.count - 1) {
+            let before = (x: points[index].x - points[index - 1].x, y: points[index].y - points[index - 1].y)
+            let after = (x: points[index + 1].x - points[index].x, y: points[index + 1].y - points[index].y)
+            let turn = atan2(before.x * after.y - before.y * after.x, before.x * after.x + before.y * after.y)
+            worst = max(worst, abs(Double(turn)))
+        }
+        // 24 samples a piece keep a smooth curve's turn small; a step or a corner turns by a good part of a radian.
+        #expect(worst < 0.35, "the sharpest turn is \(worst) radians")
+    }
+
+    @Test func `a steady rise is drawn as a straight edge, not as steps`() throws {
+        let points = leftEdge([0, 0.2, 0.4, 0.6, 0.8])
+        let first = try #require(points.first)
+        let last = try #require(points.last)
+        for point in points {
+            let along = (first.y - point.y) / (first.y - last.y)
+            let expected = first.x + (last.x - first.x) * along
+            #expect(abs(point.x - expected) < 0.5, "x \(point.x) should be near \(expected)")
+        }
+    }
+
+    @Test func `the curve passes through every sample and never overshoots`() {
+        let widths = [0, 0.5, 0.9, 0.6, 0.0, 0.7, 0.7, 0.2]
+        for (index, width) in widths.enumerated() {
+            let fraction = Double(index) / Double(widths.count - 1)
+            #expect(abs(PortraitGeometry.halfWidth(at: fraction, widths: widths) - width) < 1e-9)
+        }
+        for step in 0...400 {
+            let value = PortraitGeometry.halfWidth(at: Double(step) / 400, widths: widths)
+            #expect(value >= 0 && value <= 0.9 + 1e-9)
+        }
+    }
+
     @Test func `drawn part excludes the deviations`() {
         let kept = PortraitGeometry.intervals(upTo: 1, excluding: [0.19...0.26])
         #expect(kept == [0...0.19, 0.26...1])

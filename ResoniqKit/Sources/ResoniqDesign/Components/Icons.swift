@@ -9,6 +9,7 @@ public enum ResoniqIcon: CaseIterable, Sendable {
     case chevronDown
     case check
     case speaker
+    case back
 
     struct Layer {
         enum Paint {
@@ -28,6 +29,7 @@ public enum ResoniqIcon: CaseIterable, Sendable {
         case .chevronDown: 14
         case .check: 12
         case .speaker: 34
+        case .back: 18
         }
     }
 
@@ -87,6 +89,13 @@ public enum ResoniqIcon: CaseIterable, Sendable {
                 p.move(to: CGPoint(x: 2, y: 6.5))
                 p.addLine(to: CGPoint(x: 4.5, y: 9))
                 p.addLine(to: CGPoint(x: 10, y: 3.5))
+            })]
+        case .back:
+            // V3Finding, the button back to the portrait.
+            [Layer(paint: .stroke(width: 2), path: Path { p in
+                p.move(to: CGPoint(x: 11, y: 3.5))
+                p.addLine(to: CGPoint(x: 5.5, y: 9))
+                p.addLine(to: CGPoint(x: 11, y: 14.5))
             })]
         case .speaker:
             // V3Finding, the hold-to-hear button: a speaker cone and two sound arcs.

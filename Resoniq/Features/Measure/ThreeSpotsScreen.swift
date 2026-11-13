@@ -137,8 +137,6 @@ private struct StartsByItselfLine: View {
     let text: String
     var onSkip: () -> Void
 
-    private static let skipURL = URL(string: "resoniq://skip-to-result")!
-
     var body: some View {
         VStack(spacing: 0) {
             Rectangle().fill(ResoniqColor.line).frame(height: ResoniqSize.strokeHairline)
@@ -148,35 +146,25 @@ private struct StartsByItselfLine: View {
                     .frame(width: Metrics.dot, height: Metrics.dot)
                     .resoniqWaitingPulse()
                     .accessibilityHidden(true)
-                Text(sentence)
+                Text(text)
                     .font(Metrics.font)
                     .foregroundStyle(ResoniqColor.ivory)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .environment(\.openURL, OpenURLAction { url in
-                        guard url == Self.skipURL else { return .systemAction }
-                        onSkip()
-                        return .handled
-                    })
             }
-            .frame(minHeight: Metrics.height)
+            .padding(.top, Metrics.textTop)
+            // Its own row, a real button with the full touch height, under the sentence it belongs to.
+            Button("Skip to result", action: onSkip)
+                .buttonStyle(ResoniqTextLinkStyle())
+                .padding(.leading, Metrics.dot + Metrics.gap)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
-    }
-
-    private var sentence: AttributedString {
-        var line = AttributedString(text + " ")
-        var skip = AttributedString("Skip to result")
-        skip.link = Self.skipURL
-        skip.foregroundColor = ResoniqColor.muted
-        skip.underlineStyle = .single
-        line.append(skip)
-        return line
     }
 
     private enum Metrics {
         static let gap: CGFloat = 12
         static let dot: CGFloat = 8
-        static let height: CGFloat = 52
+        static let textTop: CGFloat = 8
         static let font = ResoniqFont.font(.sansRegular, size: 16, relativeTo: .body)
     }
 }

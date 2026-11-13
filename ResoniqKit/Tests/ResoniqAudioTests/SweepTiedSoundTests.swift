@@ -66,7 +66,10 @@ import Testing
     @Test func `noise that never stops ends the test as too noisy after the longest wait`() async throws {
         let burst = NoiseBurst(start: .afterScheduling(buffer: 0, offset: 2.0), duration: nil, rms: 0.02)
         let io = Self.io(bursts: [burst])
-        let session = Fixture.session(io: io)
+        // The rule is the configured wait; a shorter one than the app's 30 s shows it in a fifth of the audio.
+        var configuration = Fixture.configuration
+        configuration.maximumPauseWait = 6
+        let session = Fixture.session(io: io, configuration: configuration)
         let updates = session.progressUpdates()
         let final = await session.run()
         #expect(final == .failed(.tooNoisy))
@@ -75,7 +78,8 @@ import Testing
             pausedBlocks += 1
         }
         let waited = Double(pausedBlocks) * Fixture.configuration.blockDuration
-        #expect(waited >= Fixture.configuration.maximumPauseWait - 0.5)
+        #expect(waited >= configuration.maximumPauseWait - 0.5)
+        #expect(waited < configuration.maximumPauseWait + 1)
         #expect(!io.isRunning && !io.isPlaying)
     }
 }

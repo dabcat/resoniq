@@ -305,12 +305,21 @@ extension RunRecorder {
         guard start - search >= 0, start + window.count + search <= other.count, !window.isEmpty else { return nil }
         let a = Array(window)
         var scores = [Double](repeating: 0, count: 2 * search + 1)
-        other.withUnsafeBufferPointer { b in
-            for lag in -search...search {
-                var sum = 0.0
-                let base = start + lag
-                for j in a.indices { sum += Double(a[j]) * Double(b[base + j]) }
-                scores[lag + search] = sum
+        // Plain `while` loops: about half a million products per splice, and range iterators are costly in debug.
+        a.withUnsafeBufferPointer { a in
+            other.withUnsafeBufferPointer { b in
+                var lag = -search
+                while lag <= search {
+                    var sum = 0.0
+                    let base = start + lag
+                    var j = 0
+                    while j < a.count {
+                        sum += Double(a[j]) * Double(b[base + j])
+                        j += 1
+                    }
+                    scores[lag + search] = sum
+                    lag += 1
+                }
             }
         }
         guard let best = scores.indices.max(by: { scores[$0] < scores[$1] }) else { return nil }

@@ -42,13 +42,23 @@ struct Biquad {
         )
     }
 
+    /// A plain loop with plain assignments: the same arithmetic as a `map` with a tuple swap, without the per-sample
+    /// generic overhead those carry in the debug build the tests run.
     func process(_ input: [Double]) -> [Double] {
         var x1 = 0.0, x2 = 0.0, y1 = 0.0, y2 = 0.0
-        return input.map { x in
+        var output = [Double](repeating: 0, count: input.count)
+        var index = 0
+        while index < input.count {
+            let x = input[index]
             let y = b0 * x + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2
-            (x2, x1, y2, y1) = (x1, x, y1, y)
-            return y
+            x2 = x1
+            x1 = x
+            y2 = y1
+            y1 = y
+            output[index] = y
+            index += 1
         }
+        return output
     }
 }
 
@@ -144,7 +154,7 @@ struct SimulatedSpeaker {
         let length: Int
     }
 
-    private static let delayedSweeps = Mutex([DelayKey: [Float]]())
+    private static let delayedSweeps = OnceCache<DelayKey, [Float]>()
 
     /// `delayed(sweep.samples(), …)`, computed once per sweep, delay and length: every run of a test shares it.
     static func delayedSweep(_ sweep: LogSweep, by delay: Double, length: Int) -> [Float] {
@@ -152,10 +162,7 @@ struct SimulatedSpeaker {
             start: sweep.startFrequency, end: sweep.endFrequency, duration: sweep.duration, sampleRate: sweep.sampleRate,
             fade: sweep.fadeDuration, amplitude: sweep.amplitude, delay: delay, length: length
         )
-        if let cached = delayedSweeps.withLock({ $0[key] }) { return cached }
-        let signal = delayed(sweep.samples(), by: delay, length: length)
-        delayedSweeps.withLock { $0[key] = signal }
-        return signal
+        return delayedSweeps.value(for: key) { delayed(sweep.samples(), by: delay, length: length) }
     }
 
     /// `signal` delayed by `delay` samples (any real number ≥ 0) into a buffer of `length`, by a linear phase
@@ -172,6 +179,31 @@ struct SimulatedSpeaker {
             (real[bin], imaginary[bin]) = (real[bin] * c - imaginary[bin] * s, real[bin] * s + imaginary[bin] * c)
         }
         return Array(FFT.inverse(ComplexSpectrum(real: real, imaginary: imaginary)).prefix(length))
+    }
+}
+
+/// Values made once per key, even when tests running side by side ask for the same one at the same moment: the first
+/// makes it under that key's lock and the others wait for it, instead of each making it again.
+final class OnceCache<Key: Hashable & Sendable, Value: Sendable>: Sendable {
+    private final class Entry: Sendable {
+        let value = Mutex<Value?>(nil)
+    }
+
+    private let entries = Mutex([Key: Entry]())
+
+    func value(for key: Key, make: () -> Value) -> Value {
+        let entry = entries.withLock { entries in
+            if let entry = entries[key] { return entry }
+            let entry = Entry()
+            entries[key] = entry
+            return entry
+        }
+        return entry.value.withLock { stored in
+            if let stored { return stored }
+            let made = make()
+            stored = made
+            return made
+        }
     }
 }
 
@@ -197,17 +229,16 @@ enum Bench {
         sampleRate: sampleRate
     )
 
-    private static let noiseFloors = Mutex([Double: NoiseFloorReport]())
+    private static let noiseFloors = OnceCache<Double, NoiseFloorReport>()
 
     /// The floor the app would measure before the runs: one second of the room's noise alone, with a seed of its
     /// own. As in the app, one floor serves every run in a room of that noise, so it is measured once per level.
     static func noiseFloor(rms: Double) -> NoiseFloorReport {
-        if let cached = noiseFloors.withLock({ $0[rms] }) { return cached }
-        var generator = SeededGenerator(state: 0xF100)
-        let quiet = generator.noise(count: Int(sampleRate), rms: rms).map(Float.init)
-        let floor = NoiseFloor.measure(quiet, sampleRate: sampleRate)
-        noiseFloors.withLock { $0[rms] = floor }
-        return floor
+        noiseFloors.value(for: rms) {
+            var generator = SeededGenerator(state: 0xF100)
+            let quiet = generator.noise(count: Int(sampleRate), rms: rms).map(Float.init)
+            return NoiseFloor.measure(quiet, sampleRate: sampleRate)
+        }
     }
 
     /// One run of `speaker`, analysed against a floor of its own noise.

@@ -182,9 +182,10 @@ enum SeatBench {
     static let sweep = Bench.sweep
     static let shortSweep = Bench.responseSweep
 
-    private static let cache = Mutex([String: [SpotAnalysis]]())
+    private static let cache = OnceCache<String, [SpotAnalysis]>()
 
-    /// Three spots of `room`, each spot's recordings seeded from `seed`. `adjust` changes one spot's room.
+    /// Three spots of `room`, each spot's recordings seeded from `seed`. `adjust` changes one spot's room. Made once
+    /// per `key` even when tests running side by side ask for it at the same moment.
     static func spots(
         _ room: SimulatedRoom,
         seed: UInt64,
@@ -193,7 +194,16 @@ enum SeatBench {
         quality: QualityThresholds = .standard,
         adjust: @Sendable (Int, inout SimulatedRoom) -> Void = { _, _ in }
     ) -> [SpotAnalysis] {
-        if let cached = cache.withLock({ $0[key] }) { return cached }
+        cache.value(for: key) { measure(room, seed: seed, sweep: sweep, quality: quality, adjust: adjust) }
+    }
+
+    private static func measure(
+        _ room: SimulatedRoom,
+        seed: UInt64,
+        sweep: LogSweep,
+        quality: QualityThresholds,
+        adjust: @Sendable (Int, inout SimulatedRoom) -> Void
+    ) -> [SpotAnalysis] {
         let floor = room.noiseFloor()
         let results = Mutex([Int: SpotAnalysis]())
         DispatchQueue.concurrentPerform(iterations: 3) { spot in
@@ -204,9 +214,7 @@ enum SeatBench {
             let analysis = SpotAnalyzer.analyze(left: left, right: right, sweep: sweep, noiseFloor: floor, quality: quality)
             results.withLock { $0[spot] = analysis }
         }
-        let spots = results.withLock { all in (0..<3).map { all[$0]! } }
-        cache.withLock { $0[key] = spots }
-        return spots
+        return results.withLock { all in (0..<3).map { all[$0]! } }
     }
 
     /// The mockup's room: a boom at 41 Hz and a missing note at 61 Hz whose strength changes from spot to spot, even

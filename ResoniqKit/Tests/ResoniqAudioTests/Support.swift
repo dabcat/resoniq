@@ -34,7 +34,8 @@ enum Fixture {
         io: SimulatedAudioIO,
         permission: MicrophoneAccess = .granted,
         stillness: ConstantStillnessMonitor = ConstantStillnessMonitor(),
-        channel: SpeakerChannel = .left
+        channel: SpeakerChannel = .left,
+        configuration: MeasurementConfiguration = Fixture.configuration
     ) -> MeasurementSession {
         MeasurementSession(
             io: io,

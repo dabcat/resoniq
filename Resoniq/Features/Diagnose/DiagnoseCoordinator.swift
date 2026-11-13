@@ -151,6 +151,8 @@ final class DiagnoseCoordinator {
     enum Content {
         /// A test, from Aim to its result (the result is `outcome`).
         case test(DiagnoseFlow)
+        /// A test whose sound another device plays: the files, then listening, then the same result.
+        case external(ExternalDiagnoseFlow)
         /// A kept result, opened from home.
         case stored
         /// A kept result that cannot be read any more.
@@ -270,6 +272,21 @@ final class DiagnoseCoordinator {
         startTest(HomePlan.positions(for: kind).first ?? .single, isQuickCheck: true)
     }
 
+    /// Starts a test of `position` whose sound another device plays, from the files screen. Ignored while a flow or a
+    /// result is already on screen.
+    func startExternalTest(_ position: SpeakerPosition, isQuickCheck: Bool = false) {
+        guard content == nil else { return }
+        show(.external(makeExternalFlow(position, isQuickCheck: isQuickCheck)))
+    }
+
+    /// "My speakers can't play from this iPhone" and "Play the test sound from another device": the test on screen
+    /// carries on as a listening test, for the same speaker, from the files screen. The test it leaves is stopped.
+    func switchToExternal(from flow: DiagnoseFlow) {
+        guard case .test(let current) = content, current === flow else { return }
+        flow.cancel()
+        show(.external(makeExternalFlow(flow.position, isQuickCheck: flow.isQuickCheck)))
+    }
+
     /// A tap on a speaker of home: its latest kept result, or its test when it has none.
     func openSpeaker(_ position: SpeakerPosition) {
         guard content == nil else { return }
@@ -309,8 +326,26 @@ final class DiagnoseCoordinator {
         )
     }
 
+    private func makeExternalFlow(_ position: SpeakerPosition, isQuickCheck: Bool) -> ExternalDiagnoseFlow {
+        let systemID = system?.persistentModelID
+        let kind = system?.kind ?? .stereoPair
+        return ExternalDiagnoseFlow(
+            position: position,
+            isQuickCheck: isQuickCheck,
+            choices: HomePlan.positions(for: kind),
+            singleName: kind == .soundbar ? "Soundbar" : "Speaker",
+            counterpart: { [memory] position in
+                systemID.flatMap { memory.counterpart(for: position, in: $0) }
+            },
+            audio: audio
+        )
+    }
+
     private func show(_ content: Content) {
-        if case .test = content { outcome = nil }
+        switch content {
+        case .test, .external: outcome = nil
+        case .stored, .unreadable: break
+        }
         path = []
         isRenaming = false
         contentID = UUID()
@@ -322,7 +357,11 @@ final class DiagnoseCoordinator {
     /// The flow produced a report: remember its runs for the comparison, keep the report when the rule says so,
     /// and work out the next step. Once per test.
     func testFinished(_ completed: DiagnoseFlow.Completed) {
-        guard case .test = content, outcome == nil else { return }
+        switch content {
+        case .test, .external: break
+        case .stored, .unreadable, nil: return
+        }
+        guard outcome == nil else { return }
         let system = system
         let report = completed.report
         var test: SpeakerTest?
@@ -353,8 +392,13 @@ final class DiagnoseCoordinator {
         case .done:
             close()
         case .test(let position):
-            // Another test of the same kind: a quick check stays a quick check.
-            show(.test(makeFlow(position, isQuickCheck: outcome.isQuickCheck)))
+            // Another test of the same kind: a quick check stays a quick check, and a system that could not take sound
+            // from the phone for this speaker will not for the next one (the files screen has its file).
+            if outcome.report.source == .anotherDevice {
+                show(.external(makeExternalFlow(position, isQuickCheck: outcome.isQuickCheck)))
+            } else {
+                show(.test(makeFlow(position, isQuickCheck: outcome.isQuickCheck)))
+            }
         }
     }
 
@@ -403,9 +447,19 @@ final class DiagnoseCoordinator {
         close()
     }
 
+    /// Stops a test that is listening or playing, wherever the cover is: the scene left the foreground, or the cover is
+    /// closing. A result on screen stays.
+    func suspendFlow() {
+        switch content {
+        case .test(let flow): flow.cancel()
+        case .external(let flow): flow.cancel()
+        case .stored, .unreadable, nil: break
+        }
+    }
+
     /// Leaves the cover from anywhere: stops the flow and with it the sound, then goes home.
     func close() {
-        if case .test(let flow) = content { flow.cancel() }
+        suspendFlow()
         isRenaming = false
         path = []
         outcome = nil

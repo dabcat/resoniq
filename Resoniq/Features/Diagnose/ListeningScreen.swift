@@ -115,7 +115,7 @@ struct PortraitPanel: View {
 
 /// Room, Level and Phone: a caps label over a sentence, three rows with hairlines between. Each row is read as one
 /// sentence ("Room: quiet, about 34 decibels."). The words carry the state, not the colour.
-private struct ReadingsPanel: View {
+struct ReadingsPanel: View {
     let readings: [RunDisplay.Reading]
 
     var body: some View {

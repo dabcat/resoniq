@@ -46,14 +46,14 @@ Paths below are relative to `ResoniqKit/Sources/ResoniqAudio/`.
 |---|---|---|
 | `MeasurementSession` | `MeasurementSession.swift:17` | `init(io:channel:permission:stillness:configuration:thresholds:)` (:70), `start()` (:101), `run()` (:109), `cancel()` (:122), `progressUpdates()` (:131), `state`, `progress`, `runCount`, `isRunning`; `check` (:392) forwards to `RunPerformer.check` |
 | `MeasurementSession.State` | `MeasurementSession.swift:19` | `idle`, `measuringNoiseFloor`, `playing(run:note:)`, `paused(run:resumeFrequency:)`, `checking(run:)`, `finished(MeasurementResult)`, `failed(MeasurementFailure)`; `isFinal` (:33) |
-| `MeasurementConfiguration` | `MeasurementConfiguration.swift:5` | Every timing of a test, 20 fields, among them `maximumPauses` (:69), `maximumPauseWait` (:72), `sweepTiedTolerance` (:78), `maximumSpliceMisalignment` (:83); `init` (:85), `standard` (:135), `seat` (`SeatMeasurementTypes.swift:136`), `minimumSampleRate` (:140), `sweep(sampleRate:)` (:49) |
+| `MeasurementConfiguration` | `MeasurementConfiguration.swift:5` | Every timing of a test, 21 fields, among them `maximumFloorWait` (:26, the longest listen for a floor), `maximumPauses`, `maximumPauseWait`, `sweepTiedTolerance` (:78), `maximumSpliceMisalignment` (:83); `init` (:85), `standard` (:135), `seat` (`SeatMeasurementTypes.swift:136`), `minimumSampleRate` (:140), `sweep(sampleRate:)` (:49) |
 | `MeasurementResult` | `MeasurementTypes.swift:80` | `channel`, `sweep`, `noiseFloor`, `runs` |
 | `RunRecording` | `MeasurementTypes.swift:47` | One run's samples (from `leadIn` before the sweep), `sampleRate`, `leadIn`, `arrivalDelay` (live estimate), `verdict`, `spliceCount`, `phoneMoved`, `attempt`, `sweepTiedSound` (:70, the frequencies where sound tied to the sweep was heard), `takeOffsets` (:73, each spliced take's misalignment, samples), `measuredDelay` (:76, deconvolved) |
 | `MeasurementProgress` | `MeasurementTypes.swift:88` | What Listening and Paused show: run, frequency arriving, sweep fraction, room level, the "quiet enough" mark, input level and peak, clipping, phone steady, route delay |
 | `RunProblem` | `MeasurementTypes.swift:4` | `unusable(RecordingVerdict)` (:7), `didNotArrive` (:11), `interruptedRepeatedly` (:14) |
 | `RunNote` | `MeasurementTypes.swift:18` | `repeating(RunProblem)`, `restarted(RestartReason)` |
 | `RestartReason` | `RunRecorder.swift:335` | `noiseTooEarly`, `timelineUnreliable` |
-| `MeasurementFailure` | `MeasurementTypes.swift:26` | `permissionDenied`, `interrupted`, `routeChanged`, `recordingUnusable(RunProblem)`, `cancelled`, `audioUnavailable(String)`, `tooNoisy` (:40), `speakersNotConnected(AudioOutputRoute)` (:43) |
+| `MeasurementFailure` | `MeasurementTypes.swift:26` | `permissionDenied`, `interrupted`, `routeChanged`, `recordingUnusable(RunProblem)`, `cancelled`, `audioUnavailable(String)`, `tooNoisy` (:41; no resume within `maximumPauseWait`, or no floor within `maximumFloorWait`), `phoneNeverStill` (:45, new: the seat measurement's phone never held still within `SeatMeasurementSession.maximumStillnessWait`), `speakersNotConnected(AudioOutputRoute)` |
 | `SweepNoiseDetector` | `SweepNoiseDetector.swift:22` | Room noise while the sweep plays: the strongest tone and its harmonics taken out, the rest against the floor's same bins; `init(noiseFloor:sweep:blockLength:thresholds:)` (:72), `assess(_:)` (:114), `Assessment` (:43) |
 | `SweepSplicer.splice(_:_:crossfadeAt:crossfadeLength:)` | `SweepSplicer.swift:43` | Joins two takes of the sweep with a raised-cosine crossfade |
 | `SoundLevel` | `SoundLevel.swift:4` | `dBFS` (RMS), `approximateOffsetDecibels` (:16), `approximateDecibels` (:26), `init(of:)` (:29) |
@@ -62,7 +62,7 @@ Paths below are relative to `ResoniqKit/Sources/ResoniqAudio/`.
 
 | Symbol | Where | Holds |
 |---|---|---|
-| `SeatMeasurementSession` | `SeatMeasurementSession.swift:21` | `init(io:channels:permission:stillness:configuration:thresholds:)` (:95; `channels` `[.left, .right]` or `[.both]`, configuration `.seat`), `start()` (:134), `run()` (:142), `cancel()` (:155), `skipToResult()` (:166), `progressUpdates()` (:175), `state`, `progress`, `channels`, `spotCount`, `isRunning`; `stillnessHold` (:51), `movementTimeout` (:54), `capturedHold` (:57) |
+| `SeatMeasurementSession` | `SeatMeasurementSession.swift:21` | `init(io:channels:permission:stillness:configuration:thresholds:)` (:95; `channels` `[.left, .right]` or `[.both]`, configuration `.seat`), `start()` (:134), `run()` (:142), `cancel()` (:155), `skipToResult()` (:166), `progressUpdates()` (:175), `state`, `progress`, `channels`, `spotCount`, `isRunning`; `stillnessHold`, `movementTimeout`, `maximumStillnessWait`, `capturedHold` (:51–64) |
 | `SeatMeasurementSession.State` | `SeatMeasurementSession.swift:23` | `idle`, `measuringNoiseFloor`, `waitingForStillness(spot:)`, `playing(spot:channel:note:)`, `paused(spot:channel:resumeFrequency:)`, `checking(spot:channel:)`, `spotCaptured(spot:)` (lasts `capturedHold`), `finished(SeatMeasurementResult)`, `failed(MeasurementFailure)`; `isFinal` (:41) |
 | `SeatSpot` | `SeatMeasurementTypes.swift:5` | `seat`, `left`, `right`; `index` (:11) |
 | `SeatSpotRecording` | `SeatMeasurementTypes.swift:20` | `spot`, `recordings` per channel (`RunRecording.run` is the channel's place in the order), `phoneMoved`, `movementDetected`; `recording(for:)` (:41) |
@@ -80,13 +80,15 @@ Paths below are relative to `ResoniqKit/Sources/ResoniqAudio/`.
 
 | Symbol | Where | Holds |
 |---|---|---|
-| `CapturedAudio` | `CapturedAudio.swift:3` | `samples`, `sampleRate`, `sweepPlaying`, `duration`; `pausedDuration` (:23) |
-| `pausedAudio()` | `MeasurementSession.swift:70`, `SeatMeasurementSession.swift:96` | While `paused` for noise: the latest audio of the pause (a ring of `CapturedAudio.pausedDuration`, emptied at each new pause), `sweepPlaying` false; nil otherwise |
+| `CapturedAudio` | `CapturedAudio.swift:3` | `samples`, `sampleRate`, `sweepPlaying`, `duration`; `pausedDuration`, `minimumDuration` (1.5 s, one classifier window), `sweepDecayAllowance` (0.5 s) |
+| `pausedAudio()` | `MeasurementSession.swift:70`, `SeatMeasurementSession.swift:96` | While `paused` for noise: the latest audio of the pause (a ring of `CapturedAudio.pausedDuration`, emptied at each new pause), `sweepPlaying` false; nil otherwise, and nil until `minimumDuration` has been kept. The first block of the pause, the route's delay (`maximumRouteDelay` while unknown) and `sweepDecayAllowance` are not kept (`PausedAudioKeeper.sweepArrival`): what was already sent to the speakers keeps arriving after playback stops, and the app's own sweep over a 1 s AirPlay-class route was named "music or a TV, 83 %" |
 | `noisyRecording` | `MeasurementSession.swift:66`, `SeatMeasurementSession.swift:92` | What to classify when noise ended or spoiled a run: the paused audio at `failed(.tooNoisy)`, or the recording whose check said too noisy (`sweepPlaying` true); the latest wins. The app hands it to `InterferenceAdvisor` (diagnostics) |
 | `SeatSessionText` | `SessionText.swift:48` | Three spots' sentences from the session's state: `instruction(for:wait:channels:)` (:83; one sentence per wait phase), `moveInstruction(to:)`, `waitingLine`, `playingLine`, `pausedHeadline`, `pausedSentence`, `noticeTitle`/`noticeText` (`RunNote`), `failureHeadline`/`failureBody`/`inconclusiveBasis` (`MeasurementFailure`), `spotName`, `speakerWord` |
 | `ReadingText` | `SessionText.swift:9` | The live readings: `frequencyReading` ("1.02" "kHz"), `room` ("Quiet · 34 dB"), `decibels`, `spokenRoom`, `phone`, `barFraction` over `roomNoiseScaleDecibels` (70 dB) |
 
-**Between spots** the phone must first be seen moving, then be still for `stillnessHold`; the first spot only needs it still. If no movement is reported within `movementTimeout`, the spot is captured once the phone is still and `movementDetected` is false. A spot whose recording is bad twice fails the measurement (`recordingUnusable`), as in Diagnose. `skipToResult()` finishes with the spots already captured (a spot in progress is dropped); before the floor is known it is `failed(.cancelled)`.
+**Between spots** the phone must first be seen moving, then be still for `stillnessHold`; the first spot only needs it still. If no movement is reported within `movementTimeout`, the spot is captured once the phone is still and `movementDetected` is false (the app passes it to `SpotAnalyzer`, and the seat result says when that may mean one position). A phone that never holds still for `stillnessHold` within `maximumStillnessWait` ends the measurement as `phoneNeverStill`. In both sessions, a room that gives no steady, quiet enough floor within `maximumFloorWait` ends it as `tooNoisy`, before any sound.
+
+**An output route that cannot be told** (`AudioIO.outputRoute` nil) is measured, and nothing is said about the route; only a route known to be the phone's own is refused (`MeasurementOpening.open`). A spot whose recording is bad twice fails the measurement (`recordingUnusable`), as in Diagnose. `skipToResult()` finishes with the spots already captured (a spot in progress is dropped); before the floor is known it is `failed(.cancelled)`.
 
 ### Around the test
 
@@ -130,7 +132,11 @@ Paths below are relative to `ResoniqKit/Sources/ResoniqAudio/`.
 | `SweepNoiseDetector.presenceMarginDecibels` | 10 dB | First guess |
 | `ArrivalTracker` (internal) | 100 Hz, 20 dB, 2 estimates, 64 kept | `CaptureTimeline.swift:45–51`; presence first guess |
 | `EngineAudioIO.preferredSampleRate`, `tapBufferSize`, `schedulingLead` | 48 kHz, 4800, 0.1 | |
-| `MotionStillnessMonitor` limits | 0.2 rad/s, 0.05 g, 0.5 s, 50 Hz | `StillnessMonitor.swift:39–46`; first guesses |
+| `MotionStillnessMonitor` limits | 0.2 rad/s, 0.05 g, 0.5 s, 50 Hz | `StillnessMonitor.swift:39–48`; first guesses for a hand-held phone, not checked on a device |
+| `MeasurementConfiguration.maximumFloorWait` | 30 s | Then `tooNoisy`. First guess, as `maximumPauseWait` |
+| `SeatMeasurementSession.maximumStillnessWait` | 30 s | Then `phoneNeverStill`. First guess for a hand-held phone |
+| `CapturedAudio.minimumDuration` | 1.5 s | One sound-classifier window; less is not offered |
+| `CapturedAudio.sweepDecayAllowance` | 0.5 s | The room window; first guess |
 | `TonePlayer.fadeDuration`, `loopDurations` | 0.02, 0.1…0.25 | |
 | `TonePlayer.maximumDuration` | 20 s | Then it fades out by itself. First guess |
 | `MeasurementConfiguration.maximumPauses` | 6 a run | Then noise is recorded through and the check decides. First guess |
@@ -140,8 +146,8 @@ Paths below are relative to `ResoniqKit/Sources/ResoniqAudio/`.
 | `RunRecorder.misalignmentSearch` (internal) | ±24 samples | A peak at the edge counts as misaligned |
 | `EngineAudioIO.stopFade` | 6 ms in four volume steps | First guess; check for clicks on a phone |
 | `MeasurementConfiguration.seat` | `minimumTail` 2 s, `maximumDecay` 3 s, `runCount` 1, the rest `standard` | First guess: `Decay` wants the decay plus noise (2 s for a 1 s bass decay), the room window 0.5 s |
-| `SeatMeasurementSession.stillnessHold` | 1 s | First guess |
-| `SeatMeasurementSession.movementTimeout` | 10 s | First guess |
+| `SeatMeasurementSession.stillnessHold` | 1 s | First guess for a hand-held phone |
+| `SeatMeasurementSession.movementTimeout` | 10 s | First guess for a hand-held phone |
 | `SeatMeasurementSession.capturedHold` | 0.5 s | First guess |
 | `LiveSpectrum.updateRate` | 15 a second of audio | One update per `sampleRate / 15` captured samples |
 | `LiveSpectrum.attackTime`, `releaseTime` | 0.05 s, 0.4 s | First guesses; steps of 0.74 and 0.15 of the way per update |
@@ -162,13 +168,14 @@ Paths below are relative to `ResoniqKit/Sources/ResoniqAudio/`.
 - `MeasurementSessionTests`: a clean test deconvolves to the speaker within 0.5 dB; a 1.5 s route delay is waited for and measured; a noise burst pauses, resumes earlier in the sweep and splices cleanly; noise early restarts the run; endless noise stays paused until cancelled; a clipped run is repeated once, then fails; denied permission plays nothing; an interruption ends the test; a moving phone is noted; cancelling in every state releases everything; progress rises run by run; any block size; a stream under 44.1 kHz fails before any sound.
 - `RecordingCheckTests`: a whole recording passes, a non-finite sample is `.unusable(.corrupt)`, a recording cut 0.3 s before the sweep's end is `.didNotArrive`.
 - `SeatMeasurementSessionTests` (in `SimulatedRoom.livingRoom`, immediate pacing): a pair gives three spots × two channels, each deconvolving (room window, sixth-octave, 30 Hz–16 kHz) to its own spot's simulated response within 0.006 dB and 2.9 dB or more from the other spots'; one speaker gives three × one; movement then stillness between spots, `spotCaptured` three times in order, the microphone at the right spot for each sweep; noise pauses and splices (within 0.005 dB); the 2.25 s tail lets `Decay.bass` read the room's 0.5 s within 7.2 % (0.464–0.494 s, T30, 98 dB of range); a spot that clips twice fails; skipping after one spot and in the middle of a spot; cancelling in every state; denied permission; undetected movement waits `movementTimeout` and is marked; an interruption.
-- `LiveSpectrumTests` (on a sine `AudioIO` double): a 1 kHz tone at 0.1 reads −23.01 dBFS in its band (expected −23.01) with its neighbours under −120; the stream ends and the IO stops on cancellation and when the consumer stops; 15 updates a second for blocks of 4800, 1031 and 48 000; the smoothing steps; the release after the tone stops.
+- `LiveSpectrumTests` (on a sine `AudioIO` double): a 1 kHz tone at 0.1 reads −23.01 dBFS in its band (expected −23.01) with its neighbours under −120; the stream ends and the IO stops on cancellation (waited for on signalled updates, and no block asked for after the stop, where it used to spin on `Task.yield`) and when the consumer stops; 15 updates a second for blocks of 4800, 1031 and 48 000; the smoothing steps; the release after the tone stops.
 - `SweepNoiseDetectorTests`: a quiet room is never too noisy while the sweep plays (three speakers, one with a buzz), the tone found follows the sweep, a burst is too noisy in exactly its blocks, without a sweep it is the plain gate.
 - `SweepTiedSoundTests`: a rattle 40 dB under the sweep at 180–320 Hz pauses 5 times in three runs and finishes, each run marked tied at about 92–433 Hz (the band-pass skirt); a tail as loud as the direct sound with a 0.5 or 0.8 s decay finishes with no pause and nothing marked; a 1.5 s decay pauses up to the cap (12 in three runs) and finishes; noise that never stops ends as `tooNoisy` after the configured longest wait (6 s in the test, 30 s in the app). Before the fix all four ran past a minute.
 - `SpliceAlignmentTests`: takes that line up are spliced with an offset under 0.2 samples and a deconvolved delay within 1 ms; a 5-sample drift during a pause restarts the run (0.0006 dB from the speaker, where splicing it gave 0.56 dB); the misalignment of a shifted signal is measured within 0.1 sample.
 - `OutputRouteTests`: a speaker test, a seat measurement and the tone through the receiver or the phone's speaker fail before any sound; the user's own outputs are measured.
+- `ReviewFixTests`: at route delays of 0.25, 1 and 2 s a clean pause offers no audio of the sweep (before the fix it offered the sweep's tail at −20 to −22 dBFS at 1 and 2 s), and noise that goes on through the pause is still offered, at its own level from its first second; the keeper's skip and minimum; a room too loud for a floor ends a speaker test and a seat measurement as `tooNoisy` with nothing played (before, it listened for ever); a phone that never stops moving ends the seat measurement as `phoneNeverStill`, with its words; an IO whose route cannot be told is measured.
 - `LifecycleTests`: both sessions' `cancel()` before, during, after and twice.
-- `SweepSplicerTests`, `SimulatedAudioIOTests` (real-time pacing against an injected clock), `TonePlayerTests` (no scheduling before the first block, the tone fades out by itself after 20 s, a clear error when the audio cannot start, `stop()` in any state).
+- `SweepSplicerTests`, `SimulatedAudioIOTests` (real-time pacing against an injected clock), `TonePlayerTests` (no scheduling before the first block, the tone fades out by itself after 20 s of captured audio, awaited with the internal `waitUntilSilent()` rather than a spin, a clear error when the audio cannot start, `stop()` in any state).
 
 The suite takes about 18 s on a loaded Mac (it took 74–86 s): the simulator's, the noise detector's and the splice alignment's per-sample and per-bin loops are plain `while` loops with plain assignments (same arithmetic and noise order, so every figure above is unchanged), because range iterators, tuple swaps and a configuration copy per sample dominated the debug build; the detector zero-pads before the transform; and the tests above are shorter. What is left is mostly the per-block work of every session on the one main actor and the DSP's transforms in a debug build. No test is skipped by default.
 

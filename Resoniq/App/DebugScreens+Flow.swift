@@ -47,7 +47,7 @@ enum FlowDebugScreens {
             AnyView(
                 DiagnoseFailedScreen(
                     failure: .speakersNotConnected(AudioOutputRoute(kind: .builtInSpeaker, name: "iPhone Speaker")),
-                    onTryAgain: {}, onClose: {}
+                    onTryAgain: {}, onClose: {}, onExternal: {}
                 )
                 .preferredColorScheme(.dark)
             )
@@ -63,7 +63,7 @@ private struct AimHost: View {
     @State private var position = SpeakerPosition.left
 
     var body: some View {
-        AimScreen(position: $position, onStart: {}, onClose: {})
+        AimScreen(position: $position, onStart: {}, onClose: {}, onExternal: {})
             .preferredColorScheme(.dark)
     }
 }
@@ -72,7 +72,7 @@ private struct SoundbarAimHost: View {
     @State private var position = SpeakerPosition.single
 
     var body: some View {
-        AimScreen(position: $position, choices: [.single], singleName: "Soundbar", onStart: {}, onClose: {})
+        AimScreen(position: $position, choices: [.single], singleName: "Soundbar", onStart: {}, onClose: {}, onExternal: {})
             .preferredColorScheme(.dark)
     }
 }

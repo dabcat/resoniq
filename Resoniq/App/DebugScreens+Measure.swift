@@ -50,7 +50,7 @@ enum MeasureDebugScreens {
         case "numbers-decay":
             AnyView(NumbersScreen(report: MeasureFixtures.mockup, date: .now, onClose: {}, segment: .decay))
         case "sit-and-aim":
-            AnyView(SitAndAimScreen(room: "Living room", onStart: {}, onBack: {}).preferredColorScheme(.dark))
+            AnyView(SitAndAimScreen(room: "Living room", onStart: {}, onBack: {}, onExternal: {}).preferredColorScheme(.dark))
         case "three-spots":
             AnyView(ThreeSpotsScreen(display: .previewMoving, onStop: {}, onSkip: {}).preferredColorScheme(.dark))
         case "three-spots-paused":

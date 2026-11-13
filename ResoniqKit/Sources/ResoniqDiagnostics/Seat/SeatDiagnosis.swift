@@ -57,7 +57,15 @@ public enum SeatDiagnosis {
     /// Speed of sound for the room's axial modes, metres per second, at about 20 °C (as `ResoniqRoom` uses).
     static let speedOfSound: Double = 343
 
-    public static func diagnose(spots: [SpotAnalysis], room: RoomHint?, thresholds: SeatThresholds = .standard) -> SeatReport {
+    /// - Parameter source: How the sound was played (the session's `SeatMeasurementResult.source`, mapped by the
+    ///   app); nil for the phone. Kept on the report as `source`, changing nothing else.
+    public static func diagnose(spots: [SpotAnalysis], room: RoomHint?, source: SoundSource? = nil, thresholds: SeatThresholds = .standard) -> SeatReport {
+        var report = diagnosis(spots: spots, room: room, thresholds: thresholds)
+        report.source = source
+        return report
+    }
+
+    private static func diagnosis(spots: [SpotAnalysis], room: RoomHint?, thresholds: SeatThresholds) -> SeatReport {
         let t = thresholds
         let checks = spots.map { SpotCheck(left: $0.left.check, right: $0.right?.check) }
         let valid = spots.indices.filter { spots[$0].isValid }

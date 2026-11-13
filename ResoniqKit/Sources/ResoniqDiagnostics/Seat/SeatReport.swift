@@ -209,6 +209,11 @@ public struct SeatReport: Sendable, Codable, Equatable {
     /// (`SeatThresholds.singlePositionSpreadDecibels`): the result may rest on one position, the verdict says so and
     /// nothing is inferred from how the spots differ. Nil otherwise; optional, so reports stored before it decode.
     public let restsOnOnePosition: Bool?
+    /// How the sound was played; nil when the phone played it (and in every report stored before this existed).
+    public internal(set) var source: SoundSource? = nil
+
+    /// "Measured from a test sound played on another device."; nil when the phone played the sound.
+    public var sourceNote: String? { SeatText.sourceNote(source) }
 
     public init(
         schemaVersion: Int = SeatReport.currentSchemaVersion,

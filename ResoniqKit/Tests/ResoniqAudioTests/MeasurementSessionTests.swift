@@ -44,7 +44,7 @@ import Testing
     }
 
     @Test func `a noise burst pauses the run, which resumes before the pause and splices cleanly`() async throws {
-        // Run 2 is the second buffer scheduled. Noise 2.0 s into it, at about 1 kHz of the 3 s sweep, for 0.6 s.
+        // Run 2 is the second buffer scheduled. Noise 2.0 s into it, at about 470 Hz of the 4 s sweep, for 0.6 s.
         let burst = NoiseBurst(start: .afterScheduling(buffer: 1, offset: 2.0), duration: 0.6, rms: 0.02)
         let io = Fixture.io(bursts: [burst])
         let session = Fixture.session(io: io)
@@ -70,7 +70,7 @@ import Testing
     }
 
     @Test func `noise early in a run restarts it from the beginning`() async throws {
-        // 0.3 s in, before the sweep has reached 100 Hz, so there is no delay estimate to place a splice by.
+        // 0.3 s in, at about 18 Hz, long before the sweep reaches 100 Hz, so there is no delay estimate to place a splice by.
         let burst = NoiseBurst(start: .afterScheduling(buffer: 0, offset: 0.3), duration: 0.5, rms: 0.02)
         let io = Fixture.io(bursts: [burst])
         let session = Fixture.session(io: io)
@@ -219,5 +219,67 @@ import Testing
         let io = Fixture.io(blockSize: 1031)
         let final = await Fixture.session(io: io).run()
         #expect(final.result?.runs.count == 3)
+    }
+
+    @Test func `a stream slower than 44.1 kHz fails before any sound`() async {
+        let io = SimulatedAudioIO(configuration: .init(sampleRate: 22050, pacing: .immediate))
+        let final = await Fixture.session(io: io).run()
+        guard case .failed(.audioUnavailable) = final else {
+            Issue.record("ended \(final)")
+            return
+        }
+        #expect(io.scheduledBufferCount == 0 && !io.isRunning)
+    }
+}
+
+/// The check every finished recording gets (`MeasurementSession.check`), on recordings made by hand.
+@Suite struct RecordingCheckTests {
+    static let leadIn = 2400
+
+    /// Deterministic low-level hiss, steady enough to be a floor.
+    static func hiss(count: Int, offset: Int = 0) -> [Float] {
+        (0..<count).map { index in
+            let x = sin(Double(index + offset) * 12.9898) * 43758.5453
+            return Float(x - x.rounded(.down) - 0.5) * 2e-4
+        }
+    }
+
+    static let floor = NoiseFloor.measure(hiss(count: 48000), sampleRate: Fixture.sampleRate)
+
+    /// The sweep, `leadIn` samples late, with `tail` seconds after it, over the hiss.
+    static func recording(tail: Double = 0.5) -> [Float] {
+        let sweep = Fixture.sweep.samples()
+        let count = leadIn + sweep.count + Int(tail * Fixture.sampleRate)
+        var samples = hiss(count: max(count, 0), offset: 7)
+        for (index, value) in sweep.enumerated() where leadIn + index < samples.count {
+            samples[leadIn + index] += value
+        }
+        return samples
+    }
+
+    func check(_ samples: [Float]) async -> (verdict: RecordingVerdict, problem: RunProblem?) {
+        await MeasurementSession.check(samples, sweep: Fixture.sweep, floor: Self.floor, thresholds: .standard)
+    }
+
+    @Test func `a whole recording passes`() async {
+        let result = await check(Self.recording())
+        #expect(result.problem == nil, "\(result.verdict)")
+    }
+
+    @Test func `a recording holding a non-finite sample is a bad run`() async {
+        var samples = Self.recording()
+        samples[100_000] = .nan
+        let result = await check(samples)
+        #expect(result.problem == .unusable(.corrupt(nonFiniteSampleCount: 1)))
+    }
+
+    @Test func `a recording that stopped before the sweep's end arrived did not arrive`() async {
+        // Cut 0.3 s before the sweep's last sample: valid by level, but the top of the sweep is missing.
+        let result = await check(Self.recording(tail: -0.3))
+        guard case .valid = result.verdict else {
+            Issue.record("verdict \(result.verdict)")
+            return
+        }
+        #expect(result.problem == .didNotArrive)
     }
 }

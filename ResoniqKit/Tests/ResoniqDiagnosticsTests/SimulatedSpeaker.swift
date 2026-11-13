@@ -2,6 +2,7 @@ import Foundation
 import ResoniqDSP
 import ResoniqDiagnostics
 import Synchronization
+import Testing
 
 // Copied from Tests/ResoniqDSPTests/SimulatedSpeaker.swift (a test target cannot be imported) and extended with a
 // low-pass, a distortion confined to a band of the sweep, an overall gain and a limiter.
@@ -49,6 +50,14 @@ struct Biquad {
             return y
         }
     }
+}
+
+/// One case of the healthy-speaker tests: a noise seed, and the room's signal-to-noise ratio (nil: quiet).
+struct HealthyCase: Hashable, Sendable, CustomTestStringConvertible {
+    let seed: UInt64
+    let signalToNoise: Double?
+
+    var testDescription: String { signalToNoise.map { "seed \(seed) at \(Int($0)) dB" } ?? "seed \(seed), quiet" }
 }
 
 /// A deterministic generator (SplitMix64), so noisy tests give the same answer every run.
@@ -166,24 +175,47 @@ struct SimulatedSpeaker {
     }
 }
 
-/// The measurement every test uses: a 2 s sweep at 48 kHz, a noise floor measured from a second of the same noise.
+/// The measurement every test uses: the measurement sweep's range (10 Hz to 22 kHz, so the response is trusted over
+/// the whole 20 Hz–20 kHz grid) shortened to `LogSweep.minimumAccurateDuration` (3 s, the shortest for which the DSP
+/// states its THD accuracy) to keep the suite fast, at 48 kHz; a noise floor measured from a second of the same noise.
 enum Bench {
     static let sampleRate = 48000.0
-    static let sweep = LogSweep(startFrequency: 20, endFrequency: 20000, duration: 2, sampleRate: sampleRate)
+    static let sweep = LogSweep(
+        startFrequency: LogSweep.measurementStartFrequency,
+        endFrequency: LogSweep.measurementEndFrequency,
+        duration: LogSweep.minimumAccurateDuration,
+        sampleRate: sampleRate
+    )
 
-    /// The floor the app would measure before the runs: one second of the speaker's noise alone.
-    static func noiseFloor(rms: Double, seed: UInt64) -> NoiseFloorReport {
-        var generator = SeededGenerator(state: seed &+ 0xF100)
+    /// The same range over 2 s, for tests about the response alone: the response's stated accuracy holds from 1 s,
+    /// and the shorter recording halves the deconvolution's transform (2^18 points instead of 2^19). Distortion read
+    /// with it is less accurate than the DSP states, so no test that asserts anything about distortion uses it.
+    static let responseSweep = LogSweep(
+        startFrequency: LogSweep.measurementStartFrequency,
+        endFrequency: LogSweep.measurementEndFrequency,
+        duration: 2,
+        sampleRate: sampleRate
+    )
+
+    private static let noiseFloors = Mutex([Double: NoiseFloorReport]())
+
+    /// The floor the app would measure before the runs: one second of the room's noise alone, with a seed of its
+    /// own. As in the app, one floor serves every run in a room of that noise, so it is measured once per level.
+    static func noiseFloor(rms: Double) -> NoiseFloorReport {
+        if let cached = noiseFloors.withLock({ $0[rms] }) { return cached }
+        var generator = SeededGenerator(state: 0xF100)
         let quiet = generator.noise(count: Int(sampleRate), rms: rms).map(Float.init)
-        return NoiseFloor.measure(quiet, sampleRate: sampleRate)
+        let floor = NoiseFloor.measure(quiet, sampleRate: sampleRate)
+        noiseFloors.withLock { $0[rms] = floor }
+        return floor
     }
 
     /// One run of `speaker`, analysed against a floor of its own noise.
-    static func analyze(_ speaker: SimulatedSpeaker) -> RunAnalysis {
+    static func analyze(_ speaker: SimulatedSpeaker, sweep: LogSweep = Bench.sweep) -> RunAnalysis {
         RunAnalyzer.analyze(
             recording: speaker.record(sweep),
             sweep: sweep,
-            noiseFloor: noiseFloor(rms: max(speaker.noiseRMS, 1e-6), seed: speaker.seed)
+            noiseFloor: noiseFloor(rms: max(speaker.noiseRMS, 1e-6))
         )
     }
 
@@ -192,6 +224,7 @@ enum Bench {
         _ speaker: SimulatedSpeaker,
         seed: UInt64 = 1,
         count: Int = 3,
+        sweep: LogSweep = Bench.sweep,
         adjust: (Int, inout SimulatedSpeaker) -> Void = { _, _ in }
     ) -> [RunAnalysis] {
         analyzeAll((0..<count).map { index in
@@ -199,15 +232,15 @@ enum Bench {
             run.seed = seed &* 7919 &+ UInt64(index)
             adjust(index, &run)
             return run
-        })
+        }, sweep: sweep)
     }
 
     /// One run of each speaker. The runs are independent; simulating and analysing them side by side keeps the
     /// suite fast.
-    static func analyzeAll(_ speakers: [SimulatedSpeaker]) -> [RunAnalysis] {
+    static func analyzeAll(_ speakers: [SimulatedSpeaker], sweep: LogSweep = Bench.sweep) -> [RunAnalysis] {
         let results = Mutex([Int: RunAnalysis]())
         DispatchQueue.concurrentPerform(iterations: speakers.count) { index in
-            let analysis = analyze(speakers[index])
+            let analysis = analyze(speakers[index], sweep: sweep)
             results.withLock { $0[index] = analysis }
         }
         return results.withLock { all in speakers.indices.map { all[$0]! } }
@@ -231,20 +264,40 @@ enum Bench {
         return analyze(speaker)
     }()
 
-    /// Three runs of `healthy` for each of `HealthySpeakerTests.seeds`, made once and shared by the tests.
-    static let healthyRunsBySeed: [UInt64: [RunAnalysis]] = {
-        let seeds = HealthySpeakerTests.seeds
-        // Seeded as `runs(healthy, seed:)` seeds them, but made in one batch.
-        let speakers = seeds.flatMap { seed in
+    /// Three runs of `healthy` for each of `HealthySpeakerTests.seeds` (in a quiet room, the speaker's own −60 dBFS of
+    /// noise) and for each of `HealthySpeakerTests.noisyCases` (in a room `signalToNoise` dB under the recording),
+    /// made once, in one batch, and shared by the tests. Seeded as `runs(_:seed:)` seeds them.
+    static let healthyRuns: [HealthyCase: [RunAnalysis]] = {
+        let cases = HealthySpeakerTests.seeds.map { HealthyCase(seed: $0, signalToNoise: nil) } + HealthySpeakerTests.noisyCases
+        let speakers = cases.flatMap { item in
             (0..<3).map { index in
-                var run = healthy
-                run.seed = seed &* 7919 &+ UInt64(index)
+                var run = item.signalToNoise.map { noisy(healthy, signalToNoise: $0) } ?? healthy
+                run.seed = item.seed &* 7919 &+ UInt64(index)
                 return run
             }
         }
         let all = analyzeAll(speakers)
-        return Dictionary(uniqueKeysWithValues: seeds.enumerated().map { ($0.element, Array(all[($0.offset * 3)..<($0.offset * 3 + 3)])) })
+        return Dictionary(uniqueKeysWithValues: cases.enumerated().map { ($0.element, Array(all[($0.offset * 3)..<($0.offset * 3 + 3)])) })
     }()
+
+    /// Three runs of `healthy` in a quiet room, for one of `HealthySpeakerTests.seeds`.
+    static func healthyRuns(seed: UInt64) -> [RunAnalysis] { healthyRuns[HealthyCase(seed: seed, signalToNoise: nil)]! }
+
+    /// The RMS of `healthy`'s recording without noise.
+    static let healthyLevel = Double(LevelMeter.measure({ () -> [Float] in
+        var quiet = healthy
+        quiet.noiseRMS = 0
+        return quiet.record(sweep)
+    }()).rms)
+
+    /// `speaker` in a room whose white noise lies `signalToNoise` dB under `healthy`'s recording, so the recording
+    /// check reads about that ratio. A quarter of a dB is added so a ratio of exactly the gate's 20 dB is not lost
+    /// to the scatter of a one-second floor.
+    static func noisy(_ speaker: SimulatedSpeaker, signalToNoise: Double) -> SimulatedSpeaker {
+        var noisy = speaker
+        noisy.noiseRMS = healthyLevel * pow(10, -(signalToNoise + 0.25) / 20)
+        return noisy
+    }
 
     /// A healthy speaker: a woofer rolling off below 45 Hz, about 1 % distortion.
     static let healthy = SimulatedSpeaker(
@@ -260,8 +313,8 @@ enum Bench {
         return speaker
     }
 
-    /// `healthy` with a buzz while the sweep plays 72–110 Hz (about 20 % THD there). The measured band spreads about
-    /// 0.07 octave below the simulated one (the harmonic windows' frequency resolution), so it is measured as the
+    /// `healthy` with a buzz while the sweep plays 72–110 Hz (about 20 % THD there). THD is only read from 80 Hz,
+    /// the bottom of the DSP's trusted band for the second harmonic, so it is measured as 80–110 Hz rather than the
     /// mockup's 70–110 Hz.
     static let buzzing: SimulatedSpeaker = {
         var speaker = healthy

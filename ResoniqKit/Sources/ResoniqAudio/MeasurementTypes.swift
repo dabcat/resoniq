@@ -2,10 +2,12 @@ import ResoniqDSP
 
 /// What is wrong with one run's recording.
 public enum RunProblem: Sendable, Equatable {
-    /// `RecordingQuality.assess` judged it unfit (clipped, too quiet, too noisy, silent).
+    /// `RecordingQuality.assess` judged it unfit (clipped, too quiet, too noisy, silent, or corrupt: samples that
+    /// were not finite numbers).
     case unusable(RecordingVerdict)
-    /// The recording ended before the sweep's end had arrived and died away: the route's delay was longer than
-    /// the timeout, or nothing was heard at all.
+    /// The recording does not hold the whole sweep: the route's delay was longer than the timeout, nothing was heard
+    /// at all, or the recording stopped before the sweep's end arrived (`ImpulseResponse.capturesWholeSweep` on the
+    /// finished recording).
     case didNotArrive
     /// Noise kept stopping the run so early that it had to start over `MeasurementConfiguration.maximumRestarts`
     /// times.

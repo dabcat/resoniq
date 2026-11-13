@@ -152,6 +152,12 @@ public final class MeasurementSession {
         } catch {
             return .failed(.audioUnavailable(String(describing: error)))
         }
+        guard stream.sampleRate >= MeasurementConfiguration.minimumSampleRate else {
+            await io.stop()
+            return .failed(.audioUnavailable(
+                "the input runs at \(Int(stream.sampleRate)) Hz; the measurement sweep needs \(Int(MeasurementConfiguration.minimumSampleRate)) Hz"
+            ))
+        }
         stillness.start()
         defer { stillness.stop() }
 
@@ -401,10 +407,10 @@ public final class MeasurementSession {
     private func check(_ recording: RunRecorder.Recording, in test: inout TestRun) async -> State? {
         guard let floor = test.floor else { return nil }
         state = .checking(run: test.run)
-        let verdict = await Self.assess(recording.samples, floor: floor, thresholds: thresholds)
+        let (verdict, problem) = await Self.check(recording.samples, sweep: test.sweep, floor: floor, thresholds: thresholds)
         guard !Task.isCancelled else { return nil }
-        guard case .valid = verdict else {
-            return runFailed(.unusable(verdict), in: &test)
+        if let problem {
+            return runFailed(problem, in: &test)
         }
         test.recordings.append(RunRecording(
             run: test.run,
@@ -439,13 +445,26 @@ public final class MeasurementSession {
         return nil
     }
 
-    /// Checks a recording off the main actor: a sweep's recording is half a million samples.
-    @concurrent nonisolated private static func assess(
+    /// Checks a finished recording, off the main actor (a run's recording is a quarter of a million samples and the
+    /// second check deconvolves it): nil `problem` when the run can be kept.
+    ///
+    /// 1. `RecordingQuality.assess`: anything but `.valid` (clipped, too quiet, too noisy, silent, corrupt) is
+    ///    `.unusable` with that verdict.
+    /// 2. Whether the recording holds the whole sweep, from the deconvolved response
+    ///    (`ImpulseResponse.capturesWholeSweep`): when it does not, the run is `.didNotArrive`. This, not the live
+    ///    arrival estimate, is the authority: the estimate only decides when the recorder stops listening, and the
+    ///    response's delay is exact. When the estimate was early and the recording stopped before the sweep's end
+    ///    arrived, this is where it shows.
+    @concurrent nonisolated static func check(
         _ samples: [Float],
+        sweep: LogSweep,
         floor: NoiseFloorReport,
         thresholds: QualityThresholds
-    ) async -> RecordingVerdict {
-        RecordingQuality.assess(recording: samples, noiseFloor: floor, thresholds: thresholds)
+    ) async -> (verdict: RecordingVerdict, problem: RunProblem?) {
+        let verdict = RecordingQuality.assess(recording: samples, noiseFloor: floor, thresholds: thresholds)
+        guard case .valid = verdict else { return (verdict, .unusable(verdict)) }
+        let response = Deconvolution.impulseResponse(recording: samples, sweep: sweep)
+        return (verdict, response.capturesWholeSweep ? nil : .didNotArrive)
     }
 }
 

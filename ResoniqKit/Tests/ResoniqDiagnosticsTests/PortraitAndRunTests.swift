@@ -45,9 +45,19 @@ import Testing
         let flat = zip(ResponseGrid.frequencies, measurement.response).filter { $0.0 >= 200 && $0.0 <= 15000 }.map(\.1)
         #expect((flat.max()! - flat.min()!) < 1, "\(flat.max()! - flat.min()!)")
         #expect(abs(measurement.referenceLevel - flat[flat.count / 2]) < 0.5)
-        // THD is reported where the second harmonic is inside the sweep, and not above it.
+        // The measurement sweep's range puts the whole grid inside the response's trusted band.
+        #expect(measurement.responseBand == FrequencyRange(lower: ResponseGrid.lowerFrequency, upper: ResponseGrid.upperFrequency))
+        #expect(ResponseGrid.frequencies.indices.allSatisfy(measurement.isResponseMeasured(atIndex:)))
+        // THD is read only inside the DSP's trusted band for the second harmonic, and is a measurement there.
         #expect(measurement.thdPercent(atIndex: ResponseGrid.nearestIndex(to: 1000)) ?? 100 < 3)
-        #expect(measurement.thdPercent(atIndex: ResponseGrid.count - 1) == nil)
+        guard case .measured = measurement.distortion(atIndex: ResponseGrid.nearestIndex(to: 1000)) else {
+            Issue.record("THD at 1 kHz: \(measurement.distortion(atIndex: ResponseGrid.nearestIndex(to: 1000)))")
+            return
+        }
+        let band = try #require(HarmonicDistortion.trustedBand(order: 2, sweep: Bench.sweep))
+        for (index, frequency) in ResponseGrid.frequencies.enumerated() where !band.contains(Double(frequency)) {
+            #expect(measurement.thdDecibels[index] == nil && measurement.distortion(atIndex: index) == .notRead, "\(frequency) Hz")
+        }
         // White noise 60 dB down leaves every band well above the floor.
         #expect(measurement.bandSignalToNoise.count == 10)
         #expect(measurement.bandSignalToNoise.allSatisfy { $0 > 20 }, "\(measurement.bandSignalToNoise)")
@@ -108,7 +118,8 @@ import Testing
         let nothing = PortraitProfile.live(envelope: LevelEnvelope(samples: [], sampleRate: Bench.sampleRate), sweep: Bench.sweep, delay: delay)
         #expect(nothing.heardUpTo == nil && nothing.widths.allSatisfy { $0 == 0 })
 
-        // Half way through the sweep it is playing about 630 Hz: the shape stops there.
+        // Half way through the sweep it is playing the geometric middle of its range (about 470 Hz for 10 Hz to
+        // 22 kHz): the shape stops there.
         let halfway = Int((delay + Bench.sweep.duration / 2) * Bench.sampleRate)
         var envelope = LevelEnvelope(sampleRate: Bench.sampleRate)
         envelope.append(Array(recording[..<(halfway / 2)]))
@@ -116,7 +127,8 @@ import Testing
         #expect(envelope == LevelEnvelope(samples: Array(recording[..<halfway]), sampleRate: Bench.sampleRate))
         let partial = PortraitProfile.live(envelope: envelope, sweep: Bench.sweep, delay: delay)
         let heard = try #require(partial.heardUpTo)
-        #expect(isNear(heard, 632, octaves: 0.05), "\(heard)")
+        let middle = Float((Bench.sweep.startFrequency * Bench.sweep.endFrequency).squareRoot())
+        #expect(isNear(heard, middle, octaves: 0.05), "\(heard)")
         #expect(partial.widths[ResponseGrid.nearestIndex(to: 300)] > 0.6)
         #expect(partial.widths[ResponseGrid.nearestIndex(to: 2000)] == 0)
 

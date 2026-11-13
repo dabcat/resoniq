@@ -31,7 +31,7 @@ public struct SeatThresholds: Sendable, Equatable {
     public var middleBand: FrequencyRange
 
     /// How far from the middle the seat curve may go and still be "even", in dB: ±3, the design system's even band
-    /// (the response curve's `panelRaised` band, `DiagnosisThresholds.edgeDecibels`).
+    /// (`EvenBand.decibels`, the one definition `DiagnosisThresholds.edgeDecibels` uses too).
     public var evenBandDecibels: Float
 
     /// Extremes are looked for from this frequency, in hertz. **First guess**: 30 Hz. Below it most speakers and the
@@ -187,7 +187,7 @@ public struct SeatThresholds: Sendable, Equatable {
         bassSmoothingFraction: 12,
         smoothingCrossoverFrequency: 200,
         middleBand: FrequencyRange(lower: 200, upper: 4000),
-        evenBandDecibels: 3,
+        evenBandDecibels: EvenBand.decibels,
         lowerFrequency: 30,
         upperFrequency: 10000,
         bassUpperFrequency: 200,

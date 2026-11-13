@@ -63,9 +63,30 @@ public enum SpeakerDiagnosis {
         let audible = audiblePoints(measurements, thresholds: thresholds)
         let assessed = assessedPoints(measurements, audible: audible)
 
-        var findings: [Finding] = []
+        // A driver far quieter than the rest is a finding; one too close to the room's noise is unchecked. With
+        // nothing assessed at all, nothing is concluded.
+        let quiet = quietBandFindings(measurements, compared: compared, runCount: records.count, thresholds: thresholds)
+        let quietRanges = quiet.compactMap(\.frequencyRange)
+        let unchecked = notAssessedFindings(assessed: assessed, excluding: quiet.compactMap(\.band), compared: compared, thresholds: thresholds)
+        let anyAssessed = ResponseGrid.frequencies.indices.contains { index in
+            assessed[index] && (thresholds.responseLowerFrequency...thresholds.topEndFrequency).contains(ResponseGrid.frequencies[index])
+        }
+        guard anyAssessed || !quiet.isEmpty else {
+            return SpeakerReport(
+                verdict: DiagnosisText.notAssessedVerdict,
+                findings: invalid + unchecked,
+                profile: .notHeard,
+                runs: records,
+                consensusResponse: nil,
+                isConclusive: false
+            )
+        }
+
+        var findings: [Finding] = quiet + unchecked
         let response = responseClusters(measurements, assessed: assessed, thresholds: thresholds)
-        for cluster in response.dips where cluster.runs >= thresholds.minimumAgreeingRuns {
+        // A dip inside a driver that could barely be heard is that driver, already reported.
+        for cluster in response.dips where cluster.runs >= thresholds.minimumAgreeingRuns
+            && !quietRanges.contains(where: { $0.contains(cluster.range.centre) }) {
             if cluster.coreLower >= thresholds.topEndFrequency {
                 findings.append(topEndFinding(cluster, compared: compared, runCount: records.count, thresholds: thresholds))
             } else {
@@ -75,15 +96,17 @@ public enum SpeakerDiagnosis {
         for cluster in response.peaks where cluster.runs >= thresholds.minimumAgreeingRuns {
             findings.append(deviationFinding(.responsePeak, cluster, compared: compared, runCount: records.count, thresholds: thresholds))
         }
+        // Nor is distortion read in a driver that could barely be heard: what was there is noise.
         let distortion = distortionClusters(measurements, audible: audible, thresholds: thresholds)
-        let buzzes = distortion.measured.filter { $0.runs >= thresholds.minimumAgreeingRuns }
+        func inQuietBand(_ cluster: Cluster) -> Bool { quietRanges.contains { $0.contains(cluster.range.centre) } }
+        let buzzes = distortion.measured.filter { $0.runs >= thresholds.minimumAgreeingRuns && !inQuietBand($0) }
         for cluster in buzzes {
             findings.append(deviationFinding(.distortion, cluster, compared: compared, runCount: records.count, thresholds: thresholds))
         }
         // Where THD read above the threshold but did not stand clear of the noise, no buzz is claimed; the report
         // says it could not tell, unless a measured buzz is already at the same place (its noisy skirt).
         for cluster in distortion.belowNoise
-        where cluster.runs >= thresholds.minimumAgreeingRuns
+        where cluster.runs >= thresholds.minimumAgreeingRuns && !inQuietBand(cluster)
             && !buzzes.contains(where: { $0.range.overlaps(cluster.range, toleranceOctaves: thresholds.samePlaceOctaves) }) {
             findings.append(distortionUnclearFinding(cluster, compared: compared, runCount: records.count, thresholds: thresholds))
         }
@@ -99,15 +122,22 @@ public enum SpeakerDiagnosis {
             )
         }
         let clean = distortionRuledOut(measurements, audible: audible, thresholds: thresholds)
-        if let even = evenFinding(findings: findings, assessed: assessed, distortionRuledOut: clean, compared: compared, thresholds: thresholds) {
+        let consensus = consensusResponse(Array(measurements.values))
+        if let even = evenFinding(
+            findings: findings, consensus: consensus, assessed: assessed, distortionRuledOut: clean, compared: compared, thresholds: thresholds
+        ) {
             findings.append(even)
         }
 
         let ordered = invalid + findings.sorted { ($0.frequencyRange?.centre ?? 0) > ($1.frequencyRange?.centre ?? 0) }
-        let consensus = consensusResponse(Array(measurements.values))
         let suspected = ordered.filter(\.kind.isDeviation)
+        let uncheckedBands = unchecked.compactMap(\.band)
         return SpeakerReport(
-            verdict: DiagnosisText.verdict(suspected: suspected),
+            verdict: DiagnosisText.verdict(
+                suspected: suspected,
+                unchecked: uncheckedBands,
+                checked: DriverBand.allCases.reversed().filter { !uncheckedBands.contains($0) }
+            ),
             findings: ordered,
             profile: PortraitProfile(
                 levels: consensus,
@@ -421,37 +451,173 @@ public enum SpeakerDiagnosis {
         )
     }
 
-    /// The drivers holding no suspected defect's centre, if every point in them could be assessed: measured as even.
+    // MARK: Drivers that could not be heard
+
+    /// Where a driver's level is read for `quietBandFindings`: the woofer from `quietBandLowerFrequency` to 300 Hz,
+    /// the middle driver from 300 Hz to 3 kHz, the tweeter from 3 kHz to `topEndFrequency`.
+    static func levelRange(_ band: DriverBand, thresholds: DiagnosisThresholds) -> FrequencyRange {
+        switch band {
+        case .woofer: FrequencyRange(lower: thresholds.quietBandLowerFrequency, upper: DriverBand.wooferUpperFrequency)
+        case .middle: band.range
+        case .tweeter: FrequencyRange(lower: DriverBand.tweeterLowerFrequency, upper: thresholds.topEndFrequency)
+        }
+    }
+
+    /// Where a driver's response is judged: the woofer from `responseLowerFrequency`, the tweeter up to
+    /// `topEndFrequency`, the middle driver over its range.
+    static func judgedRange(_ band: DriverBand, thresholds: DiagnosisThresholds) -> FrequencyRange {
+        switch band {
+        case .woofer: FrequencyRange(lower: thresholds.responseLowerFrequency, upper: DriverBand.wooferUpperFrequency)
+        case .middle: band.range
+        case .tweeter: FrequencyRange(lower: DriverBand.tweeterLowerFrequency, upper: thresholds.topEndFrequency)
+        }
+    }
+
+    /// The drivers whose median level over `levelRange` is at least `quietBandDecibels` under the loudest other
+    /// driver's, in at least `minimumAgreeingRuns` runs: `measured` (the difference is read from the recordings),
+    /// with the cause left open. The level is read whether or not the band is audible over the noise: a driver that
+    /// plays nothing leaves a level far under the others, which is the finding.
+    static func quietBandFindings(_ measurements: [Int: RunMeasurement], compared: Int, runCount: Int, thresholds: DiagnosisThresholds) -> [Finding] {
+        let grid = ResponseGrid.frequencies
+        var differences: [DriverBand: [Int: Float]] = [:]
+        for (run, measurement) in measurements {
+            let normalised = measurement.normalizedResponse
+            var levels: [DriverBand: Float] = [:]
+            for band in DriverBand.allCases {
+                let range = levelRange(band, thresholds: thresholds)
+                let values = grid.indices.filter { range.contains(grid[$0]) && measurement.isResponseMeasured(atIndex: $0) }.map { normalised[$0] }
+                levels[band] = median(values)
+            }
+            for band in DriverBand.allCases {
+                guard let level = levels[band], let loudest = levels.filter({ $0.key != band }).values.max() else { continue }
+                let difference = level - loudest
+                if difference <= -thresholds.quietBandDecibels { differences[band, default: [:]][run] = difference }
+            }
+        }
+        return DriverBand.allCases.reversed().compactMap { band in
+            guard let perRun = differences[band], perRun.count >= thresholds.minimumAgreeingRuns else { return nil }
+            let range = levelRange(band, thresholds: thresholds)
+            let difference = median(Array(perRun.values))!
+            let basis = Finding.Basis(runsAgreeing: perRun.count, runsCompared: compared)
+            let words = DiagnosisText.quietBand(band, range: range, difference: difference)
+            return Finding(
+                id: identifier(.quietBand, range),
+                kind: .quietBand,
+                frequencyRange: range,
+                bands: [band],
+                tag: .measured,
+                basis: basis,
+                confidence: nil,
+                headline: words.headline,
+                detail: words.detail,
+                sentence: words.sentence,
+                tagLine: DiagnosisText.tagLine(tag: .measured, basis: basis),
+                confidenceStatement: DiagnosisText.quietBandConfidence(basis: basis),
+                repeatability: DiagnosisText.repeatability(basis),
+                listenFrequency: DiagnosisText.rounded(range.centre),
+                context: range.widened(octaves: 0.85),
+                numbers: Finding.Numbers(
+                    unit: .decibels,
+                    extreme: difference,
+                    extremeFrequency: range.centre,
+                    perRun: (0..<runCount).map { perRun[$0] },
+                    threshold: thresholds.quietBandDecibels
+                ),
+                recordingProblem: nil
+            )
+        }
+    }
+
+    /// The drivers (other than `excluding`) with points in their `judgedRange` that could not be assessed (too little
+    /// signal over the room's noise in some run): `inconclusive`, naming the stretch.
+    static func notAssessedFindings(assessed: [Bool], excluding: [DriverBand], compared: Int, thresholds: DiagnosisThresholds) -> [Finding] {
+        let grid = ResponseGrid.frequencies
+        return DriverBand.allCases.reversed().filter { !excluding.contains($0) }.compactMap { band in
+            let range = judgedRange(band, thresholds: thresholds)
+            let missing = grid.indices.filter { range.contains(grid[$0]) && !assessed[$0] }
+            guard let first = missing.first, let last = missing.last else { return nil }
+            let stretch = FrequencyRange(lower: grid[first], upper: grid[last])
+            let basis = Finding.Basis(runsAgreeing: compared, runsCompared: compared)
+            let words = DiagnosisText.notAssessed(band, range: stretch)
+            return Finding(
+                id: identifier(.notAssessed, stretch),
+                kind: .notAssessed,
+                frequencyRange: stretch,
+                bands: [band],
+                tag: .inconclusive,
+                basis: basis,
+                confidence: nil,
+                headline: words.headline,
+                detail: words.detail,
+                sentence: words.sentence,
+                tagLine: DiagnosisText.tagLine(tag: .inconclusive, basis: basis),
+                confidenceStatement: DiagnosisText.notAssessedConfidence,
+                repeatability: nil,
+                listenFrequency: nil,
+                context: nil,
+                numbers: nil,
+                recordingProblem: nil
+            )
+        }
+    }
+
+    // MARK: Even
+
+    /// The drivers measured as even: every point of a driver's `judgedRange` assessed and within `edgeDecibels`
+    /// (`EvenBand.decibels`) of the consensus response's trend, and no deviation or inconclusive finding overlapping
+    /// it. A top-end dip cuts the tweeter's range short at the dip's lower edge instead, and the statement names the
+    /// stretch it covers. A band between the even band and a deviation (3 to 6 dB off its trend) is simply left out:
+    /// it is neither even nor a suspected defect.
     ///
     /// The statement about distortion covers only where a buzz was ruled out in every run (`distortionRuledOut`):
     /// the widest unbroken stretch of such points inside those drivers, no narrower than
-    /// `minimumDistortionOctaves`, and it is named in the words. Elsewhere in the drivers nothing is said about
-    /// distortion, and nothing at all about rattle, which a sweep does not measure.
+    /// `minimumDistortionOctaves`, and it is named in the words. When the woofer is in the statement and distortion
+    /// could not be read at its bottom (THD is trusted from 80 Hz with the measurement sweep), the words say it was not
+    /// checked there. Nothing at all is said about rattle, which a sweep does not measure.
     static func evenFinding(
         findings: [Finding],
+        consensus: [Float],
         assessed: [Bool],
         distortionRuledOut: [Bool],
         compared: Int,
         thresholds: DiagnosisThresholds
     ) -> Finding? {
-        let suspected = findings.filter(\.kind.isDeviation).compactMap(\.frequencyRange)
-        let unclear = findings.filter { $0.kind == .distortionUnclear }.compactMap(\.frequencyRange)
-        let bands = DriverBand.allCases.reversed().filter { band in
-            let points = ResponseGrid.frequencies.indices.filter { band.range.contains(ResponseGrid.frequencies[$0]) }
-            return points.allSatisfy { assessed[$0] } && !suspected.contains { band.range.contains($0.centre) }
-        }
-        guard !bands.isEmpty else { return nil }
-        let range = FrequencyRange(
-            lower: bands.map(\.range.lower).min()!,
-            upper: bands.map(\.range.upper).max()!
-        )
         let grid = ResponseGrid.frequencies
+        let deviation = Trend.deviation(of: consensus, thresholds: thresholds)
+        let cut = findings.filter { $0.kind == .topEndDip }.compactMap(\.frequencyRange?.lower).min()
+        let blocking = findings.filter { ![.topEndDip, .even, .invalidRecording].contains($0.kind) }.compactMap(\.frequencyRange)
+        let unclear = findings.filter { $0.kind == .distortionUnclear }.compactMap(\.frequencyRange)
+        var spans: [(band: DriverBand, range: FrequencyRange)] = []
+        for band in DriverBand.allCases.reversed() {
+            var range = judgedRange(band, thresholds: thresholds)
+            if let cut, cut < range.upper {
+                guard cut > range.lower else { continue }
+                range = FrequencyRange(lower: range.lower, upper: cut)
+            }
+            let points = grid.indices.filter { range.contains(grid[$0]) && grid[$0] < (cut ?? .infinity) }
+            guard let first = points.first, let last = points.last,
+                  points.allSatisfy({ assessed[$0] && abs(deviation[$0]) <= thresholds.edgeDecibels }),
+                  !blocking.contains(where: { $0.overlaps(range) }) else { continue }
+            spans.append((band, FrequencyRange(lower: grid[first], upper: grid[last])))
+        }
+        guard !spans.isEmpty else { return nil }
+        let bands = spans.map(\.band)
+        // Adjacent drivers' stretches meet at neighbouring grid points; they are stated as one.
+        var response: [FrequencyRange] = []
+        for span in spans.map(\.range).sorted(by: { $0.lower < $1.lower }) {
+            if let previous = response.last, span.lower <= previous.upper * pow(2, 1.5 / ResponseGrid.pointsPerOctave) {
+                response[response.count - 1] = FrequencyRange(lower: previous.lower, upper: max(previous.upper, span.upper))
+            } else {
+                response.append(span)
+            }
+        }
+        let range = FrequencyRange(lower: response.first!.lower, upper: response.last!.upper)
         var clean: FrequencyRange?
         var start: Int?
         for index in grid.indices {
             let frequency = grid[index]
             let inside = distortionRuledOut[index]
-                && bands.contains { $0.range.contains(frequency) }
+                && spans.contains { $0.range.contains(frequency) }
                 && !unclear.contains { $0.contains(frequency) }
             if inside, start == nil { start = index }
             if let first = start, !inside || index == grid.count - 1 {
@@ -464,7 +630,17 @@ public enum SpeakerDiagnosis {
             }
         }
         let basis = Finding.Basis(runsAgreeing: compared, runsCompared: compared)
-        let words = DiagnosisText.even(bands: Array(bands), distortionBelow: thresholds.distortionPercent, over: clean)
+        let wooferSpan = spans.first { $0.band == .woofer }?.range
+        let uncheckedBelow: Float? = wooferSpan.flatMap { span in
+            clean.flatMap { $0.lower > span.lower * pow(2, 1.5 / ResponseGrid.pointsPerOctave) ? $0.lower : nil }
+        }
+        let words = DiagnosisText.even(
+            bands: bands,
+            response: response,
+            distortionBelow: thresholds.distortionPercent,
+            over: clean,
+            uncheckedBelow: uncheckedBelow
+        )
         return Finding(
             id: identifier(.even, range),
             kind: .even,

@@ -15,6 +15,12 @@ public enum EvidenceTag: String, Sendable, Codable, CaseIterable {
     public var displayName: String { DiagnosisText.tagName(self) }
 }
 
+/// What "even" means, in one place: within ±`decibels` of the reference (a speaker response's own trend, the seat
+/// curve's middle). The design system's even band, drawn as the response curve's `panelRaised` band.
+public enum EvenBand {
+    public static let decibels: Float = 3
+}
+
 /// A span of frequencies, in hertz.
 public struct FrequencyRange: Sendable, Codable, Hashable {
     public var lower: Float

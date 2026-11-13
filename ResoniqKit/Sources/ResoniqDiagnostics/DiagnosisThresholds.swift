@@ -32,8 +32,8 @@ public struct DiagnosisThresholds: Sendable, Equatable {
     /// smoothing.
     public var deviationDecibels: Float
 
-    /// A deviation's edges are where it comes back within this many dB of the trend: the ±3 dB band the design system
-    /// calls "even" (the response curve's `panelRaised` band).
+    /// A deviation's edges are where it comes back within this many dB of the trend, and a driver is called "even"
+    /// only where its response stays within it: `EvenBand.decibels`, the ±3 dB band the design system calls "even".
     public var edgeDecibels: Float
 
     /// The narrowest deviation reported, in octaves, measured between its edges. 1/3, the smoothing's own width:
@@ -83,6 +83,19 @@ public struct DiagnosisThresholds: Sendable, Equatable {
     /// guess**: 6 dB, the same as a deviation.
     public var leftRightDecibels: Float
 
+    // MARK: Drivers that could not be heard
+
+    /// A driver is "barely heard" when its median level is at least this many dB under the loudest other driver's, in
+    /// at least `minimumAgreeingRuns` runs. **First guess**: 15 dB. A healthy speaker's drivers sit within a few dB
+    /// of each other at 30 cm (a small woofer high-passed at 80 Hz is about 1 dB down over 100–300 Hz, a tweeter heard
+    /// off axis a few dB down); a dead driver or a broken connection is 30 dB or more down.
+    public var quietBandDecibels: Float
+
+    /// The woofer's level is read from this frequency to 300 Hz, in hertz. **First guess**: 100 Hz, above the natural
+    /// roll-off of all but the smallest satellites, so a gentle roll-off at the very bottom is never "barely heard".
+    /// The middle driver is read over 300 Hz–3 kHz, the tweeter from 3 kHz to `topEndFrequency`.
+    public var quietBandLowerFrequency: Float
+
     // MARK: Noise
 
     /// A frequency is assessed only when its octave band's signal-to-noise ratio (recording over room floor) is at
@@ -106,8 +119,12 @@ public struct DiagnosisThresholds: Sendable, Equatable {
         minimumValidRuns: Int,
         mediumConfidenceRuns: Int,
         leftRightDecibels: Float,
-        minimumBandSignalToNoise: Float
+        minimumBandSignalToNoise: Float,
+        quietBandDecibels: Float = 15,
+        quietBandLowerFrequency: Float = 100
     ) {
+        self.quietBandDecibels = quietBandDecibels
+        self.quietBandLowerFrequency = quietBandLowerFrequency
         self.smoothingFraction = smoothingFraction
         self.trendWindowOctaves = trendWindowOctaves
         self.responseLowerFrequency = responseLowerFrequency
@@ -134,7 +151,7 @@ public struct DiagnosisThresholds: Sendable, Equatable {
         responseLowerFrequency: 50,
         topEndFrequency: 14000,
         deviationDecibels: 6,
-        edgeDecibels: 3,
+        edgeDecibels: EvenBand.decibels,
         minimumDeviationOctaves: 1.0 / 3,
         distortionSmoothingFraction: 12,
         distortionLowerFrequency: 40,
@@ -145,6 +162,8 @@ public struct DiagnosisThresholds: Sendable, Equatable {
         minimumValidRuns: 2,
         mediumConfidenceRuns: 3,
         leftRightDecibels: 6,
-        minimumBandSignalToNoise: 10
+        minimumBandSignalToNoise: 10,
+        quietBandDecibels: 15,
+        quietBandLowerFrequency: 100
     )
 }

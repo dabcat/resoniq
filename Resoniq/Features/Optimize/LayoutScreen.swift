@@ -32,6 +32,7 @@ struct LayoutScreen: View {
     @State private var selection: String?
     @State private var mode: ViewKind
     @State private var isAskingAboutWall = false
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     private enum ViewKind: Hashable { case plan, threeD }
 
@@ -98,26 +99,54 @@ struct LayoutScreen: View {
     // MARK: Header
 
     private var header: some View {
-        HStack(spacing: ResoniqSpace.s3) {
-            Button(action: onClose) {
-                ResoniqIconView(.back)
+        Group {
+            if typeSize > .large {
+                // Larger text: the room's name and size go on their own line and may wrap.
+                VStack(alignment: .leading, spacing: ResoniqSpace.s1) {
+                    HStack(spacing: ResoniqSpace.s2) {
+                        backButton
+                        Spacer(minLength: 0)
+                        viewPicker
+                    }
+                    roomTitle.fixedSize(horizontal: false, vertical: true)
+                }
+            } else {
+                // The mockup's row: back, the room's name and size, Plan / 3D. The title takes what the narrower
+                // control leaves and shrinks a little rather than wrapping.
+                HStack(spacing: ResoniqSpace.s2) {
+                    backButton
+                    roomTitle
+                        .lineLimit(1)
+                        .minimumScaleFactor(Metrics.titleMinimumScale)
+                    viewPicker
+                }
             }
-            .buttonStyle(ResoniqIconButtonStyle())
-            .accessibilityLabel(OptimizeText.back)
-
-            Text(RoomDisplay.title(of: room, name: roomName))
-                .resoniqCapsLabel()
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            ResoniqSegmentedControl(
-                [
-                    ResoniqSegment(ViewKind.plan, title: OptimizeText.planSegment),
-                    ResoniqSegment(ViewKind.threeD, title: OptimizeText.threeDSegment),
-                ],
-                selection: $mode, label: OptimizeText.viewLabel
-            )
-            .frame(width: Metrics.segmentedWidth)
         }
+    }
+
+    private var backButton: some View {
+        Button(action: onClose) {
+            ResoniqIconView(.back)
+        }
+        .buttonStyle(ResoniqIconButtonStyle())
+        .accessibilityLabel(OptimizeText.back)
+    }
+
+    private var roomTitle: some View {
+        Text(RoomDisplay.title(of: room, name: roomName))
+            .resoniqCapsLabel()
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var viewPicker: some View {
+        ResoniqSegmentedControl(
+            [
+                ResoniqSegment(ViewKind.plan, title: OptimizeText.planSegment),
+                ResoniqSegment(ViewKind.threeD, title: OptimizeText.threeDSegment),
+            ],
+            selection: $mode, label: OptimizeText.viewLabel
+        )
+        .frame(width: Metrics.segmentedWidth)
     }
 
     // MARK: Plan and 3D
@@ -210,7 +239,9 @@ struct LayoutScreen: View {
         /// V3OLayout's plan panel is 340 pt tall.
         static let planHeight: CGFloat = 340
         /// The two segments, "Plan" and "3D".
-        static let segmentedWidth: CGFloat = 132
+        static let segmentedWidth: CGFloat = 100
+        /// How far the room's title may shrink to stay on one line beside the control at the default size.
+        static let titleMinimumScale: CGFloat = 0.8
     }
 }
 

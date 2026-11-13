@@ -1,6 +1,6 @@
 ---
 name: resoniq-stack
-description: What Resoniq is built with and how to drive it - make targets, XcodeGen, ResoniqKit tests, the one simulator, screenshots, fonts, tokens, CI, where each kind of note goes. Use before building, running or testing the app, and before adding a file, target, dependency, token, font or note in this repo.
+description: What Resoniq is built with and how to drive it - make targets, XcodeGen, ResoniqKit tests, the one simulator, agents and which model does what, screenshots, fonts, tokens, CI, where each kind of note goes. Use before building, running or testing the app, and before adding a file, target, dependency, token, font or note in this repo.
 ---
 
 # Resoniq stack
@@ -34,6 +34,23 @@ No third-party Swift dependencies, no networking, no analytics.
    calling a screen done.
 
 A build log worth keeping goes to `.build/`, which git ignores.
+
+## Agents and models
+
+At most 3 agents run in parallel. The strongest model plans and checks; cheaper models build.
+
+| Work | Model |
+|---|---|
+| Architecture, a design that spans modules, a phase plan | Strongest available (Fable) |
+| Checks: code review, verifying a finished task against its plan and mockup, a pull request before it is opened | Strongest available (Fable) |
+| Hard implementation: DSP algorithms, concurrency, audio sessions, RoomPlan, AR, Core ML | Opus |
+| Ordinary implementation: screens from mockups, components, small tests, mechanical edits, notes | Sonnet |
+| Lookups: find a file, read a doc, list usages | Haiku |
+
+The split is by task, so one feature is usually designed by the strongest model, built by a cheaper one from
+that design, and checked by the strongest again. Pass `model` explicitly when spawning an agent. Parallel
+agents that write code work in worktrees under `.claude/worktrees/`, removed once merged; an agent that only
+reads or writes one new note can share the main tree.
 
 ## One simulator
 

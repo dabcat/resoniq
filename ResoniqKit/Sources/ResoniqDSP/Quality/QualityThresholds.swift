@@ -20,10 +20,11 @@ public struct QualityThresholds: Sendable, Equatable {
     /// samples long.
     public var fullScaleRun: Int
 
-    /// Consecutive samples at the buffer's own extreme value that make a flat top, the mark of an input limiter
-    /// clipping below full scale. *First guess*: 8 samples (0.17 ms at 48 kHz). A clean sine at 20 Hz, quantised
-    /// to 16 bits, repeats its crest value for up to about 7 samples; mild limiting of a high tone gives shorter
-    /// flat tops than this and is missed.
+    /// The fewest consecutive samples at the buffer's own extreme value that can make a flat top, the mark of an
+    /// input limiter clipping below full scale. *First guess*: 8 samples (0.17 ms at 48 kHz). A longer run is a flat
+    /// top only if a clean sine of its level and frequency could not hold it (`ClippingDetector`): the crest of a
+    /// 20 Hz sine quantised to 16 bits repeats one value for eight samples or more and is not clipping. Mild limiting
+    /// of a high tone gives shorter flat tops than this and is missed.
     public var flatTopRun: Int
 
     /// How close to the extreme a sample must be to count as on the flat top, as a fraction of the extreme.
@@ -49,6 +50,12 @@ public struct QualityThresholds: Sendable, Equatable {
     /// The least broadband signal-to-noise ratio, recording RMS over noise-floor RMS, a valid recording has.
     /// *First guess*: 20 dB. Sweep deconvolution recovers much more than this, but the broadband figure is
     /// dominated by low-frequency rumble, where the sweep's advantage is smallest.
+    ///
+    /// It is a gate for the frequency response, not for distortion. With white noise 20 dB under a sweep
+    /// recording the response is within 0.06 dB once smoothed to a sixth of an octave (0.5 dB in a single bin),
+    /// while sweep THD reads 2 to 5 % from the noise alone. That is why it was not raised: whether a THD figure is
+    /// a measurement is decided per frequency by `SweepDistortion.isMeasurable(at:)`, against a floor measured on
+    /// the recording itself, and a higher broadband gate would reject recordings whose response is fine.
     public var minimumSignalToNoiseDecibels: Float
 
     // MARK: Noise floor

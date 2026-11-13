@@ -39,32 +39,39 @@ public enum OctaveBands {
         return (Float(Double(centre) / factor), Float(Double(centre) * factor))
     }
 
-    /// The level of each band in `centres(fraction:from:to:)`: the power sum of the points of `spectrum` whose
-    /// frequency lies in the band (lower edge included, upper edge excluded), in decibels on the spectrum's
-    /// scale. A band holding no point reads `Decibels.floor`.
+    /// The level of each band in `centres(fraction:from:to:)`, in dBFS RMS: the band's share of the signal's mean
+    /// square. A sine of amplitude `A` inside a band reads its RMS, `20·log10(A/√2)`, in that band, and the bands of
+    /// a signal add up (in power) to its broadband `Level.rmsDecibels` over the range they cover. This is the
+    /// module's one band level; `NoiseFloor` uses it.
     ///
-    /// A window spreads each tone over `equivalentNoiseBandwidth` bins, so a raw power sum reads that much
-    /// high. Name the window the spectrum was made with and the sum is divided by it: a full-scale tone then
-    /// reads 0 dB, and noise reads its true power in the band. The default, rectangular, divides by 1.
+    /// The level is the power sum of the points of `spectrum` (a `SpectrumAnalyzer` spectrum, DC to Nyquist) whose
+    /// frequency lies in the band, lower edge included and upper excluded, divided by the number of bins a line is
+    /// spread over. That number is the window's `equivalentNoiseBandwidth` times the zero padding `size /
+    /// frameLength`: name the `window` the spectrum was made with, and when the transform was longer than the frame
+    /// (`spectrum(of:)` of a buffer whose length is not a power of two, or `averagedSpectrum` of one shorter than a
+    /// segment) the `frameLength` too. Left out, the window is rectangular and there is no padding. Points at
+    /// `Decibels.floor` hold nothing; a band holding no point, or only such points, reads `Decibels.floor`.
     public static func levels(
         of spectrum: MagnitudeResponse,
         fraction: Int,
         from lower: Float,
         to upper: Float,
-        window: Window = .rectangular
+        window: Window = .rectangular,
+        frameLength: Int? = nil
     ) -> MagnitudeResponse {
         let centres = centres(fraction: fraction, from: lower, to: upper)
-        let correction = Double(window.equivalentNoiseBandwidth)
+        let size = 2 * max(spectrum.count - 1, 1)
+        let padding = frameLength.map { Double(size) / Double(min(max($0, 1), size)) } ?? 1
+        let correction = Double(window.equivalentNoiseBandwidth) * padding
         let levels = centres.map { centre -> Float in
             let edges = edges(ofCentre: centre, fraction: fraction)
             var power = 0.0
-            var found = false
             for (frequency, level) in zip(spectrum.frequencies, spectrum.decibels)
-            where frequency >= edges.lower && frequency < edges.upper {
+            where frequency >= edges.lower && frequency < edges.upper && !(level <= Decibels.floor) {
                 power += pow(10, Double(level) / 10)
-                found = true
             }
-            return found ? Decibels.fromPower(Float(power / correction)) : Decibels.floor
+            // NaN levels poison the sum, so a corrupt spectrum gives NaN bands.
+            return power > 0 || power.isNaN ? Decibels.fromPower(Float(power / correction)) : Decibels.floor
         }
         return MagnitudeResponse(frequencies: centres, decibels: levels)
     }

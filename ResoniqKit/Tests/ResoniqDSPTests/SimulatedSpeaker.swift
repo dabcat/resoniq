@@ -1,4 +1,4 @@
-import Foundation
+import Accelerate
 @testable import ResoniqDSP
 
 /// A second-order IIR section (RBJ cookbook), in double precision, whose magnitude response is known exactly.
@@ -59,13 +59,14 @@ struct SeededGenerator: RandomNumberGenerator {
         return z ^ (z >> 31)
     }
 
-    /// Gaussian white noise with standard deviation `rms` (Box–Muller).
+    /// Gaussian white noise with standard deviation `rms` (Box–Muller), the transcendental part done as vectors.
     mutating func noise(count: Int, rms: Double) -> [Double] {
-        (0..<count).map { _ in
-            let u = Double.random(in: Double.ulpOfOne..<1, using: &self)
-            let v = Double.random(in: 0..<1, using: &self)
-            return rms * (-2 * log(u)).squareRoot() * cos(2 * Double.pi * v)
-        }
+        guard count > 0 else { return [] }
+        // 53 random bits as a fraction in (0, 1]: never 0, so the logarithm is finite.
+        let u = (0..<count).map { _ in Double((next() >> 11) + 1) * 0x1p-53 }
+        let v = (0..<count).map { _ in Double(next() >> 11) * 0x1p-53 }
+        let radius = vForce.sqrt(vDSP.multiply(-2, vForce.log(u)))
+        return vDSP.multiply(rms, vDSP.multiply(radius, vForce.cos(vDSP.multiply(2 * Double.pi, v))))
     }
 }
 
@@ -124,14 +125,14 @@ struct SimulatedSpeaker {
     static func delayed(_ signal: [Float], by delay: Double, length: Int) -> [Float] {
         let size = FFT.nextPowerOfTwo(length + 1024)
         let spectrum = FFT.forward(signal, size: size)
-        var real = spectrum.real
-        var imaginary = spectrum.imaginary
-        for bin in 0..<size {
-            let signedBin = bin <= size / 2 ? Double(bin) : Double(bin - size)
-            let phase = -2 * Double.pi * signedBin * delay / Double(size)
-            let (c, s) = (Float(cos(phase)), Float(sin(phase)))
-            (real[bin], imaginary[bin]) = (real[bin] * c - imaginary[bin] * s, real[bin] * s + imaginary[bin] * c)
-        }
+        // e^(−2πj·k·delay/N) with k signed: 0…N/2 then −(N/2 − 1)…−1.
+        let step = -2 * Double.pi * delay / Double(size)
+        let phase = vDSP.ramp(withInitialValue: 0, increment: step, count: size / 2 + 1)
+            + vDSP.ramp(withInitialValue: -Double(size / 2 - 1) * step, increment: step, count: size / 2 - 1)
+        let c = vDSP.doubleToFloat(vForce.cos(phase))
+        let s = vDSP.doubleToFloat(vForce.sin(phase))
+        let real = vDSP.subtract(vDSP.multiply(spectrum.real, c), vDSP.multiply(spectrum.imaginary, s))
+        let imaginary = vDSP.add(vDSP.multiply(spectrum.real, s), vDSP.multiply(spectrum.imaginary, c))
         return Array(FFT.inverse(ComplexSpectrum(real: real, imaginary: imaginary)).prefix(length))
     }
 }

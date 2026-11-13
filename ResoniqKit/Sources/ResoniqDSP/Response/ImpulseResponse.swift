@@ -33,24 +33,61 @@ public struct ImpulseResponse: Sendable, Equatable {
     public let sampleRate: Double
     /// The arrival of the linear response: the sample of largest magnitude.
     public let peakIndex: Int
-    /// The frequencies, in hertz, the response is valid over: the sweep's range. Outside it the deconvolution
-    /// suppresses everything, so a frequency response is only reported inside it.
+    /// The frequencies, in hertz, the sweep played: its range. Outside it the deconvolution suppresses everything.
     public let band: ClosedRange<Double>
+    /// The part of `band` whose stretch of the sweep the recording actually holds, in hertz; nil when it holds none
+    /// of it (an empty, all-zero or corrupt recording, or one that ends before the sweep reached the speaker).
+    /// Narrower than `band` when the recording started after the sweep (the bass is missing) or stopped before the
+    /// sweep's end plus the route's delay (the treble is missing). Nothing can be concluded about a frequency
+    /// outside it: it was never recorded.
+    public let capturedBand: ClosedRange<Double>?
+    /// The frequencies, in hertz, `frequencyResponse` reports: where the response is accurate. The sweep's
+    /// `LogSweep.trustedBand`, narrowed further where the recording was cut (`Deconvolution` documents how far);
+    /// nil when nothing is. Equal to `band` for a response built by hand.
+    public let trustedBand: ClosedRange<Double>?
+    /// Seconds of recording the response was deconvolved from, counted from time zero; nil when built by hand. The
+    /// harmonic analysis uses it to find a stretch of the response that holds only noise.
+    public let recordingDuration: Double?
 
+    /// A response built by hand: everything in `band` counts as captured and trusted.
+    ///
     /// - Parameters:
     ///   - peakIndex: The linear arrival; the sample of largest magnitude when nil.
     ///   - band: Hertz; from 0 to the Nyquist frequency when nil.
     public init(samples: [Float], sampleRate: Double, peakIndex: Int? = nil, band: ClosedRange<Double>? = nil) {
+        let band = band ?? 0...(sampleRate / 2)
+        self.init(
+            samples: samples, sampleRate: sampleRate, peakIndex: peakIndex,
+            band: band, capturedBand: band, trustedBand: band, recordingDuration: nil
+        )
+    }
+
+    /// Every field given, as `Deconvolution` builds it or a test fixture needs it.
+    public init(
+        samples: [Float],
+        sampleRate: Double,
+        peakIndex: Int?,
+        band: ClosedRange<Double>,
+        capturedBand: ClosedRange<Double>?,
+        trustedBand: ClosedRange<Double>?,
+        recordingDuration: Double?
+    ) {
         precondition(!samples.isEmpty, "an impulse response needs samples")
         precondition(sampleRate > 0, "sample rate must be positive")
         self.samples = samples
         self.sampleRate = sampleRate
         self.peakIndex = peakIndex ?? Int(vDSP.indexOfMaximum(vDSP.absolute(samples)).0)
-        self.band = band ?? 0...(sampleRate / 2)
+        self.band = band
+        self.capturedBand = capturedBand
+        self.trustedBand = trustedBand
+        self.recordingDuration = recordingDuration
         precondition(samples.indices.contains(self.peakIndex), "peak index outside the buffer")
     }
 
     public var count: Int { samples.count }
+
+    /// Whether the recording held the whole sweep, from its first sample to its last.
+    public var capturesWholeSweep: Bool { capturedBand == band }
 
     /// The buffer index of `time` seconds after time zero (negative: before it), wrapped into the buffer.
     public func index(atTime time: Double) -> Int {
@@ -79,21 +116,22 @@ public struct ImpulseResponse: Sendable, Equatable {
     }
 
     /// The magnitude of the response windowed around the linear peak, in dB re the sweep (0 dB: the sweep came
-    /// back unchanged), on the transform's linear frequency grid restricted to `band`.
+    /// back unchanged), on the transform's linear frequency grid restricted to `trustedBand`. Empty when nothing
+    /// is trusted: an empty or corrupt recording, or one that missed the sweep.
     ///
     /// The window rises over `preWindow` seconds before the peak (half a Hann window) and stays flat after it,
-    /// fading over the last `postTaperFraction` of `postWindow`. Nothing below about `1 / postWindow` hertz is
-    /// resolved; whatever arrives within the window (reflections included) is part of the result. Below twice the
-    /// sweep's start frequency the deconvolution's low cut (`Deconvolution.lowCutRatio`) is included.
+    /// fading over the last `postTaperFraction` of `postWindow`; on a response shorter than that it is cut to fit.
+    /// Nothing below about `1 / postWindow` hertz is resolved, and the accuracy `LogSweep.trustedBand` states is for
+    /// the default window; whatever arrives within the window (reflections included) is part of the result.
     public func frequencyResponse(
         preWindow: Double = ImpulseResponse.defaultPreWindow,
         postWindow: Double = ImpulseResponse.defaultPostWindow
     ) -> MagnitudeResponse {
-        let pre = Int((preWindow * sampleRate).rounded())
-        let post = Int((postWindow * sampleRate).rounded())
-        let size = max(Self.minimumTransformSize, FFT.nextPowerOfTwo(pre + post))
-        let magnitudes = windowedMagnitudes(around: peakIndex, pre: pre, post: post, size: size)
-        let bins = binRange(size: size, upTo: band.upperBound)
+        let window = fitted(pre: seconds(preWindow), post: seconds(postWindow))
+        guard let trustedBand, let window else { return MagnitudeResponse(frequencies: [], decibels: []) }
+        let size = max(Self.minimumTransformSize, FFT.nextPowerOfTwo(window.pre + window.post))
+        guard let bins = bins(size: size, in: trustedBand) else { return MagnitudeResponse(frequencies: [], decibels: []) }
+        let magnitudes = windowedMagnitudes(around: peakIndex, pre: window.pre, post: window.post, plan: FFT.Plan(size: size, inverse: false))
         return MagnitudeResponse(
             frequencies: bins.map { Float(FFT.frequency(ofBin: $0, size: size, sampleRate: sampleRate)) },
             decibels: bins.map { Decibels.fromAmplitude(magnitudes[$0]) }
@@ -102,33 +140,38 @@ public struct ImpulseResponse: Sendable, Equatable {
 
     // MARK: - Shared with the distortion analysis
 
-    /// The magnitude spectrum (all `size` bins) of the samples from `pre` before `centre` to `post` after it,
+    /// `seconds` as a whole number of samples.
+    func seconds(_ seconds: Double) -> Int { Int((seconds * sampleRate).rounded()) }
+
+    /// A window of `pre` samples before its centre and `post` after it, cut to fit the buffer: `pre` first kept
+    /// below half the buffer, then `post` to the rest. Nil when no sample after the centre is left.
+    func fitted(pre: Int, post: Int) -> (pre: Int, post: Int)? {
+        let pre = min(max(pre, 0), count / 2)
+        let post = min(post, count - pre)
+        return post > 0 ? (pre, post) : nil
+    }
+
+    /// The magnitude spectrum (all `plan.size` bins) of the samples from `pre` before `centre` to `post` after it,
     /// windowed as `frequencyResponse` describes.
-    func windowedMagnitudes(around centre: Int, pre: Int, post: Int, size: Int) -> [Float] {
-        precondition(pre >= 0 && post > 0 && pre + post <= min(count, size), "window does not fit the response")
+    func windowedMagnitudes(around centre: Int, pre: Int, post: Int, plan: FFT.Plan) -> [Float] {
+        precondition(pre >= 0 && post > 0 && pre + post <= min(count, plan.size), "window does not fit the response")
         let taper = max(1, Int(Double(post) * Self.postTaperFraction))
         var segment = [Float](repeating: 0, count: pre + post)
         for offset in 0..<(pre + post) {
-            var weight = 1.0
-            if offset < pre {
-                weight = 0.5 * (1 - cos(Double.pi * Double(offset) / Double(pre)))
-            } else {
-                let intoTaper = offset - pre - (post - taper)
-                if intoTaper >= 0 {
-                    weight = 0.5 * (1 + cos(Double.pi * Double(intoTaper) / Double(taper)))
-                }
-            }
+            let weight = offset < pre
+                ? RaisedCosine.rise(Double(offset), over: Double(pre))
+                : RaisedCosine.rise(Double(pre + post - offset), over: Double(taper))
             segment[offset] = Float(weight) * samples[wrap(centre - pre + offset)]
         }
-        return FFT.forward(segment, size: size).magnitudes
+        return plan.forward(segment).magnitudes
     }
 
-    /// The bins of a `size`-point transform from the bottom of `band` (at least bin 1) up to `upper` hertz.
-    func binRange(size: Int, upTo upper: Double) -> ClosedRange<Int> {
-        let low = max(1, Int((band.lowerBound * Double(size) / sampleRate).rounded(.up)))
-        let high = min(size / 2, Int((min(upper, band.upperBound) * Double(size) / sampleRate).rounded(.down)))
-        precondition(high >= low, "no bins in the band")
-        return low...high
+    /// The bins of a `size`-point transform whose frequencies lie in `range` (never bin 0, never past Nyquist);
+    /// nil when there are none.
+    func bins(size: Int, in range: ClosedRange<Double>) -> ClosedRange<Int>? {
+        let low = max(1, Int((range.lowerBound * Double(size) / sampleRate).rounded(.up)))
+        let high = min(size / 2, Int((range.upperBound * Double(size) / sampleRate).rounded(.down)))
+        return high >= low ? low...high : nil
     }
 
     private func wrap(_ index: Int) -> Int {

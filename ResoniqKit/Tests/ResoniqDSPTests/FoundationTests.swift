@@ -12,6 +12,15 @@ import Testing
         #expect(Decibels.fromAmplitude(0) == Decibels.floor)
     }
 
+    @Test func `a value that is not a number stays not a number`() {
+        // Turning NaN into the floor made a corrupt recording read as silence.
+        #expect(Decibels.fromAmplitude(.nan).isNaN)
+        #expect(Decibels.fromPower(.nan).isNaN)
+        #expect(Decibels.fromAmplitude(.infinity) == .infinity)
+        #expect(Decibels.fromPower(.infinity) == .infinity)
+        #expect(Decibels.fromAmplitude(-1) == Decibels.floor)
+    }
+
     @Test func `decibels convert back to amplitude`() {
         #expect(abs(Decibels.toAmplitude(-6.0206) - 0.5) < 0.0001)
     }
@@ -34,11 +43,14 @@ import Testing
         #expect(rest < 0.01)
     }
 
-    @Test func `inverse undoes forward`() {
-        var generator = SystemRandomNumberGenerator()
-        let signal = (0..<512).map { _ in Float.random(in: -1...1, using: &generator) }
+    @Test(arguments: [16, 512, 65536])
+    func `inverse undoes forward`(size: Int) {
+        // Seeded, so a failure reproduces.
+        var generator = SeededGenerator(state: 3)
+        let signal = (0..<size).map { _ in Float.random(in: -1...1, using: &generator) }
         let back = FFT.inverse(FFT.forward(signal))
-        #expect(zip(signal, back).allSatisfy { abs($0 - $1) < 1e-4 })
+        let worst = zip(signal, back).map { abs($0 - $1) }.max() ?? 1
+        #expect(worst < 1e-5 * Float(size).squareRoot(), "worst \(worst)")
     }
 
     @Test func `forward pads to a power of two`() {

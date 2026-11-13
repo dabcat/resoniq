@@ -46,6 +46,7 @@ private func kind(of verdict: RecordingVerdict) -> String {
     case .tooQuiet: "tooQuiet"
     case .tooNoisy: "tooNoisy"
     case .silent: "silent"
+    case .corrupt: "corrupt"
     }
 }
 
@@ -128,6 +129,42 @@ private func kind(of verdict: RecordingVerdict) -> String {
         #expect(abs(report.clippedFraction - 0.570) < 0.02)
     }
 
+    /// `samples` as a 16-bit converter delivers them.
+    private func quantised(_ samples: [Float]) -> [Float] {
+        samples.map { ($0 * 32768).rounded() / 32768 }
+    }
+
+    @Test(arguments: [Float(1), 2, 3.9])
+    func `the app's own sweep, quantised to 16 bits, is not clipped`(gain: Float) {
+        // At 20 Hz a 16-bit crest repeats its value for eight samples or more; that used to read as a limiter's
+        // flat top. A sine of that level and frequency allows such a run, so it is not one.
+        for sweep in [LogSweep.measurement(sampleRate: 48000), LogSweep(startFrequency: 20, endFrequency: 20000, duration: 5, sampleRate: 48000)] {
+            let report = ClippingDetector.detect(quantised(sweep.samples().map { $0 * gain }))
+            #expect(!report.isClipped, "gain \(gain), sweep from \(sweep.startFrequency) Hz: run \(report.longestRun)")
+        }
+    }
+
+    @Test(arguments: [(20.0, Float(0.2)), (30, 0.2), (50, 0.12), (100, 0.5), (40, 0.9), (10, 0.25)])
+    func `a slow clean sine is not clipped, in float or in 16 bits`(frequency: Double, amplitude: Float) {
+        let clean = sine(frequency: frequency, amplitude: amplitude, count: seconds(1), phase: 0.2)
+        #expect(!ClippingDetector.detect(clean).isClipped)
+        #expect(!ClippingDetector.detect(quantised(clean)).isClipped)
+    }
+
+    @Test(arguments: [Float(0.6), 0.3])
+    func `a limited sweep is still clipped, in float and in 16 bits`(limit: Float) {
+        let limited = LogSweep.measurement(sampleRate: 48000).samples().map { min(max($0 * 3.9, -limit), limit) }
+        #expect(ClippingDetector.detect(limited).isClipped)
+        #expect(ClippingDetector.detect(quantised(limited)).isClipped)
+    }
+
+    @Test func `a mildly limited low tone is clipped`() {
+        // 1 % over the limit at 200 Hz: flat for about eleven samples, where a clean crest of that level holds
+        // within a step for at most eight.
+        let limited = clamped(sine(frequency: 200, amplitude: 0.505, count: seconds(0.5)), to: 0.5)
+        #expect(ClippingDetector.detect(limited).isClipped)
+    }
+
     @Test func `silence is not clipped`() {
         #expect(!ClippingDetector.detect([Float](repeating: 0, count: 4800)).isClipped)
         #expect(!ClippingDetector.detect([]).isClipped)
@@ -143,9 +180,22 @@ private func kind(of verdict: RecordingVerdict) -> String {
 // MARK: - Noise floor
 
 @Suite struct NoiseFloorTests {
-    @Test func `bands run from 31.5 Hz to 16 kHz in octaves`() {
+    @Test func `bands are the ten OctaveBands octaves from 31.5 Hz to 16 kHz`() {
         let report = NoiseFloor.measure(whiteNoise(rms: 0.01, count: seconds(1)), sampleRate: sampleRate)
-        #expect(report.bandLevels.frequencies == [31.5, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000])
+        #expect(report.bandLevels.frequencies == OctaveBands.centres(fraction: 1, from: 31.5, to: 16000))
+        #expect(report.bandLevels.count == 10)
+    }
+
+    @Test func `the bands of white noise add up to its broadband level`() {
+        // Every level is a mean square, so the bands' powers sum to the noise's variance times the share of
+        // 0…Nyquist they cover (22.4 Hz to 22.4 kHz of 24 kHz). 0.1 dB: the estimate's spread over 4 s.
+        let rms: Float = 0.01
+        let report = NoiseFloor.measure(whiteNoise(rms: rms, count: seconds(4)), sampleRate: sampleRate)
+        let total = report.bandLevels.decibels.reduce(Float(0)) { $0 + pow(10, $1 / 10) }
+        let low = OctaveBands.edges(ofCentre: report.bandLevels.frequencies.first!, fraction: 1).lower
+        let high = OctaveBands.edges(ofCentre: report.bandLevels.frequencies.last!, fraction: 1).upper
+        let expected = rms * rms * (high - low) / Float(sampleRate / 2)
+        #expect(abs(10 * log10(total) - 10 * log10(expected)) < 0.1)
     }
 
     @Test func `broadband level is the recording's RMS`() {
@@ -170,14 +220,14 @@ private func kind(of verdict: RecordingVerdict) -> String {
     }
 
     @Test(arguments: [250.0, 1000.0, 4000.0, 16000.0])
-    func `white noise fills each band in proportion to its width`(centre: Double) throws {
+    func `white noise fills each band in proportion to its width`(nominal: Double) throws {
         // White noise of variance σ² puts σ² · width / (fs/2) into a band of the given width. 0.5 dB covers the
-        // estimator's spread over 4 s and rounding the band edges to whole FFT bins (5.9 Hz apart).
+        // estimator's spread over 4 s and rounding the band edges to whole FFT bins (2.9 Hz apart).
         let rms: Float = 0.01
         let bands = NoiseFloor.measure(whiteNoise(rms: rms, count: seconds(4)), sampleRate: sampleRate).bandLevels
-        let index = try #require(bands.frequencies.firstIndex { Double($0) == centre })
-        let exact = 1000 * pow(2, (log2(centre / 1000)).rounded())
-        let width = min(exact * sqrt(2), sampleRate / 2) - exact / sqrt(2)
+        let index = try #require(bands.frequencies.firstIndex { abs(Double($0) / nominal - 1) < 0.03 })
+        let edges = OctaveBands.edges(ofCentre: bands.frequencies[index], fraction: 1)
+        let width = Double(min(edges.upper, Float(sampleRate / 2)) - edges.lower)
         let expected = Decibels.fromPower(rms * rms * Float(width / (sampleRate / 2)))
         #expect(abs(bands.decibels[index] - expected) < 0.5)
     }
@@ -211,9 +261,9 @@ private func kind(of verdict: RecordingVerdict) -> String {
     }
 
     @Test func `bands above Nyquist are left out`() {
-        // At 22.05 kHz the Nyquist frequency is 11.025 kHz: the 16 kHz band (11.3–22.6 kHz) cannot be measured.
+        // At 22.05 kHz the Nyquist frequency is 11.025 kHz: the 16 kHz band (11.2–22.4 kHz) cannot be measured.
         let report = NoiseFloor.measure(whiteNoise(rms: 0.01, count: 22050), sampleRate: 22050)
-        #expect(report.bandLevels.frequencies.last == 8000)
+        #expect(abs(report.bandLevels.frequencies.last! - 7943.28) < 0.01)
     }
 }
 
@@ -227,12 +277,14 @@ private func kind(of verdict: RecordingVerdict) -> String {
         #expect(abs(SignalToNoise.ratio(signal: signal, noise: noise) - 56.99) < 0.05)
     }
 
-    @Test func `ratio of two buffers matches the ratio of their levels`() {
+    @Test func `ratio of two buffers is the ratio of their RMS, computed independently`() {
+        // The RMS of each buffer worked out here in double precision, not by LevelMeter: a 1 kHz sine of 0.1 over
+        // 4800 samples (a whole number of periods) has RMS 0.1/√2 exactly.
         let signal = sine(frequency: 1000, amplitude: 0.1, count: 4800)
         let noise = whiteNoise(rms: 0.001, count: 4800)
-        let fromBuffers = SignalToNoise.ratio(signal: signal, noise: noise)
-        let fromLevels = SignalToNoise.ratio(signal: LevelMeter.measure(signal), noise: LevelMeter.measure(noise))
-        #expect(fromBuffers == fromLevels)
+        let noiseRMS = (noise.reduce(0.0) { $0 + Double($1) * Double($1) } / Double(noise.count)).squareRoot()
+        let expected = 20 * log10(0.1 / 2.squareRoot() / noiseRMS)
+        #expect(abs(Double(SignalToNoise.ratio(signal: signal, noise: noise)) - expected) < 0.001)
     }
 
     @Test func `the same noise ten times louder is 20 dB up in every band`() {
@@ -329,11 +381,104 @@ private func kind(of verdict: RecordingVerdict) -> String {
         #expect(kind(of: RecordingQuality.assess(recording: recording, noiseFloor: loudRoom)) == "tooQuiet")
     }
 
+    @Test func `a real sweep recording in a quiet room is valid, with the ratio its parts give`() throws {
+        // The measurement sweep through a speaker that rolls off below 80 Hz, recorded 0.15 s late with 0.5 s of
+        // tail and room noise at −60 dBFS, against a second of that room alone. The ratio is worked out here from
+        // the two buffers' RMS in double precision.
+        let sweep = LogSweep.measurement(sampleRate: sampleRate)
+        let speaker = SimulatedSpeaker(
+            delaySamples: 7200,
+            filters: [Biquad.highPass(frequency: 80, q: 0.707, sampleRate: sampleRate)],
+            noiseRMS: 0.001,
+            seed: 5
+        )
+        let recording = speaker.record(sweep)
+        var generator = SeededGenerator(state: 6)
+        let room = generator.noise(count: seconds(1), rms: 0.001).map(Float.init)
+        let floor = NoiseFloor.measure(room, sampleRate: sampleRate)
+        #expect(floor.isSteady)
+        guard case let .valid(level, signalToNoise) = RecordingQuality.assess(recording: recording, noiseFloor: floor) else {
+            Issue.record("expected valid")
+            return
+        }
+        func rms(_ samples: [Float]) -> Double {
+            (samples.reduce(0.0) { $0 + Double($1) * Double($1) } / Double(samples.count)).squareRoot()
+        }
+        #expect(abs(Double(signalToNoise) - 20 * log10(rms(recording) / rms(room))) < 0.01)
+        // The sweep plays at 0.25; the high-pass's resonance lifts its peak a little above that.
+        #expect(level.peak > 0.24 && level.peak < 0.3)
+        #expect(!ClippingDetector.detect(recording).isClipped)
+    }
+
     @Test func `thresholds are a parameter`() {
         var strict = QualityThresholds.standard
         strict.minimumSignalToNoiseDecibels = 70
         let recording = sine(frequency: 1000, amplitude: 0.25, count: seconds(1))
         #expect(kind(of: RecordingQuality.assess(recording: recording, noiseFloor: quietRoom, thresholds: strict)) == "tooNoisy")
+    }
+}
+
+// MARK: - Corrupt input
+
+@Suite struct NonFiniteInputTests {
+    static let corruptions: [Float] = [.nan, .infinity, -.infinity]
+
+    /// A clean sweep-level tone with one sample replaced.
+    static func recording(with value: Float, at index: Int = 5000) -> [Float] {
+        var samples = sine(frequency: 1000, amplitude: 0.2, count: seconds(1))
+        samples[index] = value
+        return samples
+    }
+
+    @Test(arguments: corruptions)
+    func `one corrupt sample makes the verdict corrupt, before anything else`(value: Float) {
+        let floor = NoiseFloor.measure(whiteNoise(rms: 0.0001, count: seconds(1)), sampleRate: sampleRate)
+        guard case let .corrupt(count) = RecordingQuality.assess(recording: Self.recording(with: value), noiseFloor: floor) else {
+            Issue.record("expected corrupt for one \(value)")
+            return
+        }
+        #expect(count == 1)
+        // Even in an otherwise silent recording, corrupt comes first: silence would send the user to the
+        // microphone permission, when the fault is in the data.
+        var silent = [Float](repeating: 0, count: seconds(1))
+        silent[10] = value
+        #expect(kind(of: RecordingQuality.assess(recording: silent, noiseFloor: floor)) == "corrupt")
+    }
+
+    @Test(arguments: corruptions)
+    func `the level of a corrupt buffer is not a number, not the floor`(value: Float) {
+        let level = LevelMeter.measure(Self.recording(with: value))
+        #expect(!level.isFinite)
+        #expect(!level.peakDecibels.isFinite && !level.rmsDecibels.isFinite)
+        #expect(LevelMeter.measure(sine(frequency: 1000, amplitude: 0.2, count: 4800)).isFinite)
+    }
+
+    @Test(arguments: corruptions)
+    func `a corrupt quiet recording is neither steady nor a floor`(value: Float) {
+        var quiet = whiteNoise(rms: 0.0001, count: seconds(1))
+        quiet[1000] = value
+        let report = NoiseFloor.measure(quiet, sampleRate: sampleRate)
+        #expect(!report.isSteady)
+        #expect(!report.rmsDecibels.isFinite)
+        #expect(report.bandLevels.decibels.allSatisfy { !$0.isFinite })
+    }
+
+    @Test(arguments: corruptions)
+    func `the gate pauses on a corrupt block and does not call it quiet`(value: Float) {
+        var block = whiteNoise(rms: 0.0001, count: 4800)
+        block[100] = value
+        #expect(NoiseGate.isTooNoisy(block: block, baseline: -60))
+        #expect(!NoiseGate.isQuietEnough(block: block, baseline: -60))
+        // A corrupt baseline cannot vouch for a clean block either.
+        let clean = whiteNoise(rms: 0.0001, count: 4800)
+        #expect(!NoiseGate.isQuietEnough(block: clean, baseline: .nan))
+        #expect(NoiseGate.isTooNoisy(block: clean, baseline: .nan))
+    }
+
+    @Test(arguments: corruptions)
+    func `a spectrum of a corrupt buffer is not finite`(value: Float) {
+        let spectrum = SpectrumAnalyzer.spectrum(of: Self.recording(with: value), sampleRate: sampleRate)
+        #expect(spectrum.decibels.allSatisfy { !$0.isFinite })
     }
 }
 

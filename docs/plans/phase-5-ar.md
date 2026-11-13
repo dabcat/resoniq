@@ -1,7 +1,7 @@
 ---
 type: "plan"
 phase: 5
-status: "planned"
+status: "done"
 tags:
   - "plan/phase-5"
 ---
@@ -49,12 +49,25 @@ Rules:
 
 | # | Task | Module | Model | Status |
 |---|---|---|---|---|
-| 1 | `MoveGuidance`, `WorldAlignment` | Room | Opus | todo |
-| 2 | `SeatComparison`, `ComparisonReport`, texts | Diagnostics | Opus | todo |
-| 3 | `Optimization` in the store | Store | Sonnet | todo |
-| 4 | AR session wrapper: floor detection, alignment, footprints and arc in RealityKit, haptics | App | Opus | todo |
-| 5 | Components and screens: AR overlay readouts, Before and after, no improvement, subwoofer suggestion | Design, App | Sonnet | todo |
-| 6 | Check in the simulator (everything but the camera); module notes | — | Fable | todo |
+| 1 | `MoveGuidance`, `WorldAlignment` | Room | Opus | done |
+| 2 | `SeatComparison`, `ComparisonReport`, texts | Diagnostics | Opus | done |
+| 3 | `Optimization` in the store | Store | Sonnet | done |
+| 4 | AR session wrapper: floor detection, alignment, footprints and arc in RealityKit, haptics | App | Opus | done; never run on a device |
+| 5 | Components and screens: AR overlay readouts, Before and after, no improvement, subwoofer suggestion | Design, App | Sonnet | done |
+| 6 | Check in the simulator (everything but the camera); module notes | — | Fable | module notes done; the comparison with the mockups is not recorded |
 
 Done when: `make test` and `make build` pass; in the simulator the "move it myself" path goes from a suggestion
 through a second measurement to Before and after. The AR path needs a device and is verified by the owner.
+
+## Notes
+
+**What differs from the plan.**
+
+- The speaker's position in AR is **marked by the user, not tracked**: ARKit does not track an arbitrary loudspeaker. The person puts a reticle on the speaker's front and marks it; while "Follow" is held the speaker's outline follows the reticle as the speaker slides. The speaker's turn is not seen either: "I can't see the speaker turn, so line it up by eye."
+- The camera and the floor overlays are RealityKit on the source's own `ARSession`; the screen talks only to `ARGuidanceModel`. In the simulator `ScriptedARGuidanceSource` acts out a whole move on a 2D stand-in for the camera.
+- Tracking trouble is a state of its own (limited tracking, too dark) with its own sentence; the guide never pretends.
+- "Improved" is said only from the second measurement, tagged `measured`; a change inside the repeatability (1.5 dB) is unchanged. Worse and unchanged have a screen of their own (no mockup) with "Put the speaker back where it was" as the quiet link.
+- `Optimization` tracks outcomes `suggested`, `moved`, `verified`, `kept`, `putBack`, `declined`; the tracker's steps are true only when their data exists.
+- Hand-over between tabs: Optimize asks Measure for a seat measurement, and when Measure keeps a conclusive report Optimize compares it with the one before the move and shows Before and after.
+
+**Not verified until a device test.** All of AR guidance: floor detection, the raycast under the screen's centre, how well a person can mark a speaker's front, the follow control used one-handed, tracking and relocalisation after an interruption, the haptics' feel, VoiceOver's announcements while moving, the camera permission and denied state. The list is in [ResoniqRoom](../modules/ResoniqRoom.md) and the [device checklist](../device-checklist.md).

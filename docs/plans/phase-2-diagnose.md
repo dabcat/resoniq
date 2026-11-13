@@ -1,7 +1,7 @@
 ---
 type: "plan"
 phase: 2
-status: "active"
+status: "done"
 tags:
   - "plan/phase-2"
 ---
@@ -64,17 +64,43 @@ Rules the diagnosis must follow:
 
 | # | Task | Module | Model | Status |
 |---|---|---|---|---|
-| 1 | `RunAnalyzer`, `PortraitProfile`, `DriverBand`, `Finding`, `EvidenceTag`, `SpeakerDiagnosis`, `SpeakerReport` | Diagnostics | Opus | todo |
-| 2 | `AudioIO` protocol, `AVAudioEngine` implementation, session configuration, `MeasurementSession`, splicing, `MicrophonePermission`, `StillnessMonitor`, simulated IO for tests | Audio | Opus | todo |
-| 3 | SwiftData models, default room and system, saving and loading a `SpeakerReport`, quick check that saves nothing | Store | Sonnet | todo |
-| 4 | Components: speaker portrait (not heard, drawing, paused, deviation), readout, status pill, segmented control, hold-to-hear, evidence tag | Design | Sonnet | todo |
-| 5 | Diagnose flow model in the app (wires Audio → Diagnostics → Store) and the screens Aim, Listening, Paused | App | Sonnet | todo |
-| 6 | Screens Result, Finding, Diagnose home; hold-to-hear tone playback | App | Sonnet | todo |
-| 7 | States with no mockup: microphone denied, recording clipped or too quiet, all speakers healthy | App | Sonnet | todo |
-| 8 | Check against the mockups in the simulator with a simulated `AudioIO`; module notes | — | Fable | todo |
+| 1 | `RunAnalyzer`, `PortraitProfile`, `DriverBand`, `Finding`, `EvidenceTag`, `SpeakerDiagnosis`, `SpeakerReport` | Diagnostics | Opus | done |
+| 2 | `AudioIO` protocol, `AVAudioEngine` implementation, session configuration, `MeasurementSession`, splicing, `MicrophonePermission`, `StillnessMonitor`, simulated IO for tests | Audio | Opus | done |
+| 3 | SwiftData models, default room and system, saving and loading a `SpeakerReport`, quick check that saves nothing | Store | Sonnet | done |
+| 4 | Components: speaker portrait (not heard, drawing, paused, deviation), readout, status pill, segmented control, hold-to-hear, evidence tag | Design | Sonnet | done |
+| 5 | Diagnose flow model in the app (wires Audio → Diagnostics → Store) and the screens Aim, Listening, Paused | App | Sonnet | done |
+| 6 | Screens Result, Finding, Diagnose home; hold-to-hear tone playback | App | Sonnet | done |
+| 7 | States with no mockup: microphone denied, recording clipped or too quiet, all speakers healthy | App | Sonnet | done |
+| 8 | Check against the mockups in the simulator with a simulated `AudioIO`; module notes | — | Fable | module notes done; the comparison with the mockups is not recorded |
 
 Tasks 1 to 4 run in parallel (three at a time); 5 to 7 follow.
 
 Done when: `make test` and `make build` pass; in the simulator, with the simulated audio, a test runs from Aim
 to Result and the screens match their mockups. Playing and recording through real speakers is verified on a
 device by the owner and listed as not verified until then.
+
+## Notes
+
+**Delivered with phase 3.** Phases 2 and 3 go into one pull request: the review fixes for phase 2 were made on the phase 3 branch (`feat/phase-3-measure`), after the DSP was hardened in phase 1 and the audio and diagnostics modules had to be adapted to it. The tables above give the contract as planned; the built interface is in the module notes ([ResoniqAudio](../modules/ResoniqAudio.md), [ResoniqDiagnostics](../modules/ResoniqDiagnostics.md), [ResoniqStore](../modules/ResoniqStore.md), [ResoniqDesign](../modules/ResoniqDesign.md), [App](../modules/App.md)).
+
+**What differs from the plan.**
+
+- Every run plays `LogSweep.measurement` (10 Hz to 22 kHz, 4 s), not a 20 Hz to 20 kHz sweep; the response is reported from 20 Hz to 20 kHz.
+- Findings hedge in their headlines ("Possible buzz at 80–110 Hz") where the mockups state the defect ("Buzz at 70–110 Hz"), because a suspected defect is never stated as confirmed. The even statement says what was checked and what was not (distortion below 80 Hz).
+- The route to the speakers is checked before any sound: with nothing connected the phone plays through its receiver, and the app would have diagnosed that as the left speaker. Both sessions fail with `speakersNotConnected`; the tone player refuses too. Not in the plan.
+- A rattle or a reverberant room no longer pauses a run for ever: noise that returns where it first paused the run is tied to the sweep, a run pauses at most six times, and a pause past 30 s ends the test as too noisy.
+- Two takes are spliced only if the route's delay did not move between them (30 µs).
+- New finding kinds beyond the plan's list: a quiet band ("I could barely hear the woofer"), a band not assessed, a rattle, unclear distortion. The app's exhaustive switches over `Finding.Kind` had to learn each in the same change.
+- States with no mockup were built from the design system and listed as such in each file's header: microphone denied, repeating a run, failed (clipped or too quiet), failed too noisy, speakers not connected, all speakers healthy, quiet woofer, not assessed.
+- Hold to hear shows the tone player's error under the control and resets when the Kit ends a tone after its limit (20 s).
+
+**What the review found, and what was fixed.** An independent review of the audio, diagnostics and app layers found, among others:
+
+- `EngineAudioIO` depended on the player's timeline, which is unknown after every stop; scheduling now comes from the tap's host-time anchor; stops fade over 6 ms; one session owner. Device-only, checked by an iOS build.
+- Findings said more than was assessed: the Kit now says only what was assessed about a speaker and about a seat ("sounds even" only for the assessed band), and a test runs the wording rules over every fixture report.
+- Unmeasured distortion and response were drawn as zero in the run traces; they are gaps now.
+- The left/right comparison could use a run the user had chosen not to keep; it holds only kept tests now.
+- Hold to hear swallowed its failures; each finding kind now decides its own row and next steps.
+- The sweep noise detector's peak interpolation could run off the spectrum.
+
+**Not verified until a device test.** Nothing in Diagnose has run on an iPhone: the real engine, microphone permission, route detection and delays (cable, Bluetooth, AirPlay), the sweep at the safe level (and the 10 Hz start on a vented speaker), pausing and resuming on real noise, hold to hear, and every first-guess threshold. The steps are in the [device checklist](../device-checklist.md).

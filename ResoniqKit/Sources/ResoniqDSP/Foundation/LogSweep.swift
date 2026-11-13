@@ -8,15 +8,24 @@ public struct LogSweep: Sendable, Equatable {
     /// The loudest a test signal may be, as a fraction of full scale (−12 dBFS). The one definition of the
     /// safe level; the playback volume is the user's.
     public static let maximumAmplitude: Float = 0.25
+    /// The shortest fade a test signal may have, in seconds. A raised cosine over 5 ms (240 samples at 48 kHz)
+    /// brings a full-level signal to exactly zero without a step, so the ends cannot click.
+    public static let minimumFadeDuration: Double = 0.005
+    /// The fade every test signal uses unless told otherwise, in seconds. Kept short on purpose: a longer fade
+    /// takes level from the ends of the sweep and narrows the band that can be reported (see `trustedBand`).
+    public static let defaultFadeDuration: Double = 0.02
 
     public let startFrequency: Double
     public let endFrequency: Double
     /// Seconds.
     public let duration: Double
     public let sampleRate: Double
-    /// Peak, as a fraction of full scale; never above `maximumAmplitude`.
+    /// Peak, as a fraction of full scale: the requested amplitude clamped to `0…maximumAmplitude`, and 0 (silence)
+    /// when the request was not a finite number.
     public let amplitude: Float
-    /// Seconds of raised-cosine fade at each end, so the sweep starts and stops without a click.
+    /// Seconds of raised-cosine fade at each end, so the sweep starts and stops without a click: the requested fade
+    /// (the default when it was NaN), at least `minimumFadeDuration` and at most half the sweep. The first and last
+    /// samples are exactly zero.
     public let fadeDuration: Double
 
     public init(
@@ -25,7 +34,7 @@ public struct LogSweep: Sendable, Equatable {
         duration: Double,
         sampleRate: Double,
         amplitude: Float = LogSweep.maximumAmplitude,
-        fadeDuration: Double = 0.02
+        fadeDuration: Double = LogSweep.defaultFadeDuration
     ) {
         precondition(startFrequency > 0 && endFrequency > startFrequency, "the sweep must rise from a positive frequency")
         precondition(endFrequency <= sampleRate / 2, "the sweep ends above the Nyquist frequency")
@@ -34,8 +43,8 @@ public struct LogSweep: Sendable, Equatable {
         self.endFrequency = endFrequency
         self.duration = duration
         self.sampleRate = sampleRate
-        self.amplitude = min(max(amplitude, 0), LogSweep.maximumAmplitude)
-        self.fadeDuration = min(max(fadeDuration, 0), duration / 2)
+        self.amplitude = LogSweep.safeAmplitude(amplitude)
+        self.fadeDuration = RaisedCosine.safeFade(fadeDuration, duration: duration)
     }
 
     public var sampleCount: Int { Int((duration * sampleRate).rounded()) }
@@ -62,20 +71,17 @@ public struct LogSweep: Sendable, Equatable {
     public func samples() -> [Float] {
         let count = sampleCount
         let scale = 2 * Double.pi * startFrequency * duration / logRatio
-        let fadeSamples = Int(fadeDuration * sampleRate)
+        let fadeSamples = RaisedCosine.sampleCount(of: fadeDuration, sampleRate: sampleRate)
         return (0..<count).map { index in
             let time = Double(index) / sampleRate
             let phase = scale * (exp(time / duration * logRatio) - 1)
-            var gain = 1.0
-            if fadeSamples > 0 {
-                let fromEnd = count - 1 - index
-                if index < fadeSamples {
-                    gain = 0.5 * (1 - cos(Double.pi * Double(index) / Double(fadeSamples)))
-                } else if fromEnd < fadeSamples {
-                    gain = 0.5 * (1 - cos(Double.pi * Double(fromEnd) / Double(fadeSamples)))
-                }
-            }
+            let gain = RaisedCosine.edgeGain(index: index, count: count, fadeSamples: fadeSamples)
             return Float(Double(amplitude) * gain * sin(phase))
         }
+    }
+
+    /// `amplitude` made safe: clamped to `0…maximumAmplitude`, and 0 when it is not finite. Silence is safe.
+    static func safeAmplitude(_ amplitude: Float) -> Float {
+        amplitude.isFinite ? min(max(amplitude, 0), maximumAmplitude) : 0
     }
 }

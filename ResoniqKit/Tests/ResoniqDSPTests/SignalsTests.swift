@@ -43,13 +43,74 @@ import Testing
     }
 
     @Test func `a sine is at the frequency asked for`() {
-        // 1171.875 Hz is bin 100 of a 4096-point transform at 48 kHz.
-        let signal = TestSignal.sine(frequency: 1171.875, duration: 4096 / 48000, sampleRate: 48000, fadeDuration: 0)
+        // 1171.875 Hz is bin 1600 of a 65536-point transform at 48 kHz.
+        let count = 65536
+        let signal = TestSignal.sine(frequency: 1171.875, duration: Double(count) / 48000, sampleRate: 48000, fadeDuration: 0)
         let spectrum = SpectrumAnalyzer.spectrum(of: signal, sampleRate: 48000, window: .rectangular)
         let peak = spectrum.decibels.indices.max { spectrum.decibels[$0] < spectrum.decibels[$1] }
-        #expect(peak == 100)
-        // On a bin, with no window and no fade, the level is exact: 20·log10(0.25).
-        #expect(abs(spectrum.decibels[100] - Decibels.fromAmplitude(LogSweep.maximumAmplitude)) < 0.001)
+        #expect(peak == 1600)
+        // On a bin with no window, the line is the sine's amplitude times the mean gain of the fades: a fade of 0
+        // is raised to the 5 ms minimum, 240 samples a side, and a raised cosine averages one half over its length.
+        let meanGain = 1 - Double(2 * 240) * 0.5 / Double(count)
+        let expected = Float(20 * log10(0.25 * meanGain))
+        #expect(abs(spectrum.decibels[1600] - expected) < 0.002)
+    }
+
+    // MARK: Hostile parameters
+
+    static let hostileAmplitudes: [Float] = [.nan, .infinity, -.infinity, -1, 0, 0.1, 1, 1e9, .leastNonzeroMagnitude]
+    static let hostileFades: [Double] = [.nan, .infinity, -.infinity, -1, 0, 1e-5, 0.02, 100]
+
+    /// Every sample finite, none above the safe level, and the first and last exactly zero.
+    static func expectSafe(_ samples: [Float], _ label: String) {
+        #expect(samples.allSatisfy { $0.isFinite }, "\(label): a sample is not finite")
+        #expect(samples.allSatisfy { abs($0) <= LogSweep.maximumAmplitude }, "\(label): a sample is above the safe level")
+        #expect(samples.first == 0 && samples.last == 0, "\(label): starts at \(samples.first ?? 0), ends at \(samples.last ?? 0)")
+    }
+
+    @Test(arguments: hostileAmplitudes, [0.0003, 0.008, 0.25])
+    func `no amplitude or fade makes an unsafe sine`(amplitude: Float, duration: Double) {
+        for fade in Self.hostileFades {
+            let signal = TestSignal.sine(frequency: 997, duration: duration, sampleRate: 48000, amplitude: amplitude, fadeDuration: fade)
+            Self.expectSafe(signal, "sine amplitude \(amplitude) fade \(fade) duration \(duration)")
+        }
+    }
+
+    @Test(arguments: hostileAmplitudes, [0.0003, 0.008, 0.5])
+    func `no amplitude or fade makes an unsafe sweep`(amplitude: Float, duration: Double) {
+        for fade in Self.hostileFades {
+            let sweep = LogSweep(startFrequency: 20, endFrequency: 20000, duration: duration, sampleRate: 48000, amplitude: amplitude, fadeDuration: fade)
+            Self.expectSafe(sweep.samples(), "sweep amplitude \(amplitude) fade \(fade) duration \(duration)")
+        }
+    }
+
+    @Test func `a non-finite amplitude is silence`() {
+        for amplitude in [Float.nan, .infinity, -.infinity] {
+            #expect(LogSweep(startFrequency: 20, endFrequency: 20000, duration: 1, sampleRate: 48000, amplitude: amplitude).amplitude == 0)
+            #expect(TestSignal.sine(frequency: 1000, duration: 0.1, sampleRate: 48000, amplitude: amplitude).allSatisfy { $0 == 0 })
+        }
+    }
+
+    @Test(arguments: [0.0, 1e-5, -1, Double.nan])
+    func `a fade shorter than 5 ms is raised to it`(fade: Double) {
+        let sweep = LogSweep(startFrequency: 20, endFrequency: 20000, duration: 1, sampleRate: 48000, fadeDuration: fade)
+        #expect(sweep.fadeDuration >= LogSweep.minimumFadeDuration)
+        // A 5 ms raised cosine at 0.25 rises at most 0.25·π/(2·240) a sample; the sweep's own slope at 20 Hz is far
+        // less, so the steps at both ends stay under that bound. Without a fade the last step was 0.13.
+        let samples = sweep.samples()
+        let bound = Float(0.25 * Double.pi / (2 * 240)) * 1.05
+        let head = zip(samples.prefix(480), samples.prefix(480).dropFirst()).map { abs($1 - $0) }.max() ?? 0
+        let tail = zip(samples.suffix(480), samples.suffix(480).dropFirst()).map { abs($1 - $0) }.max() ?? 0
+        #expect(head <= bound)
+        // At the top end the sweep plays 20 kHz, so its step is set by the tone, not the fade; the fade only has to
+        // bring the last sample to zero.
+        #expect(samples.last == 0)
+        #expect(tail <= 2 * 0.25)
+    }
+
+    @Test func `the default fade is 20 ms`() {
+        #expect(LogSweep.defaultFadeDuration == 0.02)
+        #expect(LogSweep(startFrequency: 20, endFrequency: 20000, duration: 1, sampleRate: 48000).fadeDuration == 0.02)
     }
 
     @Test func `silence is zeros of the requested length`() {

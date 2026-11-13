@@ -109,15 +109,9 @@ public struct ImpulseResponse: Sendable, Equatable {
         let taper = max(1, Int(Double(post) * Self.postTaperFraction))
         var segment = [Float](repeating: 0, count: pre + post)
         for offset in 0..<(pre + post) {
-            var weight = 1.0
-            if offset < pre {
-                weight = 0.5 * (1 - cos(Double.pi * Double(offset) / Double(pre)))
-            } else {
-                let intoTaper = offset - pre - (post - taper)
-                if intoTaper >= 0 {
-                    weight = 0.5 * (1 + cos(Double.pi * Double(intoTaper) / Double(taper)))
-                }
-            }
+            let weight = offset < pre
+                ? RaisedCosine.rise(Double(offset), over: Double(pre))
+                : RaisedCosine.rise(Double(pre + post - offset), over: Double(taper))
             segment[offset] = Float(weight) * samples[wrap(centre - pre + offset)]
         }
         return FFT.forward(segment, size: size).magnitudes

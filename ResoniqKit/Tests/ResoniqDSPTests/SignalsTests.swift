@@ -49,10 +49,10 @@ import Testing
         let spectrum = SpectrumAnalyzer.spectrum(of: signal, sampleRate: 48000, window: .rectangular)
         let peak = spectrum.decibels.indices.max { spectrum.decibels[$0] < spectrum.decibels[$1] }
         #expect(peak == 1600)
-        // On a bin with no window, the line is the sine's amplitude times the mean gain of the fades: a fade of 0
-        // is raised to the 5 ms minimum, 240 samples a side, and a raised cosine averages one half over its length.
+        // On a bin with no window, the line is the sine's RMS times the mean gain of the fades: a fade of 0 is
+        // raised to the 5 ms minimum, 240 samples a side, and a raised cosine averages one half over its length.
         let meanGain = 1 - Double(2 * 240) * 0.5 / Double(count)
-        let expected = Float(20 * log10(0.25 * meanGain))
+        let expected = Float(20 * log10(0.25 / 2.squareRoot() * meanGain))
         #expect(abs(spectrum.decibels[1600] - expected) < 0.002)
     }
 
@@ -68,7 +68,8 @@ import Testing
         #expect(samples.first == 0 && samples.last == 0, "\(label): starts at \(samples.first ?? 0), ends at \(samples.last ?? 0)")
     }
 
-    @Test(arguments: hostileAmplitudes, [0.0003, 0.008, 0.25])
+    // Durations: a few samples, shorter than two minimum fades, and long enough for a full fade at each end.
+    @Test(arguments: hostileAmplitudes, [0.0003, 0.008, 0.06])
     func `no amplitude or fade makes an unsafe sine`(amplitude: Float, duration: Double) {
         for fade in Self.hostileFades {
             let signal = TestSignal.sine(frequency: 997, duration: duration, sampleRate: 48000, amplitude: amplitude, fadeDuration: fade)
@@ -76,7 +77,7 @@ import Testing
         }
     }
 
-    @Test(arguments: hostileAmplitudes, [0.0003, 0.008, 0.5])
+    @Test(arguments: hostileAmplitudes, [0.0003, 0.008, 0.06])
     func `no amplitude or fade makes an unsafe sweep`(amplitude: Float, duration: Double) {
         for fade in Self.hostileFades {
             let sweep = LogSweep(startFrequency: 20, endFrequency: 20000, duration: duration, sampleRate: 48000, amplitude: amplitude, fadeDuration: fade)

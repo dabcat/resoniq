@@ -144,9 +144,22 @@ private func kind(of verdict: RecordingVerdict) -> String {
 // MARK: - Noise floor
 
 @Suite struct NoiseFloorTests {
-    @Test func `bands run from 31.5 Hz to 16 kHz in octaves`() {
+    @Test func `bands are the ten OctaveBands octaves from 31.5 Hz to 16 kHz`() {
         let report = NoiseFloor.measure(whiteNoise(rms: 0.01, count: seconds(1)), sampleRate: sampleRate)
-        #expect(report.bandLevels.frequencies == [31.5, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000])
+        #expect(report.bandLevels.frequencies == OctaveBands.centres(fraction: 1, from: 31.5, to: 16000))
+        #expect(report.bandLevels.count == 10)
+    }
+
+    @Test func `the bands of white noise add up to its broadband level`() {
+        // Every level is a mean square, so the bands' powers sum to the noise's variance times the share of
+        // 0…Nyquist they cover (22.4 Hz to 22.4 kHz of 24 kHz). 0.1 dB: the estimate's spread over 4 s.
+        let rms: Float = 0.01
+        let report = NoiseFloor.measure(whiteNoise(rms: rms, count: seconds(4)), sampleRate: sampleRate)
+        let total = report.bandLevels.decibels.reduce(Float(0)) { $0 + pow(10, $1 / 10) }
+        let low = OctaveBands.edges(ofCentre: report.bandLevels.frequencies.first!, fraction: 1).lower
+        let high = OctaveBands.edges(ofCentre: report.bandLevels.frequencies.last!, fraction: 1).upper
+        let expected = rms * rms * (high - low) / Float(sampleRate / 2)
+        #expect(abs(10 * log10(total) - 10 * log10(expected)) < 0.1)
     }
 
     @Test func `broadband level is the recording's RMS`() {
@@ -171,14 +184,14 @@ private func kind(of verdict: RecordingVerdict) -> String {
     }
 
     @Test(arguments: [250.0, 1000.0, 4000.0, 16000.0])
-    func `white noise fills each band in proportion to its width`(centre: Double) throws {
+    func `white noise fills each band in proportion to its width`(nominal: Double) throws {
         // White noise of variance σ² puts σ² · width / (fs/2) into a band of the given width. 0.5 dB covers the
-        // estimator's spread over 4 s and rounding the band edges to whole FFT bins (5.9 Hz apart).
+        // estimator's spread over 4 s and rounding the band edges to whole FFT bins (2.9 Hz apart).
         let rms: Float = 0.01
         let bands = NoiseFloor.measure(whiteNoise(rms: rms, count: seconds(4)), sampleRate: sampleRate).bandLevels
-        let index = try #require(bands.frequencies.firstIndex { Double($0) == centre })
-        let exact = 1000 * pow(2, (log2(centre / 1000)).rounded())
-        let width = min(exact * sqrt(2), sampleRate / 2) - exact / sqrt(2)
+        let index = try #require(bands.frequencies.firstIndex { abs(Double($0) / nominal - 1) < 0.03 })
+        let edges = OctaveBands.edges(ofCentre: bands.frequencies[index], fraction: 1)
+        let width = Double(min(edges.upper, Float(sampleRate / 2)) - edges.lower)
         let expected = Decibels.fromPower(rms * rms * Float(width / (sampleRate / 2)))
         #expect(abs(bands.decibels[index] - expected) < 0.5)
     }
@@ -212,9 +225,9 @@ private func kind(of verdict: RecordingVerdict) -> String {
     }
 
     @Test func `bands above Nyquist are left out`() {
-        // At 22.05 kHz the Nyquist frequency is 11.025 kHz: the 16 kHz band (11.3–22.6 kHz) cannot be measured.
+        // At 22.05 kHz the Nyquist frequency is 11.025 kHz: the 16 kHz band (11.2–22.4 kHz) cannot be measured.
         let report = NoiseFloor.measure(whiteNoise(rms: 0.01, count: 22050), sampleRate: 22050)
-        #expect(report.bandLevels.frequencies.last == 8000)
+        #expect(abs(report.bandLevels.frequencies.last! - 7943.28) < 0.01)
     }
 }
 

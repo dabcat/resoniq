@@ -24,6 +24,9 @@ private func sine(bin: Double, size: Int, count: Int? = nil, amplitude: Double =
     (0..<(count ?? size)).map { Float(amplitude * sin(2 * Double.pi * bin * Double($0) / Double(size))) }
 }
 
+/// The RMS of a full-scale sine in dBFS, 20·log10(1/√2): what every level in the module reads for it.
+private let fullScaleSine: Float = -3.0103
+
 private func meanPowerDecibels(_ decibels: ArraySlice<Float>) -> Float {
     let power = decibels.map { pow(10, Double($0) / 10) }.reduce(0, +) / Double(decibels.count)
     return Float(10 * log10(power))
@@ -39,16 +42,17 @@ private func meanPowerDecibels(_ decibels: ArraySlice<Float>) -> Float {
     }
 
     @Test(arguments: Window.allCases)
-    func `a full-scale sine on a bin reads 0 dB with any window`(window: Window) {
+    func `a full-scale sine on a bin reads its RMS with any window`(window: Window) {
         // A periodic cosine-sum window has exact zeros at whole-bin offsets, so the mirror image adds nothing
         // and only float rounding is left.
         let spectrum = SpectrumAnalyzer.spectrum(of: sine(bin: 100, size: 4096), sampleRate: 48000, window: window)
-        #expect(abs(spectrum.decibels[100]) < 0.001)
+        #expect(abs(spectrum.decibels[100] - fullScaleSine) < 0.001)
     }
 
     @Test func `level follows amplitude`() {
+        // 0.25 is −12.04 dB of peak; its RMS is 3.01 dB lower.
         let spectrum = SpectrumAnalyzer.spectrum(of: sine(bin: 50, size: 2048, amplitude: 0.25), sampleRate: 48000)
-        #expect(abs(spectrum.decibels[50] - -12.0412) < 0.001)
+        #expect(abs(spectrum.decibels[50] - -15.0515) < 0.001)
     }
 
     @Test(arguments: Window.allCases)
@@ -63,15 +67,15 @@ private func meanPowerDecibels(_ decibels: ArraySlice<Float>) -> Float {
             of: sine(bin: 100, size: 2048), sampleRate: 48000, window: .hann, size: 4096
         )
         #expect(spectrum.count == 2049)
-        #expect(abs(spectrum.decibels[200]) < 0.001)
+        #expect(abs(spectrum.decibels[200] - fullScaleSine) < 0.001)
     }
 
     @Test func `a sine half way between bins loses the Hann scalloping loss`() {
         // Hann's response half a bin off centre: (2/π)/(1 − 1/4) → −1.4236 dB (Harris 1978). The mirror image
         // 200 bins away adds well under 0.001 dB.
         let spectrum = SpectrumAnalyzer.spectrum(of: sine(bin: 100.5, size: 4096), sampleRate: 48000, window: .hann)
-        #expect(abs(spectrum.decibels[100] - -1.4236) < 0.005)
-        #expect(abs(spectrum.decibels[101] - -1.4236) < 0.005)
+        #expect(abs(spectrum.decibels[100] - (fullScaleSine - 1.4236)) < 0.005)
+        #expect(abs(spectrum.decibels[101] - (fullScaleSine - 1.4236)) < 0.005)
     }
 
     @Test func `the averaged spectrum of a steady sine reads its level`() {
@@ -79,7 +83,7 @@ private func meanPowerDecibels(_ decibels: ArraySlice<Float>) -> Float {
         let spectrum = SpectrumAnalyzer.averagedSpectrum(of: signal, sampleRate: 48000, segmentSize: 4096)
         #expect(spectrum.count == 2049)
         // Segments start at multiples of 2048 samples, so every one holds a whole number of cycles of bin 100.
-        #expect(abs(spectrum.decibels[100]) < 0.001)
+        #expect(abs(spectrum.decibels[100] - fullScaleSine) < 0.001)
     }
 
     @Test func `the averaged spectrum of one segment is the plain spectrum`() {
@@ -90,12 +94,12 @@ private func meanPowerDecibels(_ decibels: ArraySlice<Float>) -> Float {
     }
 
     @Test func `the averaged spectrum of white noise sits at the analytic noise level`() {
-        // Each bin's normalised power is 4·σ²·ENBW / N. With σ² = 1/12, ENBW = 1.5 (Hann) and N = 4096 that is
-        // −39.13 dB. 2 s of noise gives 45 overlapping segments of 2047 bins; the mean over all of them has a
-        // standard error far below the 0.2 dB allowed.
+        // Each bin's mean-square share is 2·σ²·ENBW / N (the one-sided spectrum holds the mirror half). With
+        // σ² = 1/12, ENBW = 1.5 (Hann) and N = 4096 that is −42.14 dB. 2 s of noise gives 45 overlapping segments of
+        // 2047 bins; the mean over all of them has a standard error far below the 0.2 dB allowed.
         let signal = whiteNoise(count: 96000)
         let spectrum = SpectrumAnalyzer.averagedSpectrum(of: signal, sampleRate: 48000, segmentSize: 4096)
-        let expected = Float(10 * log10(4.0 / 12 * 1.5 / 4096))
+        let expected = Float(10 * log10(2.0 / 12 * 1.5 / 4096))
         #expect(abs(meanPowerDecibels(spectrum.decibels[1..<2048]) - expected) < 0.2)
     }
 
@@ -132,7 +136,7 @@ private func meanPowerDecibels(_ decibels: ArraySlice<Float>) -> Float {
         let signal = sine(bin: 25, size: 1024)
         let spectrum = SpectrumAnalyzer.averagedSpectrum(of: signal, sampleRate: 48000, segmentSize: 4096)
         #expect(spectrum.count == 2049)
-        #expect(abs(spectrum.decibels[100]) < 0.001)
+        #expect(abs(spectrum.decibels[100] - fullScaleSine) < 0.001)
     }
 }
 
@@ -172,7 +176,7 @@ private func meanPowerDecibels(_ decibels: ArraySlice<Float>) -> Float {
         let spectrum = SpectrumAnalyzer.spectrum(of: sine(bin: 100, size: 4096), sampleRate: 40960, window: .rectangular)
         let bands = OctaveBands.levels(of: spectrum, fraction: 3, from: 500, to: 2000)
         let index = try #require(bands.frequencies.firstIndex(of: 1000))
-        #expect(abs(bands.decibels[index]) < 0.001)
+        #expect(abs(bands.decibels[index] - fullScaleSine) < 0.001)
         #expect(bands.decibels.enumerated().filter { $0.offset != index }.allSatisfy { $0.element < -100 })
     }
 
@@ -181,30 +185,55 @@ private func meanPowerDecibels(_ decibels: ArraySlice<Float>) -> Float {
         let spectrum = SpectrumAnalyzer.spectrum(of: sine(bin: 100, size: 4096), sampleRate: 40960, window: .hann)
         let raw = OctaveBands.levels(of: spectrum, fraction: 3, from: 1000, to: 1000)
         let corrected = OctaveBands.levels(of: spectrum, fraction: 3, from: 1000, to: 1000, window: .hann)
-        #expect(abs(raw.decibels[0] - 1.7609) < 0.001)
-        #expect(abs(corrected.decibels[0]) < 0.001)
+        #expect(abs(raw.decibels[0] - (fullScaleSine + 1.7609)) < 0.001)
+        #expect(abs(corrected.decibels[0] - fullScaleSine) < 0.001)
+    }
+
+    @Test(arguments: [48000, 65536, 20000])
+    func `a padded spectrum's band reads the sine's RMS once the frame length is named`(count: Int) {
+        // spectrum(of:) pads 48000 samples to 65536, so each line spreads over 1.365 times as many bins and a raw
+        // band sum reads 1.35 dB high. Naming the frame length divides that out. The sine is 1 kHz at 0.25: its RMS
+        // is −15.05 dBFS, whatever the length. 0.02 dB: Hann leakage beyond the band and float rounding.
+        let tone = (0..<count).map { Float(0.25 * sin(2 * Double.pi * 1000 * Double($0) / 48000)) }
+        let spectrum = SpectrumAnalyzer.spectrum(of: tone, sampleRate: 48000, window: .hann)
+        let bands = OctaveBands.levels(of: spectrum, fraction: 1, from: 1000, to: 1000, window: .hann, frameLength: count)
+        #expect(abs(bands.decibels[0] - -15.0515) < 0.02, "\(count) samples")
     }
 
     @Test func `two tones in one band add in power`() {
-        // 1000 Hz and 1050 Hz, each −6.02 dB, both in the 1 kHz third octave (891–1122 Hz): −3.01 dB together.
+        // 1000 Hz and 1050 Hz, each −9.03 dBFS RMS, both in the 1 kHz third octave (891–1122 Hz): −6.02 together.
         let signal = zip(sine(bin: 100, size: 4096, amplitude: 0.5), sine(bin: 105, size: 4096, amplitude: 0.5)).map(+)
         let spectrum = SpectrumAnalyzer.spectrum(of: signal, sampleRate: 40960, window: .rectangular)
         let bands = OctaveBands.levels(of: spectrum, fraction: 3, from: 1000, to: 1000)
-        #expect(abs(bands.decibels[0] - -3.0103) < 0.001)
+        #expect(abs(bands.decibels[0] - -6.0206) < 0.001)
     }
 
     @Test func `white noise rises 3 dB an octave`() {
         // 10 Hz bins: the 1 kHz octave (707.9–1412.5 Hz) holds 71 bins, the 2 kHz octave (1412.5–2818.4 Hz) 140.
-        // Each band's power is bins · 4σ² / N with σ² = 1/12, N = 4096. 4 s of noise averages 79 segments, so
-        // a 71-bin band is known to well within the 0.25 dB allowed.
+        // Each band's mean square is bins · 2σ² / N with σ² = 1/12, N = 4096. 4 s of noise averages 79 segments,
+        // so a 71-bin band is known to well within the 0.25 dB allowed.
         let spectrum = SpectrumAnalyzer.averagedSpectrum(
             of: whiteNoise(count: 4 * 40960, seed: 3), sampleRate: 40960, segmentSize: 4096
         )
         let bands = OctaveBands.levels(of: spectrum, fraction: 1, from: 1000, to: 2000, window: .hann)
         #expect(bands.count == 2)
-        let perBin = 4.0 / 12 / 4096
+        let perBin = 2.0 / 12 / 4096
         #expect(abs(bands.decibels[0] - Float(10 * log10(71 * perBin))) < 0.25)
         #expect(abs(bands.decibels[1] - Float(10 * log10(140 * perBin))) < 0.25)
+    }
+
+    @Test func `the noise floor uses these bands and this level`() {
+        // One band table and one reference: the noise floor's 1 kHz octave is OctaveBands' 1 kHz octave, and a sine
+        // reads the same in both. They used to differ by 3.01 dB and label the bottom band 31.5 against 31.62 Hz.
+        let tone = (0..<96000).map { Float(0.25 * sin(2 * Double.pi * 1000 * Double($0) / 48000)) }
+        let floor = NoiseFloor.measure(tone, sampleRate: 48000).bandLevels
+        let bands = OctaveBands.levels(
+            of: SpectrumAnalyzer.averagedSpectrum(of: tone, sampleRate: 48000, segmentSize: 16384),
+            fraction: 1, from: 31.5, to: 16000, window: .hann
+        )
+        #expect(floor.frequencies == bands.frequencies)
+        #expect(abs(floor.decibels(at: 1000) - bands.decibels(at: 1000)) < 0.01)
+        #expect(abs(floor.decibels(at: 1000) - LevelMeter.measure(tone).rmsDecibels) < 0.05)
     }
 
     @Test func `a band with no bins reads the floor`() {

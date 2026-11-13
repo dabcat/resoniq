@@ -6,9 +6,11 @@ public struct NoiseFloorReport: Sendable, Equatable {
     /// hearing, so low-frequency rumble the ear barely notices counts in full.
     public var rmsDecibels: Float
 
-    /// Level in each octave band from 31.5 Hz to 16 kHz, dBFS (the band's share of the broadband mean square).
-    /// Bands that reach above the Nyquist frequency are left out. Below about 100 Hz an iPhone microphone rolls
-    /// off, so a low reading there may be the microphone, not the room.
+    /// Level in each `OctaveBands` octave from the nominal 31.5 Hz to the nominal 16 kHz (exact centres 31.62 Hz
+    /// to 15.85 kHz), dBFS RMS as `OctaveBands.levels` defines it: the band's share of the broadband mean square,
+    /// so a sine reads its RMS in its band and the bands add up to `rmsDecibels` over the range they cover. A band
+    /// whose lower edge is at or above the Nyquist frequency is left out. Below about 100 Hz an iPhone microphone
+    /// rolls off, so a low reading there may be the microphone, not the room.
     public var bandLevels: MagnitudeResponse
 
     /// How far the loudest 100 ms block rose above the median block, in dB.
@@ -29,8 +31,9 @@ public struct NoiseFloorReport: Sendable, Equatable {
 
 /// Measures the noise floor from a recording of the room in silence, taken before a measurement.
 public enum NoiseFloor {
-    /// Nominal octave-band centres (IEC 61260), the labels in `NoiseFloorReport.bandLevels`.
-    static let nominalCentres: [Float] = [31.5, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
+    /// The nominal range of the octave bands reported, in hertz: `OctaveBands.centres(fraction: 1, from:to:)` of it
+    /// gives the ten octaves 31.62 Hz to 15.85 kHz.
+    static let bandRange: ClosedRange<Float> = 31.5...16000
 
     /// Measures a quiet recording. A second or more gives stable band levels down to 31.5 Hz; under 200 ms the
     /// floor cannot be shown steady. A recording holding a sample that is not a finite number has no floor: every
@@ -50,11 +53,7 @@ public enum NoiseFloor {
             )
         }
         let blocks = blockLevels(quietRecording, sampleRate: sampleRate, blockDuration: thresholds.steadinessBlockDuration)
-        var fluctuation: Float = 0
-        if blocks.count >= 2 {
-            let sorted = blocks.sorted()
-            fluctuation = sorted[sorted.count - 1] - sorted[sorted.count / 2]
-        }
+        let fluctuation = blocks.count >= 2 ? (blocks.max() ?? 0) - Statistics.median(blocks) : 0
         return NoiseFloorReport(
             rmsDecibels: LevelMeter.measure(quietRecording).rmsDecibels,
             bandLevels: octaveBandLevels(quietRecording, sampleRate: sampleRate),
@@ -71,53 +70,25 @@ public enum NoiseFloor {
         }
     }
 
-    /// Octave-band levels in dBFS, from a Welch-averaged power spectrum (Hann window, 50 % overlap).
+    /// Octave-band levels in dBFS RMS (`OctaveBands.levels`) of `samples`, from `SpectrumAnalyzer`'s Welch average
+    /// with a Hann window and 50 % overlap.
     ///
-    /// Frames are about a quarter second (16384 samples at 48 kHz, 2.9 Hz a bin) so the 31.5 Hz band, 22–44 Hz,
-    /// spans several bins. Band edges are the exact base-2 centres (1000 · 2ⁿ Hz) times 2^∓½; a bin belongs to the
-    /// band its frequency falls in. Scaled so the bands of a signal add up to its mean square: a sine of amplitude A
-    /// reads 20·log₁₀(A/√2) in its band.
+    /// Segments are about a quarter second (16384 samples at 48 kHz, 2.9 Hz a bin) so the 31.5 Hz band, 22–45 Hz,
+    /// spans several bins. A recording shorter than a segment is one zero-padded segment, and the padding is divided
+    /// out. Bands whose lower edge is at or above Nyquist are left out; an empty buffer reads `Decibels.floor`.
     static func octaveBandLevels(_ samples: [Float], sampleRate: Double) -> MagnitudeResponse {
-        let nyquist = sampleRate / 2
-        let bands: [(nominal: Float, low: Double, high: Double)] = nominalCentres.enumerated().compactMap { index, nominal in
-            let centre = 1000 * pow(2, Double(index - 5))
-            let low = centre / 2.squareRoot()
-            guard low < nyquist else { return nil }
-            return (nominal, low, min(centre * 2.squareRoot(), nyquist))
-        }
-        let frequencies = bands.map(\.nominal)
-        guard !samples.isEmpty else {
-            return MagnitudeResponse(frequencies: frequencies, decibels: frequencies.map { _ in Decibels.floor })
-        }
-
-        let size = FFT.nextPowerOfTwo(max(Int(sampleRate / 4), 2))
-        let frameLength = min(size, samples.count)
-        let hop = max(frameLength / 2, 1)
-        let window = vDSP.window(ofType: Float.self, usingSequence: .hanningDenormalized, count: frameLength, isHalfWindow: false)
-        let windowEnergy = vDSP.sumOfSquares(window)
-
-        let binCount = size / 2
-        var power = [Float](repeating: 0, count: binCount)
-        var frames = 0
-        for start in stride(from: 0, through: samples.count - frameLength, by: hop) {
-            let frame = vDSP.multiply(samples[start..<(start + frameLength)], window)
-            let spectrum = FFT.forward(frame, size: size)
-            let real = spectrum.real[0..<binCount]
-            let imaginary = spectrum.imaginary[0..<binCount]
-            power = vDSP.add(power, vDSP.add(vDSP.square(real), vDSP.square(imaginary)))
-            frames += 1
-        }
-        // One-sided: each bin above DC stands for itself and its mirror, hence the 2. Parseval and the window's
-        // energy turn |X|² into mean square.
-        let scale = 2 / (Float(size) * windowEnergy * Float(frames))
-
-        let binWidth = sampleRate / Double(size)
-        let levels = bands.map { band -> Float in
-            let first = max(Int((band.low / binWidth).rounded(.up)), 1)
-            let last = min(Int((band.high / binWidth).rounded(.up)) - 1, binCount - 1)
-            guard first <= last else { return Decibels.floor }
-            return Decibels.fromPower(vDSP.sum(power[first...last]) * scale)
-        }
-        return MagnitudeResponse(frequencies: frequencies, decibels: levels)
+        let segmentSize = FFT.nextPowerOfTwo(max(Int(sampleRate / 4), 16))
+        let spectrum = SpectrumAnalyzer.averagedSpectrum(of: samples, sampleRate: sampleRate, segmentSize: segmentSize)
+        let bands = OctaveBands.levels(
+            of: spectrum,
+            fraction: 1,
+            from: bandRange.lowerBound,
+            to: bandRange.upperBound,
+            window: .hann,
+            frameLength: min(max(samples.count, 1), segmentSize)
+        )
+        let nyquist = Float(sampleRate / 2)
+        let kept = zip(bands.frequencies, bands.decibels).filter { OctaveBands.edges(ofCentre: $0.0, fraction: 1).lower < nyquist }
+        return MagnitudeResponse(frequencies: kept.map(\.0), decibels: kept.map(\.1))
     }
 }

@@ -42,14 +42,10 @@ public enum ResponseComparison {
     }
 
     private static func logGrid(from low: Float, to high: Float) -> [Float] {
-        let octaves = log2(Double(high) / Double(low))
-        let steps = max(1, Int((octaves * Double(pointsPerOctave)).rounded(.up)))
-        return (0...steps).map { Float(Double(low) * pow(2, octaves * Double($0) / Double(steps))) }
+        MagnitudeResponse.logFrequencies(from: low, to: high, pointsPerOctave: pointsPerOctave)
     }
 
     private static func median(_ values: [Float]) -> Float {
-        let sorted = values.sorted()
-        let middle = sorted.count / 2
-        return sorted.count % 2 == 1 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2
+        Statistics.median(values)
     }
 }

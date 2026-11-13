@@ -70,6 +70,19 @@ nonisolated enum OptimizeText {
     static let manualPreviewSummary = "Plan of the room from above."
     static let close = "Close"
 
+    // MARK: Problems along the way
+
+    static let roomUnreadable = "I couldn't open the room I saved. Scan it again, or enter it by hand."
+    static let alertTitle = "I couldn't save that"
+    static let saveFailed = "The phone wouldn't let me write it down, so nothing has changed. Free up some space and try again."
+    static let scanNotKept = "I couldn't keep the scan file, so I saved the room without it."
+    static let noSeatMeasurement = "I need a measurement from your seat first. Measure from your seat, then try again."
+    static let speakerMissing = "I can't find that speaker in the saved room. Check the layout, then try again."
+    static let couldNotCompare = "I saved the new measurement, but I couldn't read the two together to compare them."
+    static let alertOK = "OK"
+    static let putBackTitle = "Move the speaker back"
+    static let putBackNotice = "I can't move it for you. Put the speaker back where it was; the plan is back to how it was before the move."
+
     // MARK: Before and after
 
     static let before = "Before"

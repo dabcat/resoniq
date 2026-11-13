@@ -3,12 +3,13 @@ import ResoniqStore
 import SwiftData
 import SwiftUI
 
-/// The store, the session memory, the two coordinators and the lifecycle hook, made once at launch and put in the environment.
+/// The store, the session memory, the three coordinators and the lifecycle hook, made once at launch and put in the environment.
 struct AppComposition {
     let store: ResoniqStore
     let memory: ComparisonMemory
     let coordinator: DiagnoseCoordinator
     let measure: MeasureCoordinator
+    let optimize: OptimizeCoordinator
     let lifecycle: AppLifecycle
 
     /// Opens the store (on disk, or in memory when `inMemory`), makes sure "My room · My speakers" exists, and wires
@@ -16,7 +17,9 @@ struct AppComposition {
     ///
     /// Debug builds read launch arguments: `-inMemoryStore YES` starts with nothing stored, and `-screen app-flow`
     /// does the same on simulated audio, already inside the flow for the left speaker.
-    static func launch(inMemory: Bool = false, audio: AudioEnvironment = .current) -> AppComposition? {
+    static func launch(
+        inMemory: Bool = false, audio: AudioEnvironment = .current, optimizeSources: OptimizeSources = .live
+    ) -> AppComposition? {
         var inMemory = inMemory
         var audio = audio
         var opensFlow = false
@@ -30,13 +33,16 @@ struct AppComposition {
         }
         #endif
 
-        guard let store = try? ResoniqStore(inMemory: inMemory), (try? store.defaultContext()) != nil else {
+        // Room scans are kept on the phone in Application Support; an in-memory store keeps no files.
+        let scanFiles = inMemory ? nil : try? ScanFileStore.applicationSupport()
+        guard let store = try? ResoniqStore(inMemory: inMemory, scanFiles: scanFiles), (try? store.defaultContext()) != nil else {
             return nil
         }
         let memory = ComparisonMemory()
         let coordinator = DiagnoseCoordinator(store: store, memory: memory, audio: audio)
         if opensFlow { coordinator.startTest(.left) }
         let measure = MeasureCoordinator(store: store, audio: audio)
+        let optimize = OptimizeCoordinator(store: store, measure: measure, sources: optimizeSources)
 
         // When the scene leaves the foreground, a running test or measurement is cancelled and the live stream
         // stops. Diagnose's flow is cancelled in place (a result on screen stays); this does not touch its files.
@@ -45,7 +51,11 @@ struct AppComposition {
             if case .test(let flow) = coordinator.content { flow.cancel() }
         }
         lifecycle.onLeavingForeground { [measure] in measure.suspend() }
-        return AppComposition(store: store, memory: memory, coordinator: coordinator, measure: measure, lifecycle: lifecycle)
+        // The scan and the AR guide close their covers, which stops the camera and the AR session.
+        lifecycle.onLeavingForeground { [optimize] in optimize.suspend() }
+        return AppComposition(
+            store: store, memory: memory, coordinator: coordinator, measure: measure, optimize: optimize,
+            lifecycle: lifecycle)
     }
 }
 
@@ -63,6 +73,7 @@ extension View {
             .environment(composition.memory)
             .environment(composition.coordinator)
             .environment(composition.measure)
+            .environment(composition.optimize)
             .environment(\.appLifecycle, composition.lifecycle)
     }
 }

@@ -71,6 +71,8 @@ struct ScanScreen: View {
                     secondary: ScanText.notNow, onSecondary: onClose, onClose: onClose)
             }
         }
+        // Leaving the screen, by any route, stops the camera and the RoomPlan session.
+        .onDisappear { model.cancel() }
         .onChange(of: scenePhase) { _, phase in
             // Back from Settings: the camera may have been turned on.
             if phase == .active, readiness == .denied { readiness = ScanCapability.readiness() }

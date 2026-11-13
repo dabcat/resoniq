@@ -328,11 +328,15 @@ struct OptimizeHomeInput {
     var progress: OptimizeProgress
     /// The current optimisation's comparison, once it has one.
     var comparison: ComparisonReport?
+    /// Suggestions the person declined for this measurement; the home shows the next one the advisor has.
+    var declined: [PlacementSuggestion] = []
+    /// The stored layout could not be read: the home shows "no room yet" with a line saying so.
+    var layoutUnreadable = false
 }
 
 extension OptimizeHomeState {
     /// The state to show, and the suggestion behind it when there is one (the caller routes it to AR or to the
-    /// optimisation). Which suggestion is shown is the Kit's: the advisor's first.
+    /// optimisation). Which suggestion is shown is the Kit's: the advisor's first that was not declined.
     static func make(_ input: OptimizeHomeInput) -> (state: OptimizeHomeState, suggestion: PlacementSuggestion?) {
         let tracker = RoomDisplay.tracker(input.progress)
         guard let layout = input.layout else { return (.noRoom(tracker: tracker), nil) }
@@ -361,7 +365,7 @@ extension OptimizeHomeState {
 
         let problems = RoomDisplay.problems(from: report)
         let advice = PlacementAdvisor.advice(room: layout, problems: problems)
-        if let suggestion = advice.suggestions.first {
+        if let suggestion = OptimizeRules.firstOpen(advice.suggestions, declined: input.declined) {
             let shown = RoomDisplay.problemToShow(problems, suggestion: suggestion)
             return (
                 .suggestion(

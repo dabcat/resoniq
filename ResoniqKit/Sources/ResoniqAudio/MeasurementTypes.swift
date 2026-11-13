@@ -36,6 +36,8 @@ public enum MeasurementFailure: Error, Sendable, Equatable {
     case cancelled
     /// The audio could not be started; the text is for the log.
     case audioUnavailable(String)
+    /// The room stayed too loud to resume for `MeasurementConfiguration.maximumPauseWait`.
+    case tooNoisy
 }
 
 /// One run's recording, ready for `RunAnalyzer`.
@@ -59,6 +61,10 @@ public struct RunRecording: Sendable, Equatable {
     public var phoneMoved: Bool
     /// 1 for the first recording of the run, 2 when the first was unusable.
     public var attempt: Int
+    /// Where in the sweep, in hertz, sound tied to the sweep was heard: noise that came back at the same frequency
+    /// after the run paused for it and resumed, so a rattle or the room's reverberation rather than the room's
+    /// background. The run did not pause for it again. Nil when there was none.
+    public var sweepTiedSound: ClosedRange<Double>? = nil
 }
 
 /// The outcome of a finished test: every run's recording, and what they were measured against.

@@ -52,16 +52,32 @@ public struct SimulatedSpeaker: Sendable, Hashable {
         }
     }
 
+    /// A rattle: noise that is not a harmonic, made while the signal is inside `band` and in proportion to it,
+    /// `y += level · |b| · n` with `b` the band-passed signal and `n` white noise. A loose panel or a buzzing grille:
+    /// it follows the sweep's position, so pausing for it and resuming meets it again at the same frequency.
+    public struct Rattle: Sendable, Hashable {
+        public var band: ClosedRange<Double>
+        /// Relative to the band-passed signal: 0.01 is 40 dB under it.
+        public var level: Double
+
+        public init(band: ClosedRange<Double>, level: Double) {
+            self.band = band
+            self.level = level
+        }
+    }
+
     /// Linear gain from the samples played to the microphone. 1 puts the sweep's −12 dBFS peak at the microphone
     /// before the filters.
     public var gain: Double
     public var filters: [SimulatedFilter]
     public var defect: Defect?
+    public var rattle: Rattle?
 
-    public init(gain: Double = 1, filters: [SimulatedFilter] = [], defect: Defect? = nil) {
+    public init(gain: Double = 1, filters: [SimulatedFilter] = [], defect: Defect? = nil, rattle: Rattle? = nil) {
         self.gain = gain
         self.filters = filters
         self.defect = defect
+        self.rattle = rattle
     }
 
     /// A small bookshelf speaker: rolls off below 70 Hz and above 18 kHz, with a mild presence peak.
@@ -291,20 +307,30 @@ struct SpeakerChain: Sendable {
     var filters: [Biquad.Running]
     var defectFilter: Biquad.Running?
     let cubic: Double
+    var rattleFilter: Biquad.Running?
+    let rattleLevel: Double
 
     init(_ speaker: SimulatedSpeaker, sampleRate: Double) {
         gain = speaker.gain
         filters = speaker.filters.map { Biquad.Running(section: $0.biquad(sampleRate: sampleRate)) }
         defectFilter = speaker.defect.map { Biquad.Running(section: Biquad.bandPass($0.band, sampleRate: sampleRate)) }
         cubic = speaker.defect?.cubic ?? 0
+        rattleFilter = speaker.rattle.map { Biquad.Running(section: Biquad.bandPass($0.band, sampleRate: sampleRate)) }
+        rattleLevel = speaker.rattle?.level ?? 0
     }
 
-    mutating func process(_ input: Double) -> Double {
+    /// One sample through the speaker. `random` is drawn from only when the speaker rattles, so a speaker without a
+    /// rattle leaves the room's noise exactly as it was.
+    mutating func process(_ input: Double, random: inout SplitMix) -> Double {
         var y = gain * input
         for index in filters.indices { y = filters[index].process(y) }
         if defectFilter != nil {
             let band = defectFilter!.process(y)
             y += cubic * band * band * band
+        }
+        if rattleFilter != nil {
+            let band = rattleFilter!.process(y)
+            y += rattleLevel * abs(band) * random.gaussian()
         }
         return y
     }
@@ -481,11 +507,11 @@ struct SimulationState: Sendable {
             }
             var value: Double
             if room != nil {
-                let direct = room!.path(left.process(Double(leftInput)), spot: spot, right: false)
-                    + room!.path(right.process(Double(rightInput)), spot: spot, right: true)
+                let direct = room!.path(left.process(Double(leftInput), random: &random), spot: spot, right: false)
+                    + room!.path(right.process(Double(rightInput), random: &random), spot: spot, right: true)
                 value = room!.tail(direct)
             } else {
-                value = left.process(Double(leftInput)) + right.process(Double(rightInput))
+                value = left.process(Double(leftInput), random: &random) + right.process(Double(rightInput), random: &random)
             }
             if configuration.noiseRMS > 0 { value += configuration.noiseRMS * random.gaussian() }
             for burst in bursts where capture >= burst.start && capture < burst.end {

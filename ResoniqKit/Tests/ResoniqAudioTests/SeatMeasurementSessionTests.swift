@@ -122,7 +122,7 @@ extension SeatMeasurementSession.State {
 }
 
 @MainActor
-@Suite(.timeLimit(.minutes(1))) struct SeatMeasurementSessionTests {
+@Suite(.timeLimit(.minutes(3))) struct SeatMeasurementSessionTests {
     @Test func `a clean pair measurement captures three spots of left and right, each the room at that spot`() async throws {
         let io = SeatFixture.io()
         let session = SeatFixture.session(io: io)

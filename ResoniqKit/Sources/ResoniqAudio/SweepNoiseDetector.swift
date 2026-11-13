@@ -27,8 +27,13 @@ public struct SweepNoiseDetector: Sendable {
     public static let analysisHighFrequency = 12000.0
     /// Harmonics of the sweep taken out with it, the fundamental included. *First guess*: 5.
     public static let excludedHarmonics = 5
-    /// Seconds of sweep below the strongest tone taken out for the room's reverberation. *First guess*: 0.3 s.
-    public static let reverberationAllowance = 0.3
+    /// Seconds of sweep below the strongest tone taken out for the room's reverberation: 0.8 s (about 2.2 octaves
+    /// of the measurement sweep). The sweep stands 50 to 60 dB above a quiet floor, so its reverberation stays above
+    /// the floor for about one decay time: at 0.3 s (the first guess) a simulated room whose tail was as loud as the
+    /// direct sound with a 0.5 s decay paused every run about six times, and even a tail at −26 dB paused; at 0.8 s
+    /// neither 0.5 nor 0.8 s pauses. A room with a longer decay can still pause, and is then caught as sound tied to
+    /// the sweep. The price is that noise only below the sweep's last 2.2 octaves is not watched. *First guess*.
+    public static let reverberationAllowance = 0.8
     /// Bins added on each side of every excluded band: the Blackman–Harris main lobe is 4 bins each side.
     public static let mainLobeBins = 6
     /// The strongest tone must stand this far above the floor in its band to count as the sweep. *First guess*: 10 dB.

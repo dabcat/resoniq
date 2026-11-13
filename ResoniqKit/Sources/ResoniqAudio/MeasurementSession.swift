@@ -278,6 +278,8 @@ public final class MeasurementSession {
             return nil
         case .failed(let problem):
             return .failed(.recordingUnusable(problem))
+        case .tooNoisy:
+            return .failed(.tooNoisy)
         case .recorded(let recording):
             return await check(recording, in: &test)
         }

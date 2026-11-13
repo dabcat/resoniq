@@ -69,9 +69,8 @@ public struct SimulatedRoom: Sendable, Hashable {
     public var spotCount: Int { modes.map(\.decibels.count).min() ?? 1 }
 
     /// A living room seen from three spots (seat, 30 cm left, 30 cm right): modes at 38, 57 and 85 Hz that ring for
-    /// 0.5 s (their Q is set for that at 48 kHz), a tail of 0.5 s at −34 dB, and the right speaker 1 dB stronger in
-    /// the modes. The bass decay a seat measurement should find is 0.5 s. The tail is quiet: at −26 dB the live
-    /// noise detector already took it for noise and paused (see the module note's limits).
+    /// 0.5 s (their Q is set for that at 48 kHz), a tail of 0.5 s at −26 dB, and the right speaker 1 dB stronger in
+    /// the modes. The bass decay a seat measurement should find is 0.5 s.
     public static let livingRoom = SimulatedRoom(
         modes: [
             Mode(frequency: 38, q: Mode.q(forDecay: 0.5, frequency: 38, sampleRate: 48000), decibels: [12, 9, 14]),
@@ -80,7 +79,7 @@ public struct SimulatedRoom: Sendable, Hashable {
         ],
         rightOffsetDecibels: 1,
         reverberationTime: 0.5,
-        reverberationLevel: 0.02
+        reverberationLevel: 0.05
     )
 
     /// A mode's linear gain `g` for `channel` at `spot`.

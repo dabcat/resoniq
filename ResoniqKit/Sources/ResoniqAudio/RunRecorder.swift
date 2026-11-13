@@ -19,6 +19,8 @@ struct RunRecorder {
         case didNotArrive
         /// The takes' positions did not line up for a splice; the run must start again.
         case spliceFailed
+        /// The run stayed paused for `maximumPauseWait`: the room does not quieten.
+        case tooNoisy
     }
 
     struct Recording: Equatable {
@@ -28,6 +30,8 @@ struct RunRecorder {
         var leadIn: Int
         /// Times the run was spliced.
         var spliceCount: Int
+        /// Where in the sweep, hertz, noise tied to the sweep was heard (`RunRecording.sweepTiedSound`).
+        var sweepTiedSound: ClosedRange<Double>? = nil
     }
 
     private enum Phase: Equatable {
@@ -56,6 +60,12 @@ struct RunRecorder {
     private var phase: Phase = .playing
     private var takes: [TakeRecord] = []
     private var quietSamples = 0
+    /// Samples spent in the current pause.
+    private var pausedSamples = 0
+    /// The sweep sample arriving when noise began, for every pause of this run.
+    private var pauseIndices: [Int] = []
+    /// The sweep samples over which noise tied to the sweep was heard.
+    private var tied: ClosedRange<Int>?
 
     init(sweep: LogSweep, sweepSamples: [Float], configuration: MeasurementConfiguration) {
         self.sweep = sweep
@@ -102,6 +112,11 @@ struct RunRecorder {
         case .done:
             return .none
         case .paused(let resume):
+            pausedSamples += block.samples.count
+            if pausedSamples > count(configuration.maximumPauseWait) {
+                phase = .done
+                return .tooNoisy
+            }
             quietSamples = quietEnough ? quietSamples + block.samples.count : 0
             guard quietSamples >= count(configuration.resumeHold) else { return .none }
             quietSamples = 0
@@ -122,12 +137,21 @@ struct RunRecorder {
         let sweepEnd = current.take.sweepOrigin + Int64(sweepSamples.count)
         let arrived = delay.map { sweepEnd + Int64($0 + count(configuration.minimumTail)) }
 
+        var noisy = noisy
         if noisy {
             let onset = block.position - Int64(count(configuration.noiseGuard))
             // Noise after the sweep's end has arrived only shortens the decay: stop there.
             if let arrived, onset >= arrived {
                 return finish(at: onset)
             }
+            if let delay, !shouldPause(atSweepIndex: Int(onset - current.take.sweepOrigin) - delay) {
+                noisy = false
+            }
+        }
+        if noisy {
+            let onset = block.position - Int64(count(configuration.noiseGuard))
+            if let delay { pauseIndices.append(Int(onset - current.take.sweepOrigin) - delay) }
+            pausedSamples = 0
             stopPlayback()
             if let delay, let plan = SweepSplicer.plan(
                 noiseOnset: onset,
@@ -162,6 +186,32 @@ struct RunRecorder {
             return .didNotArrive
         }
         return .none
+    }
+
+    /// Whether noise beginning at sweep sample `index` should pause the run. Not when it is tied to the sweep: it
+    /// began again within `sweepTiedTolerance` of where it paused the run before, or it continues sound already found
+    /// tied there. Not when the run has paused `maximumPauses` times: it is recorded through and the check decides.
+    private mutating func shouldPause(atSweepIndex index: Int) -> Bool {
+        let tolerance = count(configuration.sweepTiedTolerance)
+        if let range = tied, index >= range.lowerBound - tolerance, index <= range.upperBound + tolerance {
+            tied = min(range.lowerBound, index)...max(range.upperBound, index)
+            return false
+        }
+        if let earlier = pauseIndices.first(where: { abs($0 - index) <= tolerance }) {
+            tied = min(earlier, index)...max(earlier, index)
+            return false
+        }
+        return pauseIndices.count < configuration.maximumPauses
+    }
+
+    /// `tied` in hertz, the sweep's frequencies over those samples (a block's worth on either side, where the noise was
+    /// heard).
+    private var tiedFrequencies: ClosedRange<Double>? {
+        guard let tied else { return nil }
+        let block = count(configuration.blockDuration)
+        let low = sweep.frequency(at: Double(max(tied.lowerBound, 0)) / sampleRate)
+        let high = sweep.frequency(at: Double(min(tied.upperBound + block, sweepSamples.count)) / sampleRate)
+        return low...max(low, high)
     }
 
     private mutating func resume(_ resume: Resume, after block: CapturedBlock, schedule: ([Float]) throws -> Int64) throws -> Event {
@@ -208,7 +258,12 @@ struct RunRecorder {
         let from = Int(first.take.sweepOrigin - Int64(leadIn) - composite.start)
         let to = Int(end - (last.take.sweepOrigin - first.take.sweepOrigin) - composite.start)
         guard from >= 0, to > from, to <= composite.samples.count else { return .spliceFailed }
-        return .finished(Recording(samples: Array(composite.samples[from..<to]), leadIn: leadIn, spliceCount: takes.count - 1))
+        return .finished(Recording(
+            samples: Array(composite.samples[from..<to]),
+            leadIn: leadIn,
+            spliceCount: takes.count - 1,
+            sweepTiedSound: tiedFrequencies
+        ))
     }
 }
 

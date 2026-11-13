@@ -70,6 +70,8 @@ struct RunPerformer {
         case failed(RunProblem)
         /// The recording is complete and must be checked (`check`, then `conclude`).
         case recorded(RunRecorder.Recording)
+        /// The room stayed too loud to resume for `maximumPauseWait`: the measurement ends.
+        case tooNoisy
     }
 
     /// What the check of a recording decided.
@@ -203,6 +205,9 @@ struct RunPerformer {
             return fail(.didNotArrive, io: io)
         case .finished(let recording):
             return .recorded(recording)
+        case .tooNoisy:
+            io.stopPlayback()
+            return .tooNoisy
         }
     }
 
@@ -228,7 +233,8 @@ struct RunPerformer {
             verdict: verdict,
             spliceCount: recording.spliceCount,
             phoneMoved: phoneMoved,
-            attempt: attempt
+            attempt: attempt,
+            sweepTiedSound: recording.sweepTiedSound
         ))
     }
 

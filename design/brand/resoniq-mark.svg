@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="Resoniq">
+  <defs>
+    <linearGradient id="freq" x1="0" y1="92" x2="0" y2="8" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#5B6CFF"/>
+      <stop offset=".55" stop-color="#37C8C0"/>
+      <stop offset="1" stop-color="#D8F27A"/>
+    </linearGradient>
+  </defs>
+  <g fill="url(#freq)">
+    <rect x="42" y="8.6" width="16" height="9" rx="4.5"/>
+    <rect x="37" y="20.9" width="26" height="9" rx="4.5"/>
+    <rect x="38" y="33.2" width="24" height="9" rx="4.5"/>
+    <rect x="32" y="45.5" width="36" height="9" rx="4.5"/>
+    <rect x="26" y="57.8" width="48" height="9" rx="4.5"/>
+    <rect x="35" y="70.1" width="46" height="9" rx="4.5"/>
+    <rect x="37" y="82.4" width="26" height="9" rx="4.5"/>
+  </g>
+</svg>

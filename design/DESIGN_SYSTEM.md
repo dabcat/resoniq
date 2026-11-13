@@ -1,143 +1,190 @@
 # Resoniq Design System
 
-Status: draft 0.1. Values live in [`tokens.json`](./tokens.json); this file explains how to use them.
-Screens and flows are described in [`DESIGN_SPEC.md`](./DESIGN_SPEC.md).
+Version 0.2 · precision-instrument direction. Values live in [`tokens.json`](./tokens.json) and, for SwiftUI,
+in [`swift/ResoniqTheme.swift`](./swift/ResoniqTheme.swift). Screens and flows are in
+[`DESIGN_SPEC.md`](./DESIGN_SPEC.md). Brand assets are in [`brand/`](./brand).
 
-## Character
+## What it should feel like
 
-Playful and fun, but trustworthy. Resoniq measures things, so numbers and verdicts must look precise;
-everything around them can be warm, bouncy and a little silly.
+A precision instrument made for people who have never used one. Calm, confident, a little warm.
+The complexity stays inside the software.
 
-- **Reso does the talking.** A round speaker character with two eyes guides the user. Copy is in first
-  person ("I play a rising tone, then listen").
-- **Plain words first.** "The woofer may be buzzing", not "THD exceeds threshold". Technical data is one tap away.
-- **Something always moves.** If the app is playing or listening, the screen shows it: a woofer thumps,
-  rings ripple, bars dance.
-- **Honest verdicts.** Colour and motion never overstate a result. A suspected defect is "suspected".
+1. **Show the thing itself.** Home screens are the user's speakers and the user's room, not menus about them.
+2. **Colour means something.** Pitch has a colour scale; orange means "this deviates"; blue means
+   "suggested, not yet tested"; lime means "act" or "confirmed". Nothing is coloured for decoration.
+3. **Say how we know.** Every conclusion is tagged Measured, Inferred, Inconclusive or Estimate.
+4. **Plain words first, numbers on request.** Headlines are sentences. Decibels live one tap deeper.
+5. **Motion reports state.** Something moves only because the app is playing, listening, waiting or guiding.
 
 ## Colour
 
-Dark theme only. One ground, one primary accent, a small supporting cast.
+Dark theme only.
 
 | Token | Hex | Use |
 |---|---|---|
-| `ink` | `#15132B` | App background |
-| `inkDeep` | `#0D0C1C` | Backdrop behind sheets |
-| `surface` | `#211E3F` | Cards, tab bar, secondary buttons |
-| `surfaceRaised` | `#2E2A55` | Fills inside a surface, tertiary buttons |
-| `line` | `#3A3566` | Hairlines, inactive dots, dashed outlines |
-| `text` | `#F6F4FF` | Primary text |
-| `textMuted` | `#BDB8DB` | Secondary text |
-| `sun` | `#FFC83D` | Primary action, active tab, right channel |
-| `sky` | `#7CC8FF` | Links, left channel |
-| `lilac` | `#B69CFF` | Reso's outline, rooms, completed steps |
-| `mint` | `#7CE8B8` | Healthy / confirmed |
-| `coral` | `#FF8A7A` | Suspected defect |
+| `ink` | `#151412` | Background; text on accent fills |
+| `panel` | `#1F1D1A` | Instrument panels, tab bar, secondary buttons |
+| `panelRaised` | `#2E2B26` | Even band in charts, camera placeholder |
+| `line` | `#3B3731` | Borders, grid, hairlines |
+| `ivory` | `#F0EBE1` | Primary text; walls and objects in plans |
+| `muted` | `#A9A398` | Secondary text, ruler ticks, "before" traces |
+| `lime` | `#D8F27A` | Primary action, active tab, confirmed improvement |
+| `signal` | `#FF5B2E` | Deviation: suspected defect, out-of-band response, noise |
+| `signalText` | `#FF8157` | Signal colour for text on dark |
+| `guide` | `#9CC9E8` | Suggestions, estimates, AR targets |
+| `teal` | `#37C8C0` | Mid pitch; sound leaving a speaker |
+| `indigo` | `#5B6CFF` | Bass pitch (graphics only) |
 
-Rules:
+### The frequency scale
 
-- Text on any accent fill is `onAccent` (`#15132B`). Never white on an accent.
-- Left channel is always `sky`, right channel always `sun`. They differ in hue and lightness, and are always
-  labelled L / R as well.
-- Result states are never colour-only: each pairs a colour with an icon and words.
-  Healthy = mint + check. Suspected = coral + waveform. Environmental = sun + label. Inconclusive = outlined, muted.
-- No gradients. Depth comes from flat layers and the button's solid bottom edge.
+Pitch is coloured indigo (bass) → teal (mid) → lime (treble). It runs bottom-to-top on a speaker portrait
+and left-to-right on a response curve, always against a real frequency axis. It is the only gradient in
+the product.
+
+### Rules
+
+- Text on `lime` or `signal` fills is `ink`.
+- `signal` is reserved for deviations. Never use it for buttons, tabs or decoration.
+- `guide` marks anything not yet verified by a measurement.
+- States never rely on colour alone: each also has an icon, a line style or words.
+- Left and right channels are told apart by position and label first, then line style
+  (left solid `guide`, right dashed `lime`) in overlay charts.
+
+## Evidence tags
+
+| Tag | Glyph | When |
+|---|---|---|
+| Measured | solid dot | Read directly from this session's recordings |
+| Inferred | half-filled dot | Concluded from measurements; state the basis ("3 of 3 runs") |
+| Inconclusive | hollow dot | Could not be decided; state why ("could be the phone's angle") |
+| Estimate | `guide`-coloured label | Rough figure where measurement quality is limited (decay time) |
+
+Never present an inferred defect as confirmed. No health scores.
 
 ## Typography
 
-| Role | Family | Size / weight |
-|---|---|---|
-| Hero | SF Pro Rounded | 40 / 800 |
-| Title 1 | SF Pro Rounded | 34 / 800 |
-| Title 2 | SF Pro Rounded | 28 / 800 |
-| Title 3 (card titles) | SF Pro Rounded | 21 / 800 |
-| Button | SF Pro Rounded | 19 / 800 |
-| Chip, link | SF Pro Rounded | 16 / 700 |
-| Eyebrow | SF Pro Rounded | 14 / 800, uppercase, +8% tracking |
-| Body large | SF Pro Text | 17 / 400, line height 1.45 |
-| Body | SF Pro Text | 16 / 400–600 |
-| Caption | SF Pro Text | 13 / 400 |
-| Readout | SF Mono | 13–64 / 500 |
+| Role | Family | Size / weight | Notes |
+|---|---|---|---|
+| Display | Instrument Sans | 36 / 600 | First-run headline |
+| Title 1 | Instrument Sans | 34 / 600 | Screen headline, tracking −3% |
+| Title 2 | Instrument Sans | 30 / 600 | Result headline |
+| Title 3 | Instrument Sans | 26 / 600 | Sheet headline |
+| Headline | Instrument Sans | 21 / 600 | Switcher, row titles |
+| Button | Instrument Sans | 18 / 600 | |
+| Body | Instrument Sans | 15–16 / 400–500 | Line height 1.4 |
+| Caption | Instrument Sans | 13 / 400 | |
+| Caps label | IBM Plex Mono | 11 / 400 | Uppercase, +8% tracking; panel and field labels |
+| Readout | IBM Plex Mono | 34–46 / 500 | Live values, tracking −5% |
+| Axis / units | IBM Plex Mono | 11–13 | Hz, dB, m, % |
 
-- Headings use sentence case and may end with a full stop.
-- Every measured value (Hz, dB, m, %) is set in the mono face so digits do not jump while updating.
-- Support Dynamic Type; headings scale up to the `accessibility2` size, then wrap.
+Headlines are full sentences in sentence case, with a full stop. Every measured value is set in the
+mono face. Support Dynamic Type up to `accessibility2`; headlines wrap rather than truncate.
 
-## Shape, spacing, size
+## Space, shape, size
 
-- Screen inset 24. Vertical rhythm in steps of 4 (see `space`).
-- Radii are generous: chip 16, button 20, row 22, card 28–32, hero illustration 36.
-- Minimum touch target 44. Primary button 58 tall, chips 48, list rows 64.
+- Screen inset 24; content starts 60 below the top edge; rhythm in steps of 4.
+- Radii: segment 10, control 14, panel 18, sheet 28, buttons and chips fully round.
+- Touch targets at least 44. Primary button 58 tall.
+- Strokes: hairline 1, measured trace 3, walls 3.
 
 ## Components
 
-**Primary button.** `sun` fill, `onAccent` label, radius 20, height 58, with a solid 5 pt bottom edge in
-`sunShadow`. On press it moves down 4 pt and the edge shrinks to 1 pt (`motion.duration.press`), with a
-medium impact haptic. One per screen.
+**Panel.** `panel` fill, 1 pt `line` border, radius 18, padding 14. Holds one visualisation or one group
+of readings, usually headed by a caps label on the left and a unit or legend on the right.
 
-**Secondary button.** `surface` fill, `text` label, same size, no bottom edge. Back buttons in flows are the
-58 × 58 square version with a chevron.
+**Primary button.** `lime` pill, `ink` label, 58 tall. One per screen, at the bottom. Scales to 0.97 on press.
 
-**Text button.** Rounded 16 / 700 in `textMuted` ("Skip", "Not now"). 44 pt tall hit area.
+**Secondary button.** `panel` pill with `ivory` label, or outlined pill for passive states
+("Waiting for quiet, then I continue").
 
-**Chip.** Height 48, radius 16, 2 pt border. Unselected: `surface` fill, `line` border. Selected: `sun` fill
-and border, `onAccent` label. Selecting pops with `spring.pop` and a selection haptic.
+**Text link.** 15 pt, `muted`, underlined, 44 pt hit area. For the quieter alternative under a primary button.
 
-**Card.** `surface`, radius 28. The single most important action on a screen may use a `sun` card with
-radius 32. Cards scale to 0.97 while pressed (`spring.press`).
+**Icon button.** 44 pt circle in `panel` (or `ink` over camera).
 
-**Result badge.** Pill, height 40, accent fill, icon + two or three words ("Buzz at 90 Hz"). Appears with
-`spring.pop`.
+**Segmented control.** `panel` track, radius 14; selected segment `ivory` with `ink` label.
 
-**Progress dots.** 8 pt dots, 6 pt gap. Done = `lilac`, upcoming = `line`, current = 28 × 8 `sun` pill that
-pops in.
+**Room and system switcher.** Top-left of every tab: caps label (room) over headline (system) with a
+chevron. On Optimize the order flips (system over room), because the room is the subject there.
 
-**Room and system switcher.** A pill at the top left of every tab: room icon in a `lilac` circle, room name
-over system name, chevron. Opens the Rooms and systems sheet.
+**Tab bar.** Diagnose · Measure · Optimize. `panel` background, hairline on top. Active tab: `ivory`
+label, 700, a 3 pt `lime` bar on its top edge and a `lime` icon. Settings sits behind the icon button at
+the top right of Diagnose.
 
-**Tab bar.** Three tabs: Diagnose, Optimize, Settings. `surface` background with a `line` hairline on top.
-The active tab's icon sits in a 60 × 30 `sun` pill that pops in on change; its label is `text` / 800.
-Inactive tabs are `textMuted` / 700.
+**Speaker portrait.** The signature graphic. Vertical log-frequency axis from 20 Hz (bottom) to 20 kHz
+(top) with a ruler on the left; a symmetric shape whose width is the measured level; filled with the
+frequency scale. States:
+- *Not heard yet*: dashed `ivory` outline, slow opacity pulse.
+- *Drawing*: filled up to the current frequency, `signal` sweep line at that height.
+- *Paused*: fill switches to `disabled`.
+- *Deviation*: the affected band is cut out and redrawn in `signal` with a ragged edge that trembles.
+Findings are written beside the portrait at the height of the frequency they concern.
 
-**Sheet.** `ink` panel with 36 pt top corners and a grabber over an `inkDeep` backdrop. Enters with
-`spring.sheet`.
+**Response curve.** Horizontal log-frequency axis; `panelRaised` band marks "even, ±3 dB"; the trace uses
+the frequency scale; segments outside the band are overdrawn in `signal` with a dot and a mono label at
+each extreme. "Before" traces are dashed `muted`.
 
-**Reso.** Outer ring: `surfaceRaised` fill, `lilac` stroke. Inner cone: `sun`. Eyes and smile: `onAccent`.
-Sizes: 200 (hero), 72 (inline), 48 (header). Reso never covers content and never appears on result screens
-that report a suspected defect.
+**Room plan.** Top-down. Walls 3 pt `ivory`, windows a double line, door a dashed arc, furniture `muted`
+outlines. Speakers are filled `ivory` squares, the seat a ringed dot. Measured spots are solid `ivory`
+dots; a measured problem area is `signal` hatching; a suggested position is a dashed `guide` outline.
+A legend states "Measured here" versus "Suggested, not yet tested".
+
+**Progress tracker.** Scanned → Measured → Move → Verify, caps labels joined by 2 pt rules. Done `lime`,
+current `guide` (pulsing), upcoming `line`.
+
+**Readout.** Caps label, large mono value, unit in sans. Coloured `signalText` only while the value is
+out of range.
+
+**Status pill.** 30 pt tall. `lime` fill = done, `lime` outline with pulsing dot = active,
+`line` outline = upcoming, `signal` fill = paused.
+
+**Hold-to-hear.** 92 pt `signal` circle with a speaker glyph and an expanding ring. Plays the offending
+frequency through the speaker only while held.
+
+**AR overlay.** Target footprint: dashed, marching `guide` outline with a faint fill. Current footprint:
+`ivory` outline. Remaining distance: `lime` mono readout and a `lime` progress bar. Rotation: `guide` arc
+with a mono angle label.
 
 ## Motion
 
-Motion explains what the app is doing; it is never the only carrier of meaning.
-
-| Pattern | When | Spec |
+| Pattern | Meaning | Spec |
 |---|---|---|
-| Pop | Badges, checks, active tab pill, selected chip | `spring.pop`, from scale 0.5 |
-| Press | Cards, rows, chips | scale 0.97 with `spring.press` |
-| Button press | Primary button | 4 pt down, 0.12 s |
-| Rise | Screen text entering | 16 pt up, 0.6 s, siblings staggered 0.08 s |
-| Bob / blink | Reso idle | 3 s float, blink every 4 s |
-| Thump | A speaker is playing | scale 1.0–1.1, 0.7 s loop |
-| Ripple | Sound leaving a source, mic listening | rings scale 0.7–1.7 and fade, 2.4 s |
-| Equalizer | Live level | bars scale 0.3–1.0, staggered |
-| Settle | Speakers moving to a recommended position | `spring.settle` with slight overshoot |
+| Title rise | New screen | 12 pt up, 0.5 s |
+| Trace draw | A result arrived | Curve draws once, 1.6 s |
+| Sweep line | Tone is playing at this pitch | ±4 pt hover, 1.2 s loop |
+| Tremble | This band deviates | ±1.4 pt, 0.09 s loop |
+| Pulse ring | Active spot / marker | Scale to 2.6 and fade, 1.8 s |
+| Sound arcs | Speaker is playing | Staggered opacity, 1.8 s |
+| Waiting dot | App waits for the user or the room | Opacity 0.4–1, 1.2 s |
+| Settle | Where something should move | Spring with slight overshoot |
+| Marching outline | AR target | 1 s loop |
+| Press | Touch feedback | Scale 0.97, 0.14 s |
 
-Rules:
-
-- Loops run only while the thing they describe is true (thump only while a tone plays).
-- At most one looping animation in the user's focus per screen, plus Reso.
-- With Reduce Motion on: loops stop, springs become 0.2 s cross-fades, nothing is hidden.
-- Haptics accompany the moments listed under `haptic` in the tokens, and nothing else.
+- A loop runs only while what it describes is true.
+- With Reduce Motion: loops stop, traces appear without drawing, nothing is hidden.
+- Haptics are listed under `haptic` in the tokens; in AR, taps speed up as the speaker nears its target.
 
 ## Voice
 
-- First person, short, friendly: "Can I listen in?", "All set, let's listen".
-- Say what happens next before asking for permission.
-- Never claim a confirmed defect. Use "may", "suspected", "likely the room".
-- No jargon in headlines. Units and numbers are fine in details.
+- First person, calm, specific: "It got noisy, so I stopped."
+- Say what will happen before asking for a permission.
+- Hedge honestly: "may be buzzing", "should return", "could be the phone's angle".
+- No jargon in headlines; units are fine in details.
 
 ## Accessibility
 
-- Text contrast at least 4.5:1 (3:1 from 24 pt). All listed text/background pairs pass.
-- VoiceOver labels on every icon-only control; illustrations get one summary label.
-- All flows are usable without colour, motion or sound cues alone.
+- Text contrast at least 4.5:1 (3:1 from 24 pt). `indigo` is never used for text.
+- Every chart and illustration has one VoiceOver summary that states the finding.
+- Icon-only controls are labelled. All flows work without colour, motion or haptics.
+
+## Brand
+
+- **Mark.** Seven stacked bands forming a speaker portrait, coloured with the frequency scale. One bass
+  band sits out of line: the thing Resoniq finds. Files: `brand/resoniq-mark.svg`, `resoniq-mark-mono.svg`.
+- **Wordmark.** "Resoniq" in Instrument Sans SemiBold, tracking −4.5%.
+- **Lockup.** Mark left, wordmark right, cap height of the wordmark about 70% of the mark's height.
+  Files: `brand/resoniq-logo-dark.svg`, `resoniq-logo-light.svg` (live text; outline before print).
+- **App icon.** Mark on `ink`, full bleed. Files: `brand/resoniq-app-icon.svg`, `AppIcon-1024.png`.
+- **Colour use.** Full-colour mark on `ink` or `panel`. On light or on `lime`, use the one-colour mark in `ink`.
+- **Clear space.** Half the mark's width on every side. Minimum mark size 20 pt.
+- Do not recolour the bands individually, straighten the offset band, add effects, or place the
+  full-colour mark on a mid-tone or photographic background.

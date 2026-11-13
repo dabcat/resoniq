@@ -90,6 +90,7 @@ struct IntroView: View {
 /// Three dots, the current one a long pill; the width says where you are as well as the colour. One adjustable
 /// element for VoiceOver.
 private struct PageIndicator: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let count: Int
     let current: Int
     let select: (Int) -> Void
@@ -103,7 +104,7 @@ private struct PageIndicator: View {
             }
         }
         .frame(width: Metrics.width, alignment: .leading)
-        .animation(ResoniqMotion.press, value: current)
+        .animation(reduceMotion ? nil : ResoniqMotion.press, value: current)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(IntroText.pageIndicator)
         .accessibilityValue(IntroText.pageValue(current + 1))

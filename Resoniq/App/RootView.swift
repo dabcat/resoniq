@@ -69,6 +69,7 @@ struct AppShell: View {
     @State private var selection: AppTab = launchTab
     @State private var showsRooms = false
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.appLifecycle) private var lifecycle
     @Environment(DiagnoseCoordinator.self) private var diagnose
     @Environment(MeasureCoordinator.self) private var measure
@@ -108,7 +109,7 @@ struct AppShell: View {
     private func introFinished(_ outcome: IntroOutcome) {
         introGate?.finish()
         selection = .diagnose
-        withAnimation(ResoniqMotion.sheet) { showsIntro = false }
+        withAnimation(reduceMotion ? nil : ResoniqMotion.sheet) { showsIntro = false }
         // "Try it on a speaker" opens the Aim flow for the first test, as the home's primary button does.
         if outcome == .tryOnSpeaker { diagnose.startFirstTest() }
     }

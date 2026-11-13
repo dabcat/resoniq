@@ -159,7 +159,8 @@ private struct TestRoot: View {
             if old == .paused, new == .listening {
                 // A run carrying on is a change worth hearing: say it instead of only moving focus.
                 AccessibilityNotification.Announcement("The room is quiet again. Carrying on.").post()
-            } else {
+            } else if new != .finished {
+                // The Result screen puts VoiceOver on its verdict itself.
                 UIAccessibility.post(notification: .screenChanged, argument: nil)
             }
         }
@@ -206,7 +207,6 @@ private struct ResultRoot: View {
             } message: {
                 Text("Its name shows at the top of every tab.")
             }
-            .onAppear { UIAccessibility.post(notification: .screenChanged, argument: nil) }
         } else {
             // The test has finished and the result is being kept: one frame.
             ResoniqColor.ink.ignoresSafeArea()

@@ -4,6 +4,7 @@ import ResoniqDiagnostics
 import ResoniqRoom
 import ResoniqStore
 import SwiftData
+import SwiftUI
 
 /// Everything the Measure tab does besides drawing: which flow or live view is on screen, what was kept, whether The
 /// numbers are pushed. It decides navigation and what to save; every judgement about the seat comes from the Kit.
@@ -165,6 +166,12 @@ final class MeasureCoordinator {
         unsaved = kept == nil ? MeasureSummary(report: report, date: .now) : nil
         close()
         if let kept { onSeatKept?(kept) }
+        // The cover closes onto Measure home; say what was found, since nothing on screen moves VoiceOver there.
+        let verdict = report.verdict
+        Task {
+            try? await Task.sleep(for: .seconds(1))
+            AccessibilityNotification.Announcement(verdict).post()
+        }
     }
 
     // MARK: Leaving

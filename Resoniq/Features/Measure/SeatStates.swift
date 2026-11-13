@@ -157,6 +157,10 @@ struct SeatFailedScreen: View {
                     .buttonStyle(ResoniqTextLinkStyle())
             }
         }
+        // The screen takes over from a running one: VoiceOver reads what happened, not just "screen changed".
+        .onAppear {
+            AccessibilityNotification.Announcement("\(MeasureText.failureHeadline(failure)) \(MeasureText.failureBody(failure))").post()
+        }
         .accessibilityAction(.escape, onClose)
     }
 }

@@ -82,7 +82,7 @@ public struct ResoniqInlineLinkStyle: ButtonStyle {
             .font(ResoniqFont.bodySmall)
             .underline()
             .foregroundStyle(color(pressed: configuration.isPressed))
-            .frame(minHeight: ResoniqSize.touchMin)
+            .frame(minWidth: ResoniqSize.touchMin, minHeight: ResoniqSize.touchMin)
             .contentShape(Rectangle())
     }
 

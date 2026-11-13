@@ -37,6 +37,7 @@ public struct ResoniqTabBar<Value: Hashable>: View {
                         Text(item.title)
                             .font(isSelected ? ResoniqFont.tabSelected : ResoniqFont.tab)
                             .lineLimit(1)
+                            .minimumScaleFactor(Metrics.minimumScale)
                     }
                     .foregroundStyle(isSelected ? ResoniqColor.ivory : ResoniqColor.muted)
                     .frame(maxWidth: .infinity, minHeight: ResoniqSize.tabItemHeight)
@@ -50,6 +51,13 @@ public struct ResoniqTabBar<Value: Hashable>: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                // Past the largest size a bar can hold, the system shows the tab large in the middle of the screen.
+                .accessibilityShowsLargeContentViewer {
+                    VStack {
+                        ResoniqIconView(item.icon)
+                        Text(item.title)
+                    }
+                }
                 .accessibilityAddTraits(isSelected ? .isSelected : [])
             }
         }
@@ -63,6 +71,8 @@ public struct ResoniqTabBar<Value: Hashable>: View {
                 .frame(height: ResoniqSize.strokeHairline)
         }
         .sensoryFeedback(.selection, trigger: selection)
+        // The bar holds its height: its labels grow to a point and then shrink, as the system tab bar does.
+        .dynamicTypeSize(...DynamicTypeSize.accessibility1)
         .accessibilityElement(children: .contain)
         .accessibilityAddTraits(.isTabBar)
     }
@@ -70,5 +80,6 @@ public struct ResoniqTabBar<Value: Hashable>: View {
     private enum Metrics {
         static var iconLabelGap: CGFloat { 5 }
         static var indicatorHeight: CGFloat { 3 }
+        static var minimumScale: CGFloat { 0.7 }
     }
 }

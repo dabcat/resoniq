@@ -309,6 +309,7 @@ struct MeasureHomeContainer: View {
 
 // MARK: - Previews
 
+#if DEBUG
 #Preview("The mockup's room") {
     MeasureHomeView(
         measurement: MeasureSummary(report: MeasureFixtures.mockup, date: .now.addingTimeInterval(-3 * 86_400)),
@@ -354,3 +355,4 @@ struct MeasureHomeContainer: View {
     .dynamicTypeSize(.accessibility2)
     .preferredColorScheme(.dark)
 }
+#endif

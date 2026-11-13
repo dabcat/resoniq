@@ -31,6 +31,9 @@ struct ResultScreen: View {
     let onDontKeep: () -> Void
     let onClose: () -> Void
 
+    /// VoiceOver lands on the verdict when the screen appears, not on the line above it.
+    @AccessibilityFocusState private var verdictFocused: Bool
+
     var body: some View {
         VStack(spacing: ResoniqSpace.s4) {
             ScrollView {
@@ -53,6 +56,7 @@ struct ResultScreen: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(ResoniqColor.ink)
         .accessibilityAction(.escape, onClose)
+        .onAppear { verdictFocused = true }
     }
 
     // MARK: Header
@@ -64,6 +68,7 @@ struct ResultScreen: View {
             Text(report.verdict)
                 .resoniqTitle(.medium)
                 .accessibilityAddTraits(.isHeader)
+                .accessibilityFocused($verdictFocused)
         }
     }
 
@@ -311,6 +316,7 @@ private struct PortraitNotesLayout: Layout {
     }
 }
 
+#if DEBUG
 #Preview("Buzz, dip, even") {
     ResultScreen(
         report: DiagnoseFixtures.buzzing, speaker: .left, keptIn: KeptIn(room: "My room", system: "My speakers"),
@@ -347,3 +353,4 @@ private struct PortraitNotesLayout: Layout {
     .dynamicTypeSize(.accessibility2)
     .preferredColorScheme(.dark)
 }
+#endif

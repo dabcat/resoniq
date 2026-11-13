@@ -42,6 +42,7 @@ public struct ResoniqStatusPill: View {
             Text(title)
                 .font(style == .upcoming ? Metrics.regularFont : Metrics.boldFont)
                 .lineLimit(1)
+                .minimumScaleFactor(Metrics.minimumScale)
         }
         .foregroundStyle(foreground)
         .padding(.horizontal, style == .paused ? Metrics.pausedPadding : Metrics.padding)
@@ -91,6 +92,7 @@ public struct ResoniqStatusPill: View {
         static let dot: CGFloat = 7
         static let dotLow: Double = 0.4
         static let outline: CGFloat = 1.5
+        static let minimumScale: CGFloat = 0.7
         static let boldFont = ResoniqFont.font(.sansBold, size: 13, relativeTo: .caption)
         static let regularFont = ResoniqFont.font(.sansRegular, size: 13, relativeTo: .caption)
     }

@@ -111,12 +111,20 @@ What the conversion does not keep, because the model has no place for it: confid
 | `MoveProgress` | `Guidance/MoveGuidance.swift:24` | `distanceToGo`, `direction`, `bearing`, `turnRemaining`, `totalDistance`, `fractionDone`, `isInPosition`, `hasArrived` |
 | `MoveGuidance` | `Guidance/MoveGuidance.swift:44` | `Target` (:46, start and end pose), `progress(current:target:viewer:)` (:70), `hapticInterval(distance:)` (:91) |
 | `WorldAlignment` | `Guidance/WorldAlignment.swift:10` | rotation (plan angle), translation, `residual`; `init(modelPoint:worldPoint:modelHeading:worldHeading:)` (:32), `fit(model:world:)` least squares (:39), `isConsistent`, `apply` (:61–65), `inverse` (:70) |
+| `FloorHit`, `ARTrackingIssue`, `ARTracking` | `Guidance/ARGuidanceState.swift:5`, `:17`, `:39` | The reticle's world floor point and height; initializing, excessive motion, too little detail, too dark, relocalising, unavailable; `insufficientFeatures(ambientIntensity:)` (:32) tells a dark room apart; normal, limited, interrupted |
+| `ARGuidancePhase`, `ARGuidanceEvent`, `ARGuidanceEffect` | `Guidance/ARGuidanceState.swift:49`, `:75`, `:99` | finding floor, marking, sliding, turning, arrived, `placed(PlanPose)`, declined; floor found, reticle, camera, marked, follow on/off, remark, confirm, decline, tracking degraded/recovered, interrupted/ended; reached position (the success haptic), placed, declined |
+| `ARGuidanceState` | `Guidance/ARGuidanceState.swift:118` | The AR guide as a pure reducer, `apply(_:) -> [ARGuidanceEffect]` (:226). The mark (reticle on the middle of the speaker's front, the camera's heading reversed as its facing) fixes `alignment` and `speaker` (world); while following, the speaker follows the reticle; in position → `turning` (a turn left) or `arrived`, and back to `sliding` beyond `leavePositionDistance`. `canMark`, `canConfirm`, `canFollow`, `target`, footprints, `speakerInModel`, `progress` (model frame, seen by the camera), `hapticInterval`, `placedPose` (the position followed, the suggestion's facing: the turn is confirmed by eye), `refinedAlignment(matching:)` (:216, least squares with more matched points) |
+| `ARGuidanceGeometry`, `PlanSegment` | `Guidance/ARGuidanceGeometry.swift:19`, `:4` | `footprint(of:size:)`, `frontEdgeCentre`, `centre(behindFrontEdge:facing:size:)`, `dashes(around:dash:gap:phase:)` (:50, split at corners), `marchPhase(time:reduceMotion:)`, `turnArc(around:radius:from:to:)`, `turnArc(speaker:target:size:)` (:100, with the label's point) |
+| `ARReadoutText` | `Guidance/ARReadout.swift:6` | V3OAR's readout: title, "To go"/"Turn", value, unit, fraction, instruction, "35 cm in total", "then turn 12° toward your seat", the haptics or by-eye line, the spoken line; `sliding`, `turning`, `arrived`; `ARGuidanceState.readout` (:79), `arcLabel` (:90) |
+| `ARProgressAnnouncer` | `Guidance/ARReadout.swift:99` | When VoiceOver hears the distance again: at most every 3 s, only for a 2 cm change or a new direction |
+| `ARGuidanceText`, `ARGuidanceMessage` | `Guidance/ARGuidanceText.swift:17`, `:4` | The guide's strings outside the readout: finding the floor, marking, the turn, the follow control, buttons, `tracking(_:)` (:71), the permission, denied and no-AR states |
+| `ARGuidanceSample` | `Guidance/ARGuidanceSample.swift:6` | The mockups' move (right speaker 35 cm toward the seat, 12° turn, or none) for previews, debug screens and tests |
 
 ### Text
 
 | Symbol | Where | Holds |
 |---|---|---|
-| `RoomText` | `RoomText.swift:8` | `metres` (:12), `move` (:15), `moveParts` (:21), `dimensions` (:28), `roomTitle` (:34), `wallsCaptured` (:39), `degrees`, `frequency`, `problemLabel` (:55), `legendMeasured`, `legendSuggested`, `seatName` (:62–64), `layoutGuessHint` (:68), `shortName`, `title`, `manualIssue` (:101), `geometryIssue` (:114), `geometrySummary`, `roomShapeBasis` (:132), `totalDistance` (:219), `thenTurn`, `stepLabel`, `stepTitle` (:228), `stepInstruction`, `unexplained` (:241), `slideInstruction` (:248), `toGoLabel`, `hapticHint`, `arrived` |
+| `RoomText` | `RoomText.swift:8` | `metres` (:12), `move` (:15), `moveParts` (:21), `dimensions` (:28), `roomTitle` (:34), `wallsCaptured` (:39), `degrees`, `frequency`, `problemLabel` (:55), `legendMeasured`, `legendSuggested`, `seatName` (:62–64), `layoutGuessHint` (:68), `shortName`, `title`, `manualIssue` (:101), `geometryIssue` (:114), `geometrySummary`, `roomShapeBasis` (:132), `totalDistance` (:219), `thenTurn`, `stepLabel`, `stepTitle` (:228), `stepInstruction`, `unexplained` (:241), `slideInstruction`, `turnLabel` (:253, "turn 12°"), `spokenProgress` (:257, "18 centimetres to go, toward you"), `toGoLabel`, `hapticHint`, `arrived` |
 
 ## How the advisor decides
 
@@ -181,10 +189,16 @@ Every public static constant. "First guess" is said in the doc comment, and ever
 | `MoveGuidance.hapticRange` | `Guidance/MoveGuidance.swift:64` | 1.0 m | First guess |
 | `MoveGuidance.fastestHapticInterval`, `slowestHapticInterval` | `Guidance/MoveGuidance.swift:66`, `:68` | 0.08 s, 0.8 s | First guesses; linear between |
 | `WorldAlignment.maximumResidual` | `Guidance/WorldAlignment.swift:13` | 0.10 m | First guess |
+| `ARTrackingIssue.darkAmbientIntensity` | `Guidance/ARGuidanceState.swift:29` | 120 lm | First guess; too few features below it reads as too dark |
+| `ARGuidanceState.leavePositionDistance` | `Guidance/ARGuidanceState.swift:121` | 0.06 m | Twice `positionTolerance`, so the step does not flicker |
+| `ARGuidanceGeometry.dashLength`, `gapLength` | `Guidance/ARGuidanceGeometry.swift:21`, `:22` | 0.04 m, 0.025 m | The mockup's 7:4 at floor scale |
+| `ARGuidanceGeometry.marchPeriod`, `marchDistance` | `Guidance/ARGuidanceGeometry.swift:24`, `:27` | 1 s, two dash periods | `motion.loop.marchingOutline` |
+| `ARGuidanceGeometry.arcClearance`, `arcStep` | `Guidance/ARGuidanceGeometry.swift:29`, `:31` | 0.12 m, 3° | |
+| `ARProgressAnnouncer.minimumInterval`, `minimumChange` | `Guidance/ARReadout.swift:101`, `:103` | 3 s, 0.02 m | First guesses |
 
 ## Tests
 
-`ResoniqKit/Tests/ResoniqRoomTests/`, 51 tests, under a second.
+`ResoniqKit/Tests/ResoniqRoomTests/`, 87 tests, under a second.
 
 - `GeometryTests`: plan vectors (ARKit's right hand, angle wrapping, footprint corners); the manual room's walls, dimensions, area and every validation limit including NaN; containment, nearest wall inside and outside, a footprint's gap to the wall, the wall behind a toed-in speaker, on a rectangle and an L; "3 of 4 walls" while a scan is open, walls standing in for a missing floor; every length, size, angle and frequency format the mockups show.
 - `EditTests`: a move into a wall stops at the clearance, an allowed move is exact, furniture blocks a speaker, a seat may sit on a sofa but not in a wall, a turn into a wall moves the speaker out, adding outside the room and removing.
@@ -193,6 +207,7 @@ Every public static constant. "First guess" is said in the doc comment, and ever
 - `AcousticModelTests`: axial modes of 4.20 × 5.60 × 2.40 m against n·343/2L by hand; mode pressure at the wall, the null and the centre; the three boundary dips against c/4d.
 - `PlacementAdvisorTests`: the 61 Hz case (forward or back, within the limit, the mockup's sentence form, the AR lines, a distinct second); turns aim at the seat; the listener's frame; unexplained problems give nothing; no problems gives only room-shape suggestions, and a turn on its own when only the toe-in is off; every suggestion stays inside, off furniture and within the limit for two limits; a wall limits a move back; a subwoofer peak moved along a wall away from the width's second mode; no seat, no suggestion.
 - `GuidanceTests`: progress halfway, toward the viewer and to the side, arrival needs both position and turn, the fraction stays in 0…1, taps strictly faster as the distance shrinks and none outside the range; `WorldAlignment` recovers a known rotation and translation from two and four points and from a point and a heading, flags an inconsistent point by its residual, refuses degenerate input, and carries a room there and back.
+- `ARGuidanceTests`: the reducer through a whole move (floor, mark, follow, in position, turn, placed back in model coordinates within a centimetre), a move without a turn arriving, decline from any phase, tracking lost and an interruption mid-slide (the reticle ignored, the alignment kept), re-marking, leaving the position, marking needs normal tracking, too dark from the light; the mark maps the target into the world and back, a 5° heading error moves the target under 5 cm, a refit with the seat and its residual; footprint corners of turned poses, dashes that cover half the outline and march, the turn arc; V3OAR's readout strings verbatim (18 cm of 35, then 12°), the turn step's honest line, spoken distances, announcement pacing, a message for every tracking issue.
 - `ModelTests` (without `@testable`): a full model and a full advice round-trip through JSON; the RoomPlan helpers on hand-built transforms (a wall along its local x through its centre, an opening's offset, furniture heading, unknown categories, floor corners through the transform).
 
 - `ScanTests`: a wall turned 0.1 rad from a plausible scan against its ends worked out by hand; four walls close the 4.20 × 5.60 m room; openings on the parent wall, the nearest wall when the parent is missing or unknown, a doorless opening as a door, low confidence flagged; furniture kept, `.other` for a refrigerator, non-finite values and a zero-length wall dropped; an opening with no wall dropped; the largest floor polygon chosen; label markers; the missing wall between free ends; the inset's facing; readiness for every device and permission pair; every instruction and failure has copy.
@@ -216,6 +231,15 @@ What the doc comments say the models cannot tell you.
 - Is RoomPlan's local +z an object's front? The converter task should check on a real scan and, if so, `LayoutGuess` can trust the sofa's heading.
 - Should a move of one speaker of a symmetric pair suggest moving both (keeping symmetry), as the plan's rule "it does not break the symmetry of a pair unless that is the point" hints?
 - Every first-guess constant above needs before-and-after measurements in real rooms; the advisor's weights in particular are untested.
+- **Only a device can verify the AR guide** (phase 5 task 4; nothing below was run, the device build only compiled):
+  - that `ARView` on the source's own `ARSession` (`automaticallyConfigureSession: false`) shows the camera and draws the overlay, and that setting `view.session` leaves the source's delegate in place;
+  - that `ARFrame.raycastQuery(from: (0.5, 0.5), …)` lands under the screen's centre in portrait (aspect fill), that `session.raycast` is cheap at 15 Hz, how soon a horizontal plane is found on a plain floor, and whether filtering table and seat planes keeps the reticle on the floor;
+  - how well a person can put the reticle on a speaker's front edge, how far the camera's heading is from the speaker's facing in practice (it sets the target's place: 5° is about 4 cm at 35 cm), and whether a second mark (the two front corners, or the seat) is needed;
+  - that holding "follow" one-handed while sliding a speaker is usable, and how much the reticle wobbles at 3 cm `positionTolerance`;
+  - the camera's heading when aimed nearly straight down (the phone's top as the fallback);
+  - tracking: which limited reasons appear in a living room, whether `darkAmbientIntensity` tells dark from bare, and that after an interruption ARKit relocalizes to the same world so the target stays put (if it does not, the person has to start over);
+  - the marching dashes' cost (30 Hz re-lay of about 20 entities), the label projection, the soft taps' feel and pace, the success haptic, and VoiceOver's announcements while moving;
+  - the camera permission prompt, the denied state and the return from Settings.
 - **Only a LiDAR device can verify the scan** (phase 4 task 2; nothing below was run, the device build only compiled):
   - that `RoomCaptureView(frame:arSession:)` on the app's own `ARSession` scans and processes as in RoomScan;
   - that the forwarding session-delegate proxy keeps the outlines and processing (RoomScan measured that it hides Apple's coaching overlay, which the screen replaces with its own instruction), that `didProvide` instructions arrive at all with `isCoachingEnabled`, and from which thread;

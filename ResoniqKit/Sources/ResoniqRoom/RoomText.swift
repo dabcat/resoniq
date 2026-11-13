@@ -246,13 +246,30 @@ public enum RoomText {
 
     /// Under the AR readout: "Slide it toward you until it fills the blue outline."
     public static func slideInstruction(_ direction: ViewerDirection) -> String {
-        let way: String = switch direction {
+        "Slide it \(viewerWay(direction)) until it fills the blue outline."
+    }
+
+    /// The arc's label on the floor: "turn 12°".
+    public static func turnLabel(_ radians: Double) -> String { "turn \(degrees(radians))" }
+
+    /// What VoiceOver says of a slide: "18 centimetres to go, toward you", "1.20 metres to go, to your left",
+    /// or "In place" without a direction.
+    public static func spokenProgress(distance: Double, direction: ViewerDirection?) -> String {
+        guard let direction else { return "In place" }
+        let centimetres = Int((max(0, distance) * 100).rounded())
+        let amount = centimetres < 100
+            ? "\(centimetres) \(centimetres == 1 ? "centimetre" : "centimetres")"
+            : "\(twoDecimals(distance)) metres"
+        return "\(amount) to go, \(viewerWay(direction))"
+    }
+
+    static func viewerWay(_ direction: ViewerDirection) -> String {
+        switch direction {
         case .towardYou: "toward you"
         case .awayFromYou: "away from you"
         case .left: "to your left"
         case .right: "to your right"
         }
-        return "Slide it \(way) until it fills the blue outline."
     }
 
     public static let toGoLabel = "To go"

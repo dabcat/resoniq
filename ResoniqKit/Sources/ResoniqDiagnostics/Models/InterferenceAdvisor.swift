@@ -126,7 +126,9 @@ public enum InterferenceAdvisor {
     /// **The call the app makes when a run pauses or fails for noise.** Classifies the audio captured during the
     /// noisy stretch and returns what to show under "It got noisy, so I stopped.": `sentence` with `tagLine`, or nil
     /// when nothing was heard clearly, the sound could not be named (`unknown` adds nothing to "it got noisy"), or the
-    /// classifier failed. Never throws: naming the noise is a courtesy and must not stop a test.
+    /// classifier failed or did not answer in time (`SystemSoundClassifier.timeout`; a timeout is "nothing heard").
+    /// Never throws and never waits longer than the classifier's limit: naming the noise is a courtesy and must not
+    /// stop a test.
     ///
     /// - Parameters:
     ///   - samples: Mono audio from the noisy stretch: preferably while the sweep was stopped (the paused stretch);

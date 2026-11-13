@@ -2,6 +2,7 @@
 import AVFoundation
 import Foundation
 import ResoniqDSP
+import Synchronization
 import Testing
 @testable import ResoniqDiagnostics
 
@@ -36,16 +37,31 @@ enum ClassifierSignals {
     /// microphone records it.
     static let sweepRecording: [Float] = Bench.healthy.record(LogSweep.measurement(sampleRate: sampleRate))
 
-    /// A synthetic voice from the Mac's `say`, 48 kHz float; nil where it cannot be made.
-    static let speech: [Float]? = {
+    /// A synthetic voice from the Mac's `say`, 48 kHz float; nil where it cannot be made, or not within `sayTimeout`
+    /// (the process is then stopped). Made once, waited for off the concurrency pool.
+    static var speech: [Float]? {
+        get async { await speechTask.value }
+    }
+
+    /// `say` writes to a file and needs no audio device; it takes about a second. **First guess**: 20 s.
+    static let sayTimeout: Duration = .seconds(20)
+
+    private static let speechTask = Task<[Float]?, Never> {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("resoniq-speech-\(UUID().uuidString).wav")
         defer { try? FileManager.default.removeItem(at: url) }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/say")
         process.arguments = ["-o", url.path, "--data-format=LEF32@48000",
                              "Could you turn the television down for a moment? I am measuring the speakers in the living room."]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
         guard (try? process.run()) != nil else { return nil }
-        process.waitUntilExit()
+        do {
+            try await OffPool.run(timeout: sayTimeout) { process.waitUntilExit() }
+        } catch {
+            process.terminate()
+            return nil
+        }
         guard process.terminationStatus == 0,
               let file = try? AVAudioFile(forReading: url),
               let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(file.length)),
@@ -53,7 +69,31 @@ enum ClassifierSignals {
               let channel = buffer.floatChannelData?[0], buffer.frameLength > 0
         else { return nil }
         return Array(UnsafeBufferPointer(start: channel, count: Int(buffer.frameLength)))
-    }()
+    }
+}
+
+/// The classifier the tests run, and whether it answers here.
+///
+/// `RESONIQ_TEST_SOUND_CLASSIFIER` simulates a machine where the system classifier does not work, to check that the
+/// suite still finishes: `unavailable` (the probe says no) or `silent` (a classifier that never answers, so the
+/// probe times out). Unset, it is the real one.
+enum TestClassifier {
+    static let mode = ProcessInfo.processInfo.environment["RESONIQ_TEST_SOUND_CLASSIFIER"]
+
+    /// Generous, so a slow shared runner still gets an answer; the product's limit is `standardTimeout`.
+    static let timeout: Duration = .seconds(60)
+
+    static var classifier: SystemSoundClassifier {
+        mode == "silent" ? SystemSoundClassifier(timeout: .seconds(2), backend: SilentAnalysis()) : SystemSoundClassifier(timeout: timeout)
+    }
+
+    static func isWorking() async -> Bool {
+        switch mode {
+        case "unavailable": false
+        case "silent": await SystemSoundClassifier.probe(classifier)
+        default: await SystemSoundClassifier.isWorking()
+        }
+    }
 }
 
 /// Prints each window's top labels, for the record of what the classifier really said.
@@ -67,22 +107,28 @@ private func log(_ name: String, _ labels: [SoundClassification], seconds: Doubl
     }
 }
 
-private func timed(_ samples: [Float]) async throws -> ([SoundClassification], Double) {
-    let start = ContinuousClock.now
-    let labels = try await SystemSoundClassifier().classify(samples, sampleRate: ClassifierSignals.sampleRate)
-    let elapsed = ContinuousClock.now - start
-    return (labels, Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18)
+private func seconds(_ duration: Duration) -> Double {
+    Double(duration.components.seconds) + Double(duration.components.attoseconds) / 1e18
 }
 
-@Suite(.enabled(if: SystemSoundClassifier.isAvailable, "Apple's built-in sound classifier cannot be created on this machine"))
+private func timed(_ samples: [Float]) async throws -> ([SoundClassification], Double) {
+    let start = ContinuousClock.now
+    let labels = try await TestClassifier.classifier.classify(samples, sampleRate: ClassifierSignals.sampleRate)
+    return (labels, seconds(ContinuousClock.now - start))
+}
+
+/// The real classifier: every test is skipped, with the reason, where it does not answer, and bounded where it does.
+@Suite(.enabled("Apple's built-in sound classifier does not answer on this machine (SystemSoundClassifier.isWorking)") {
+    await TestClassifier.isWorking()
+}, .timeLimit(.minutes(2)))
 struct SoundClassifierTests {
     @Test func `the live label list is the committed one`() throws {
         #expect(try SystemSoundClassifier.knownLabels() == SoundClassifierLabels.version1)
     }
 
-    @Test(.enabled(if: ClassifierSignals.speech != nil, "the Mac's say command could not make a voice"))
+    @Test(.enabled("the Mac's say command could not make a voice in time") { await ClassifierSignals.speech != nil })
     func `a voice is named as someone talking`() async throws {
-        let speech = try #require(ClassifierSignals.speech)
+        let speech = try #require(await ClassifierSignals.speech)
         let (labels, seconds) = try await timed(speech)
         log("speech (\(String(format: "%.1f", Double(speech.count) / ClassifierSignals.sampleRate)) s)", labels, seconds: seconds)
         let report = try #require(InterferenceAdvisor.describe(classifications: labels))
@@ -114,13 +160,13 @@ struct SoundClassifierTests {
         // The problem it solves: heard as if the sweep were not playing, the sweep would be named as music.
         #expect(InterferenceAdvisor.describe(classifications: labels, context: .sweepSilent)?.kind == .music)
         let note = await InterferenceAdvisor.noiseNote(heard: ClassifierSignals.sweepRecording, sampleRate: ClassifierSignals.sampleRate,
-                                                       context: .sweepPlaying, classifier: SystemSoundClassifier())
+                                                       context: .sweepPlaying, classifier: TestClassifier.classifier)
         #expect(note == nil)
     }
 
-    @Test(.enabled(if: ClassifierSignals.speech != nil, "the Mac's say command could not make a voice"))
+    @Test(.enabled("the Mac's say command could not make a voice in time") { await ClassifierSignals.speech != nil })
     func `someone talking over the sweep is still named`() async throws {
-        let speech = try #require(ClassifierSignals.speech)
+        let speech = try #require(await ClassifierSignals.speech)
         var mixed = ClassifierSignals.sweepRecording
         for index in mixed.indices where index < speech.count { mixed[index] += speech[index] }
         let (labels, seconds) = try await timed(mixed)
@@ -130,8 +176,8 @@ struct SoundClassifierTests {
 
     @Test func `audio shorter than a window gives no classification`() async throws {
         let short = Array(ClassifierSignals.music.prefix(Int(1.4 * ClassifierSignals.sampleRate)))
-        #expect(try await SystemSoundClassifier().classify(short, sampleRate: ClassifierSignals.sampleRate).isEmpty)
-        #expect(try await SystemSoundClassifier().classify([], sampleRate: ClassifierSignals.sampleRate).isEmpty)
+        #expect(try await TestClassifier.classifier.classify(short, sampleRate: ClassifierSignals.sampleRate).isEmpty)
+        #expect(try await TestClassifier.classifier.classify([], sampleRate: ClassifierSignals.sampleRate).isEmpty)
     }
 
     @Test func `windows are 1.5 s apart by 0.75 s, each with its top labels`() async throws {
@@ -144,7 +190,7 @@ struct SoundClassifierTests {
     }
 
     @Test func `a cancelled classification throws and resumes once`() async {
-        let task = Task { try await SystemSoundClassifier().classify(ClassifierSignals.noise + ClassifierSignals.noise, sampleRate: ClassifierSignals.sampleRate) }
+        let task = Task { try await TestClassifier.classifier.classify(ClassifierSignals.noise + ClassifierSignals.noise, sampleRate: ClassifierSignals.sampleRate) }
         task.cancel()
         let result = await task.result
         // Either it was cancelled in time, or it had already finished; it never hangs or crashes.
@@ -167,6 +213,117 @@ struct SoundClassifierInputTests {
 
     @Test func `a whole number of hertz is usable`() {
         #expect(SystemSoundClassifier.isUsable(sampleRate: 48000) && SystemSoundClassifier.isUsable(sampleRate: 44100))
+    }
+}
+
+// MARK: - The timeout, without the system classifier
+
+/// An analysis that never answers: it waits until its task is cancelled, as the backend contract asks, and counts
+/// how often it started, was resumed and ended.
+final class SilentAnalysis: SoundAnalysisBackend {
+    struct Counts: Equatable { var started = 0, resumed = 0, ended = 0 }
+    private let counts = Mutex(Counts())
+    private let waiting = Mutex<CheckedContinuation<[SoundClassification], any Error>?>(nil)
+
+    var snapshot: Counts { counts.withLock { $0 } }
+
+    func analyze(_ samples: [Float], sampleRate: Double) async throws -> [SoundClassification] {
+        counts.withLock { $0.started += 1 }
+        defer { counts.withLock { $0.ended += 1 } }
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                waiting.withLock { $0 = continuation }
+                if Task.isCancelled { resumeOnce() }
+            }
+        } onCancel: {
+            resumeOnce()
+        }
+    }
+
+    private func resumeOnce() {
+        guard let continuation = waiting.withLock({ state in defer { state = nil }; return state }) else { return }
+        counts.withLock { $0.resumed += 1 }
+        continuation.resume(throwing: CancellationError())
+    }
+}
+
+/// An analysis that answers, but only after `delay` and whatever its task says: a late callback.
+struct LateAnalysis: SoundAnalysisBackend {
+    let delay: Duration
+
+    func analyze(_ samples: [Float], sampleRate: Double) async throws -> [SoundClassification] {
+        try await Task.sleep(for: delay)
+        return [SoundClassification(identifier: "speech", confidence: 0.99, start: 0, duration: 1.5)]
+    }
+}
+
+@Suite(.timeLimit(.minutes(1)))
+struct SoundClassifierTimeoutTests {
+    static let samples = [Float](repeating: 0.01, count: 2 * 16000)
+    static let limit: Duration = .milliseconds(300)
+
+    @Test func `the product's limits are named`() {
+        #expect(SystemSoundClassifier.standardTimeout == .seconds(5))
+        #expect(SystemSoundClassifier.probeTimeout == .seconds(15))
+        #expect(SystemSoundClassifier().timeout == SystemSoundClassifier.standardTimeout)
+    }
+
+    @Test func `a classifier that never answers times out within its limit, resumes once and leaves nothing running`() async {
+        let backend = SilentAnalysis()
+        let classifier = SystemSoundClassifier(timeout: Self.limit, backend: backend)
+        let start = ContinuousClock.now
+        await #expect(throws: SoundClassifierError.timedOut) {
+            try await classifier.classify(Self.samples, sampleRate: 16000)
+        }
+        let elapsed = ContinuousClock.now - start
+        #expect(elapsed >= Self.limit && elapsed < Self.limit + .seconds(2))
+        // Started once, resumed once by the cancellation, and ended before `classify` returned.
+        #expect(backend.snapshot == SilentAnalysis.Counts(started: 1, resumed: 1, ended: 1))
+    }
+
+    @Test func `the advisor says nothing rather than wait`() async {
+        let backend = SilentAnalysis()
+        let classifier = SystemSoundClassifier(timeout: Self.limit, backend: backend)
+        let start = ContinuousClock.now
+        let note = await InterferenceAdvisor.note(heard: Self.samples, sampleRate: 16000, sweepPlaying: false, classifier: classifier)
+        #expect(note == nil)
+        #expect(ContinuousClock.now - start < Self.limit + .seconds(2))
+        #expect(backend.snapshot.ended == 1)
+    }
+
+    @Test func `an answer after the limit is dropped, not delivered twice`() async throws {
+        let classifier = SystemSoundClassifier(timeout: Self.limit, backend: LateAnalysis(delay: .seconds(1)))
+        await #expect(throws: SoundClassifierError.timedOut) {
+            try await classifier.classify(Self.samples, sampleRate: 16000)
+        }
+        // Let the late answer's moment pass: nothing resumes again or traps.
+        try await Task.sleep(for: .seconds(1))
+    }
+
+    @Test func `an answer within the limit is returned`() async throws {
+        let classifier = SystemSoundClassifier(timeout: .seconds(5), backend: LateAnalysis(delay: .milliseconds(50)))
+        let labels = try await classifier.classify(Self.samples, sampleRate: 16000)
+        #expect(labels.map(\.identifier) == ["speech"])
+    }
+
+    @Test func `cancelling the caller of a silent classifier throws at once and resumes once`() async {
+        let backend = SilentAnalysis()
+        let classifier = SystemSoundClassifier(timeout: .seconds(30), backend: backend)
+        let task = Task { try await classifier.classify(Self.samples, sampleRate: 16000) }
+        try? await Task.sleep(for: .milliseconds(50))
+        let start = ContinuousClock.now
+        task.cancel()
+        let result = await task.result
+        #expect(ContinuousClock.now - start < .seconds(2))
+        #expect(throws: CancellationError.self) { try result.get() }
+        #expect(backend.snapshot.resumed <= 1 && backend.snapshot.ended == backend.snapshot.started)
+    }
+
+    @Test func `the probe says no for a classifier that never answers, within its limit`() async {
+        let start = ContinuousClock.now
+        #expect(await SystemSoundClassifier.probe(SystemSoundClassifier(timeout: Self.limit, backend: SilentAnalysis())) == false)
+        #expect(ContinuousClock.now - start < Self.limit + .seconds(2))
+        #expect(await SystemSoundClassifier.probe(SystemSoundClassifier(timeout: .seconds(5), backend: LateAnalysis(delay: .zero))))
     }
 }
 #endif

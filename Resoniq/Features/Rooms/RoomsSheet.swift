@@ -63,21 +63,11 @@ struct RoomsSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
+        VStack(spacing: 0) {
+            header
             list
-                .navigationTitle(RoomsText.title)
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .topBarLeading) {
-                        Button(isEditing ? RoomsText.stopEditing : RoomsText.edit) {
-                            withAnimation(ResoniqMotion.sheet) { isEditing.toggle() }
-                        }
-                    }
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button(RoomsText.done, action: onClose)
-                    }
-                }
         }
+        .background(ResoniqColor.ink)
         .tint(ResoniqColor.ivory)
         .preferredColorScheme(.dark)
         .presentationDetents([.medium, .large])
@@ -93,6 +83,31 @@ struct RoomsSheet: View {
         )
     }
 
+    // MARK: The header
+
+    /// Edit at the left and Done at the right, as a sheet's bar has them (HIG), drawn with the design system's text
+    /// links; the title under them, as Settings has it.
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Button(isEditing ? RoomsText.stopEditing : RoomsText.edit) {
+                    withAnimation(ResoniqMotion.sheet) { isEditing.toggle() }
+                }
+                .buttonStyle(ResoniqTextLinkStyle())
+                Spacer(minLength: ResoniqSpace.s3)
+                Button(RoomsText.done, action: onClose)
+                    .buttonStyle(ResoniqTextLinkStyle())
+            }
+            Text(RoomsText.title)
+                .resoniqTitle(.small)
+                .accessibilityAddTraits(.isHeader)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, ResoniqSpace.screenInset)
+        .padding(.top, ResoniqSpace.s2)
+        .padding(.bottom, ResoniqSpace.s2)
+    }
+
     // MARK: The list
 
     private var list: some View {
@@ -102,6 +117,7 @@ struct RoomsSheet: View {
                 .foregroundStyle(ResoniqColor.muted)
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
+                .listRowInsets(Metrics.rowInsets)
             ForEach(rooms) { room in
                 Section {
                     ForEach(room.orderedSystems) { system in
@@ -116,12 +132,16 @@ struct RoomsSheet: View {
                     Button(RoomsText.addSystem) { addingSystemTo = room }
                         .buttonStyle(ResoniqInlineLinkStyle())
                         .listRowBackground(ResoniqColor.panel)
+                        .listRowInsets(Metrics.rowInsets)
                 } header: {
                     RoomHeader(
                         room: room, isEditing: isEditing,
                         onRename: { beginRenaming(room) }, onDelete: { requestDeletion(of: room) }
                     )
+                    .padding(.horizontal, ResoniqSpace.screenInset)
+                    .background(ResoniqColor.ink)
                 }
+                .listSectionSeparator(.hidden)
             }
             Section {
                 Button(RoomsText.addRoom) {
@@ -130,12 +150,22 @@ struct RoomsSheet: View {
                 }
                 .buttonStyle(ResoniqInlineLinkStyle())
                 .listRowBackground(ResoniqColor.panel)
+                .listRowInsets(Metrics.rowInsets)
             }
+            .listSectionSeparator(.hidden)
         }
-        .listStyle(.insetGrouped)
+        // The app's own look: panel rows edge to edge with hairlines between them, on the app background.
+        .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .listRowSeparatorTint(ResoniqColor.line)
         .background(ResoniqColor.ink)
+    }
+
+    private enum Metrics {
+        /// Rows and the intro line start at the screen inset, like every other screen.
+        static let rowInsets = EdgeInsets(
+            top: 0, leading: ResoniqSpace.screenInset, bottom: 0, trailing: ResoniqSpace.screenInset
+        )
     }
 
     // MARK: Actions
@@ -394,6 +424,7 @@ private struct SystemRow: View {
         }
         .frame(minHeight: ResoniqSize.touchMin)
         .listRowBackground(ResoniqColor.panel)
+        .listRowInsets(EdgeInsets(top: 0, leading: ResoniqSpace.screenInset, bottom: 0, trailing: ResoniqSpace.screenInset))
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             Button(RoomsText.delete, role: .destructive, action: onDelete)
             Button(RoomsText.rename, action: onRename).tint(ResoniqColor.guide)

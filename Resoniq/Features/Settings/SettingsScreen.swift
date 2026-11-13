@@ -105,14 +105,17 @@ struct SettingsScreen: View {
                 }
                 Text(SettingsText.privacy).bodyText(colour: ResoniqColor.muted)
                 VStack(spacing: Metrics.buttonGap) {
+                    // The same outlined button twice (a filled one is the panel's own colour here and reads as a
+                    // heading); the one with nothing to delete is dimmed and the line under the pair says why.
                     Button(SettingsText.deleteResults) { confirming = .results }
-                        .buttonStyle(ResoniqSecondaryButtonStyle())
+                        .buttonStyle(ResoniqSecondaryButtonStyle(.outlined))
                         .disabled(counts.results == 0)
+                        .opacity(counts.results == 0 ? Metrics.disabledOpacity : 1)
+                    Button(SettingsText.deleteEverything) { confirming = .everything }
+                        .buttonStyle(ResoniqSecondaryButtonStyle(.outlined))
                     if counts.results == 0 {
                         Text(SettingsText.noResults).font(ResoniqFont.caption).foregroundStyle(ResoniqColor.muted)
                     }
-                    Button(SettingsText.deleteEverything) { confirming = .everything }
-                        .buttonStyle(ResoniqSecondaryButtonStyle(.outlined))
                 }
             }
         }
@@ -198,6 +201,7 @@ struct SettingsScreen: View {
         static let rowGap: CGFloat = 12
         static let buttonGap: CGFloat = 8
         static let labelGap: CGFloat = 4
+        static let disabledOpacity: Double = 0.4
     }
 }
 

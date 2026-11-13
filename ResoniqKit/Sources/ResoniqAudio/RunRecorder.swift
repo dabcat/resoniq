@@ -5,7 +5,7 @@ import ResoniqDSP
 /// sweep has arrived and died away, and hands back the recording. Pure apart from the two closures it is given to
 /// schedule and stop playback; the session owns the stream and the state the screen sees.
 struct RunRecorder {
-    /// Why a run started again from the sweep's beginning.
+    /// What a block changed.
     enum Event: Equatable {
         case none
         /// Noise stopped the sweep; it resumes from `resumeFrequency` (the start frequency when the run will

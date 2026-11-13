@@ -48,7 +48,6 @@ public final class MotionStillnessMonitor: StillnessMonitor {
     private let manager = CMMotionManager()
     private var lastMovement: TimeInterval?
     private var startedAt: TimeInterval = 0
-    private var latest: TimeInterval = 0
 
     public init() {}
 
@@ -83,7 +82,6 @@ public final class MotionStillnessMonitor: StillnessMonitor {
     }
 
     private func update(rotationRate: Double, acceleration: Double, time: TimeInterval) {
-        latest = time
         if rotationRate > Self.maximumRotationRate || acceleration > Self.maximumUserAcceleration {
             lastMovement = time
         }

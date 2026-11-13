@@ -392,8 +392,15 @@ struct SimulationState: Sendable {
     mutating func schedule(_ samples: [Float], on channel: SpeakerChannel, mode: PlaybackMode) throws(AudioIOError) -> Int64 {
         guard running else { throw .notRunning }
         guard !samples.isEmpty else { throw .unavailable("an empty buffer") }
+        let loopIndex = items.lastIndex { $0.loops && $0.end == .max }
+        switch mode {
+        case .once, .loop:
+            guard loopIndex == nil else { throw .unavailable("a loop is playing; end it with afterLoop") }
+        case .afterLoop:
+            guard loopIndex != nil else { throw .unavailable("no loop is playing") }
+        }
         var start = max(queueEnd, position + lead)
-        if mode == .afterLoop, let index = items.lastIndex(where: { $0.loops && $0.end > position }) {
+        if mode == .afterLoop, let index = loopIndex {
             let loop = items[index]
             let length = Int64(loop.samples.count)
             let from = max(position + lead, loop.start)

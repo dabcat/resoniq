@@ -19,6 +19,12 @@ import Testing
         #expect(InputLevel(isClipping: false, frequency: 1000, peakDecibels: Self.healthyPeak) == .good)
     }
 
+    @Test func `a level that is not good says what to do, and a good one says nothing`() {
+        #expect(InputLevel.good.advice == nil)
+        #expect(InputLevel.tooQuiet.advice == "Turn the volume up or hold the phone closer.")
+        #expect(InputLevel.tooLoud.advice == "Turn the volume down a little.")
+    }
+
     @Test func `its words, long for Listening and short for Three spots`() {
         #expect(InputLevel.good.label == "Good, no clipping")
         #expect(InputLevel.tooQuiet.label == "Too quiet")

@@ -33,6 +33,28 @@ public enum ReadingText {
     /// "Steady", "Moving".
     public static func phone(isSteady: Bool) -> String { isSteady ? "Steady" : "Moving" }
 
+    /// What a result says when the phone moved while a run played (`RunRecording.phoneMoved`): the run is kept, not
+    /// failed, so the line says so and asks for a little care. Nil when no run moved. `runs` are 1-based.
+    ///
+    /// - "The phone moved while run 2 played. I kept that run, so read its details with a little care."
+    /// - "The phone moved while runs 1 and 3 played. I kept them, so read the details with a little care."
+    public static func phoneMovedNote(runs: [Int]) -> String? {
+        let moved = Array(Set(runs)).sorted()
+        switch moved.count {
+        case 0:
+            return nil
+        case 1:
+            return "The phone moved while run \(moved[0]) played. I kept that run, so read its details with a little care."
+        default:
+            let numbers = moved.map(String.init)
+            let list = numbers.dropLast().joined(separator: ", ") + " and " + numbers[numbers.count - 1]
+            return "The phone moved while runs \(list) played. I kept them, so read the details with a little care."
+        }
+    }
+
+    /// What the line above rests on, for its evidence tag: the phone's own motion sensor.
+    public static let phoneMovedBasis = "the phone's motion sensor"
+
     /// The approximate level at the right end of the room-noise bar, dB. Chosen so the mockup's 52 dB sits at 78 %
     /// of the bar and its quiet-enough mark at 55 %, a mark near 37 dB, just above a quiet living room.
     public static let roomNoiseScaleDecibels: Float = 70

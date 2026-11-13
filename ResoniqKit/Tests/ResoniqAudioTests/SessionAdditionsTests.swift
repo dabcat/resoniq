@@ -93,6 +93,17 @@ import Testing
         #expect(SeatSessionText.inconclusiveBasis(.interrupted) == nil)
     }
 
+    @Test func `a run the phone moved in says so, with the run numbers, and nothing when none moved`() {
+        #expect(ReadingText.phoneMovedNote(runs: []) == nil)
+        #expect(ReadingText.phoneMovedNote(runs: [2])
+            == "The phone moved while run 2 played. I kept that run, so read its details with a little care.")
+        #expect(ReadingText.phoneMovedNote(runs: [3, 1])
+            == "The phone moved while runs 1 and 3 played. I kept them, so read the details with a little care.")
+        #expect(ReadingText.phoneMovedNote(runs: [1, 2, 3, 2])
+            == "The phone moved while runs 1, 2 and 3 played. I kept them, so read the details with a little care.")
+        #expect(ReadingText.phoneMovedBasis == "the phone's motion sensor")
+    }
+
     @Test func `the readings`() {
         #expect(ReadingText.frequencyReading(90.4) == ("90", "Hz"))
         #expect(ReadingText.frequencyReading(1020) == ("1.02", "kHz"))

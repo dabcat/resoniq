@@ -34,6 +34,16 @@ public enum InputLevel: String, Sendable, Equatable, CaseIterable {
         }
     }
 
+    /// What to do about it, under the reading: nil when the level is good. The same advice the notice gives when a run
+    /// is played again.
+    public var advice: String? {
+        switch self {
+        case .good: nil
+        case .tooQuiet: "Turn the volume up or hold the phone closer."
+        case .tooLoud: "Turn the volume down a little."
+        }
+    }
+
     /// Three spots' shorter reading: "Good", "Too quiet", "Too loud".
     public var shortLabel: String {
         switch self {

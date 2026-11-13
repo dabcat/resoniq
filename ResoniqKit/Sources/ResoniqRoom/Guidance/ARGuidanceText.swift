@@ -48,6 +48,8 @@ public enum ARGuidanceText {
     public static let following = "Following the speaker"
     /// VoiceOver's name for the follow control, which it toggles.
     public static let followLabel = "Follow the speaker"
+    public static let followOn = "On"
+    public static let followOff = "Off"
     public static let followHint =
         "While this is on, the white outline follows the dot. Keep the dot on the middle of the speaker's front."
 

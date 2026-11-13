@@ -15,6 +15,9 @@ public struct ChannelComparisonChart: View {
     private let progress: Double
     private let drawsOnAppear: Bool
     private let accessibilityText: String
+    /// False for a single speaker: one trace, and a legend with that one entry.
+    private let showsRight: Bool
+    private let leftName: String
 
     @ScaledMetric(relativeTo: .caption2) private var labelWidth: CGFloat = Metrics.labelWidth
 
@@ -48,6 +51,34 @@ public struct ChannelComparisonChart: View {
         self.progress = progress
         self.drawsOnAppear = drawsOnAppear
         self.accessibilityText = accessibilityLabel
+        self.showsRight = true
+        self.leftName = "Left"
+    }
+
+    /// One speaker on the same grid: its trace in the left style, no right trace.
+    /// - Parameter name: What the legend calls it ("Speaker").
+    public init(
+        single trace: [Double],
+        name: String,
+        range: Double = 12,
+        gridStep: Double = 6,
+        evenBand: Double = 3,
+        caption: String? = nil,
+        progress: Double = 1,
+        drawsOnAppear: Bool = false,
+        accessibilityLabel: String
+    ) {
+        self.left = trace
+        self.right = []
+        self.leftName = name
+        self.range = range
+        self.gridStep = gridStep
+        self.evenBand = evenBand
+        self.caption = caption
+        self.progress = progress
+        self.drawsOnAppear = drawsOnAppear
+        self.accessibilityText = accessibilityLabel
+        self.showsRight = false
     }
 
     /// The levels of the labelled lines, top to bottom: +12, +6, 0, -6, -12.
@@ -63,10 +94,7 @@ public struct ChannelComparisonChart: View {
         let levels = Self.gridLevels(range: range, step: gridStep)
         VStack(alignment: .leading, spacing: Metrics.gap) {
             HStack(alignment: .firstTextBaseline) {
-                ChartLegend(entries: [
-                    ResoniqLegendEntry("Left", color: ResoniqColor.guide),
-                    ResoniqLegendEntry("Right", color: ResoniqColor.lime, isDashed: true),
-                ])
+                ChartLegend(entries: legendEntries)
                 Spacer(minLength: ResoniqSpace.s2)
                 if let caption {
                     Text(caption)
@@ -90,6 +118,12 @@ public struct ChannelComparisonChart: View {
         .accessibilityAddTraits(.isImage)
     }
 
+    private var legendEntries: [ResoniqLegendEntry] {
+        var entries = [ResoniqLegendEntry(leftName, color: ResoniqColor.guide)]
+        if showsRight { entries.append(ResoniqLegendEntry("Right", color: ResoniqColor.lime, isDashed: true)) }
+        return entries
+    }
+
     private func plot(levels gridLevels: [Double], reveal: Double) -> some View {
         ZStack {
             EvenBandShape(evenBand: evenBand, range: range)
@@ -99,11 +133,13 @@ public struct ChannelComparisonChart: View {
             Group {
                 TraceShape(levels: left, range: range)
                     .stroke(ResoniqColor.guide, style: StrokeStyle(lineWidth: Metrics.traceStroke, lineCap: .round, lineJoin: .round))
-                TraceShape(levels: right, range: range)
-                    .stroke(
-                        ResoniqColor.lime,
-                        style: StrokeStyle(lineWidth: Metrics.traceStroke, lineCap: .round, lineJoin: .round, dash: Metrics.rightDash)
-                    )
+                if showsRight {
+                    TraceShape(levels: right, range: range)
+                        .stroke(
+                            ResoniqColor.lime,
+                            style: StrokeStyle(lineWidth: Metrics.traceStroke, lineCap: .round, lineJoin: .round, dash: Metrics.rightDash)
+                        )
+                }
             }
             .modifier(LeftToRightReveal(fraction: reveal))
         }

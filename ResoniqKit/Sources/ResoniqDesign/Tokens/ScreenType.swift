@@ -26,11 +26,14 @@ public enum ResoniqTitleSize: Sendable {
     case large
     /// 30 pt: V3Result.
     case medium
+    /// 28 pt: V3Measure's verdict.
+    case compact
 
     var font: Font {
         switch self {
         case .large: ResoniqFont.title1
         case .medium: ResoniqFont.title2
+        case .compact: ResoniqFont.font(.sansSemibold, size: 28, relativeTo: .title)
         }
     }
 
@@ -38,6 +41,7 @@ public enum ResoniqTitleSize: Sendable {
         switch self {
         case .large: 34
         case .medium: 30
+        case .compact: 28
         }
     }
 }

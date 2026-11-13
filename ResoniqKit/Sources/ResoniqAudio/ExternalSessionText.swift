@@ -151,6 +151,13 @@ public enum ExternalSessionText {
         reason(problem, file: file)
     }
 
+    // MARK: Why the sound has to come from the app
+
+    /// One sentence for the screens that say the sound would come from the iPhone itself: why the app insists on
+    /// playing the sound when it can.
+    public static let whyTheAppPlays =
+        "I compare what I play with what I hear, so I have to know exactly what was played, and that is only certain when the sound comes from this app."
+
     // MARK: When it ends without a result
 
     /// Empty for `cancelled`, which shows no message.
@@ -172,6 +179,19 @@ public enum ExternalSessionText {
             case .speakersNotConnected: "The sound is coming from the iPhone itself."
             case .cancelled: ""
             }
+        }
+    }
+
+    /// What the evidence tag on an ended listening rests on; nil when it carries none. All but `playerClockOff`
+    /// (a measured clock) are "Inconclusive": the listening could not decide.
+    public static func failureBasis(_ failure: ExternalMeasurementFailure) -> String? {
+        switch failure {
+        case .nothingHeard: "nothing louder than the room was heard"
+        case .soundNotRecognised: "none of the sound heard was the test sound"
+        case .playerClockOff(let ratio):
+            "the player ran \(String(format: "%.1f", abs(ratio - 1) * 100)) % \(ratio > 1 ? "fast" : "slow")"
+        case .listeningTimeUp: "five minutes without enough clean recordings"
+        case .measurement(let failure): SeatSessionText.inconclusiveBasis(failure)
         }
     }
 

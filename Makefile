@@ -16,7 +16,7 @@ TAB ?= diagnose
 # …or on one screen in a fixed state: make run SCREEN=listening (names in Resoniq/App/DebugScreens*.swift)
 SCREEN ?=
 
-.PHONY: help project test build run screenshot clean
+.PHONY: help project test build build-release run screenshot clean
 
 help: ## List the targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | sed -E 's/:.*## /\t/' | expand -t 14
@@ -30,6 +30,11 @@ test: ## Run the ResoniqKit tests on the Mac
 build: project ## Build the app for the iOS simulator
 	xcodebuild -project $(PROJECT) -scheme $(SCHEME) -configuration Debug \
 		-destination 'generic/platform=iOS Simulator' -derivedDataPath $(DD) \
+		CODE_SIGNING_ALLOWED=NO build
+
+build-release: project ## Build the Release configuration for the simulator (debug-only code must compile out)
+	xcodebuild -project $(PROJECT) -scheme $(SCHEME) -configuration Release \
+		-destination 'generic/platform=iOS Simulator' -derivedDataPath $(DD)-release \
 		CODE_SIGNING_ALLOWED=NO build
 
 run: build ## Install and launch the app in the simulator

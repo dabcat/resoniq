@@ -50,6 +50,8 @@ public struct SeatMeasurementResult: Sendable, Equatable {
     public var noiseFloor: NoiseFloorReport
     /// In capture order.
     public var spots: [SeatSpotRecording]
+    /// What played the sound.
+    public var source: PlaybackSource = .thisPhone
 
     /// Whether every spot was captured.
     public var isComplete: Bool { spots.count == SeatSpot.allCases.count }

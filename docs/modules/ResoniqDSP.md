@@ -86,6 +86,24 @@ Each is stated once, here, with the symbol that defines it.
 | `ResponseComparison.levelMatched(_:to:band:)` | `Response/ResponseComparison.swift:18` | Shifts a response so its median in the band equals the reference's |
 | `ResponseComparison.difference(_:_:)` | `Response/ResponseComparison.swift:33` | `first − second` in dB on a log grid over the shared range |
 
+### Finding a sweep another device played (phase 7)
+
+When a test sound file plays on the user's own system the phone only listens, so nothing says when a sweep starts, and the player's clock is not the phone's. Plan: [phase-7-external-playback.md](../plans/phase-7-external-playback.md).
+
+| Symbol | Where | Holds |
+|---|---|---|
+| `FoundSweep` | `Response/SweepFinder.swift:4` | `start` (samples, sub-sample, the matched filter's peak: route and room delay included; negative when it began before the recording, :8), `strength` (dB over its surroundings, :12), `isComplete` (the whole sweep, allowing `maximumClockOffset`, lies inside the recording, :15), `init` (:17) |
+| `SweepFinder` | `Response/SweepFinder.swift:51` | Matched filter (the sweep whitened by its own spectrum, in `detectionBand`) by overlap-save; a 5 ms envelope against the median of each side 1.5 s around; one sweep per sweep length; each candidate checked in four bands (`verificationBands`) so a glide that matches part of the sweep is refused |
+| `SweepFinder.find(in:sampleRate:sweep:expectedCount:anchored:)` | `Response/SweepFinder.swift:81` | Every occurrence, by position; the strongest `expectedCount` when given. `anchored`: the caller knows from the file's timing (the clock tone, or another sweep at the file's spacing) that a sweep is due, and a speaker playing only part of the range is accepted (the rule below) |
+| `SweepFinder.clockRatio(starts:expectedSpacing:sampleRate:)` | `Response/SweepFinder.swift:167` | The player's clock over the phone's (above 1: fast) from sweeps of one play on one path and the file's spacing; a missed sweep between is allowed; nil when a spacing is no whole number of the expected one |
+| `SweepFinder.clockRatio(ofTone:sampleRate:)`, `readClockTone(_:sampleRate:)` | `Response/SweepFinder.swift:209`, `:216` | The clock from a recording of the clock tone: its phase demodulated at 1 kHz in 10 ms steps, a line through it; `readClockTone` adds the tone's onset (to 10 ms), which tells the files apart |
+| `SweepFinder.isCorrectable(_:)` | `Response/SweepFinder.swift:277` | Within `maximumClockOffset` |
+| `SweepFinder.corrected(_:ratio:)` | `Response/SweepFinder.swift:284` | The segment resampled so the sweep has its nominal length (`Interpolation`); deconvolve the result against the nominal sweep |
+| `SweepFollower` | `Response/SweepFollower.swift:18` | The cheap live companion, one block at a time: events `toneStarted`, `toneEnded`, `sweepStarted(start:)` (to `startTolerance`), `sweepEnded` (:20–28); `heardFrequency`, `sweepFraction`, `activeSweepStart`, `isHearingTone`; `init(sweep:)` (:64), `feed(_:at:)` (:74), `reset()` (:69). A sweep is a block's strongest frequency standing over the octave either side, whose implied start agrees over 8 of 10 blocks; the tone is 5 blocks within 0.5 % of 1 kHz. It triggers and shows progress; `find` decides |
+| `Interpolation.resample(_:from:step:count:)` | `Foundation/Interpolation.swift:24` | A Kaiser-windowed sinc (48 taps a side, 256 phases, linear between them): flat within 0.01 dB to 21 kHz at 48 kHz, images about 80 dB down; for steps near 1 (`Interpolation` at :13) |
+
+**The verification rule (unanchored and anchored).** A candidate's band-limited matched filter must peak within 5 ms of its start by `minimumBandStrength` in each band counted. Unanchored, every `verificationBands` band the recording holds must agree, all but one when three or more: only a chirp at the sweep's rate over most of 150 Hz–12 kHz passes, which keeps music and noise out. Anchored, `minimumAnchoredBands` (4) neighbouring `anchoredBands` must agree, about 3.2 octaves: a speaker with a dead tweeter (nothing above 2 kHz), a dead woofer (nothing under 500 Hz) or only 200 Hz–2 kHz is found, while a 1 kHz tone followed by a glissando where a sweep would be due (an exact-rate octave, an exact-rate octave and a half, a two-octave semitone run) is not. The timing anchor alone is not trusted: the anchored rule still asks for three octaves of the sweep at its exact rate. A speaker heard only under 150 Hz (a subwoofer alone) is never found, anchored or not: nothing of it lies in `detectionBand`, and the clock tone at 1 kHz does not reach the microphone either. The listening session then says it heard sound it could not recognise (`ExternalMeasurementFailure.soundNotRecognised` in ResoniqAudio), never that it heard nothing.
+
 ### Room
 
 | Symbol | Where | Holds |
@@ -186,6 +204,24 @@ Every public static constant, and the `standard` quality thresholds. A value mar
 | `ToneDistortion.maximumOrder` | `Distortion/ToneDistortion.swift:88` | 10 | |
 | `ToneDistortion.lobeHalfWidth` | `Distortion/ToneDistortion.swift:91` | 5 resolution bins | Blackman–Harris main lobe is ±4, plus one |
 | `ToneDistortion.minimumToneToNoiseDecibels` | `Distortion/ToneDistortion.swift:94` | 20 dB | Below it no tone is found |
+| `SweepFinder.detectionBand` | `Response/SweepFinder.swift:54` | 150 Hz…12 kHz | First guess |
+| `SweepFinder.envelopeDuration` | `Response/SweepFinder.swift:57` | 5 ms | Holds a peak dispersed by 1000 ppm (4 ms) |
+| `SweepFinder.minimumStrength` | `Response/SweepFinder.swift:62` | 13 dB | First guess; a sweep in room noise makes about 60 dB |
+| `SweepFinder.surroundings`, `surroundingsGuard` | `Response/SweepFinder.swift:65–66` | 1.5 s, 0.15 s | Each side's median, the louder kept |
+| `SweepFinder.maximumClockOffset` | `Response/SweepFinder.swift:71` | 0.001 (1000 ppm) | The limit beyond which a run is invalid (`playerClockOff`); players keep within ±100 ppm, cheap ones ±500 |
+| `SweepFinder.clockToneFrequency`, `clockToneDuration`, `clockToneAmplitude` | `Response/SweepFinder.swift:195–197` | 1 kHz, 2 s, 0.125 (−18 dBFS) | The tone at the start of every test sound file |
+| `SweepFinder.minimumToneDuration` | `Response/SweepFinder.swift:199` | 0.8 s | Of steady tone, after 0.2 s is trimmed from each end |
+| `SweepFinder.verificationBands` | `Response/SweepFinder.swift:331` | 150–500, 500–1500, 1500–4500, 4500–12000 Hz | Unanchored: all but one must agree (both of two) |
+| `SweepFinder.anchoredBands` | `Response/SweepFinder.swift:340` | `detectionBand` in eight of about 0.8 octave | Anchored candidates are checked in these |
+| `SweepFinder.minimumAnchoredBands` | `Response/SweepFinder.swift:348` | 4 neighbouring | About 3.2 octaves at the sweep's exact rate and timing. First guess |
+| `SweepFinder.minimumBandStrength` | `Response/SweepFinder.swift:335` | 6 dB | A band's peak over the largest output 20–250 ms around it. First guess |
+| `SweepFollower.minimumProminence` | `Response/SweepFollower.swift:32` | 15 dB | Over the octave either side. First guess |
+| `SweepFollower.toneProminence` | `Response/SweepFollower.swift:34` | 25 dB | First guess |
+| `SweepFollower.confirmingBlocks` | `Response/SweepFollower.swift:36` | 8 (of 10) | Longer than a gliding note; a sweep is recognised about 2.3 s after it starts |
+| `SweepFollower.startTolerance` | `Response/SweepFollower.swift:39` | 0.06 s | |
+| `SweepFollower.toneTolerance`, `toneBlocks` | `Response/SweepFollower.swift:42`, `:44` | 0.5 %, 5 blocks | |
+| `SweepFollower.topFrequency` | `Response/SweepFollower.swift:46` | 16 kHz | |
+| `Interpolation.halfWidth`, `phases`, `kaiserBeta` | `Foundation/Interpolation.swift:15–19` | 48, 256, 8.6 | |
 | `QualityThresholds.standard.fullScaleLevel` | `Quality/QualityThresholds.swift:124` | 32767/32768 | Largest 16-bit sample |
 | `.fullScaleRun` | `Quality/QualityThresholds.swift:125` | 2 samples | |
 | `.flatTopRun` | `Quality/QualityThresholds.swift:126` | 8 samples | First guess; a longer run must also beat a clean crest |
@@ -218,6 +254,15 @@ What the tests hold the module to, all on simulated recordings at 48 kHz (and 44
 | Decay through the whole chain | A 0.52 s resonance read within 0.2 % from its own impulse response and from a deconvolved 4 s sweep, the two within 0.01 %; a 0.14 s treble resonance with a short tail within 0.1 % | 35–70 Hz; 2 kHz octave | `DecayTests` |
 | Room window | A 20 ms reflection's comb within 0.08 dB; a 45 Hz mode within 0.05 dB of its level on the grid (the default window reads it 2.7 dB low); an unchanged sweep flat within 0.18 dB over the trusted band | `roomPostWindow` | `RoomWindowTests` |
 
+| Sweep found in a recording | Every sweep of 1, 2 or 3 found within 24 samples through a speaker in noise (its group delay); within 0.2 sample without one; none in 60 s of pink noise or of a synthetic tune with gliding notes | Measurement sweep | `SweepFinderTests` |
+| Clock from the spacing of three sweeps | Within 10 ppm (0.02–0.05 ppm at most offsets, 5 ppm at −300 ppm where the dispersed peak moves) | ±500 ppm, through a speaker | `SweepFinderTests` |
+| Clock from the clock tone | Within 0.06 ppm (asserted 1 ppm), through a speaker with an all-pass crossover, noise 33 dB under | −500 to +1000 ppm | `SweepFinderTests` |
+| A clock offset, corrected | Response within 0.011 dB of none over 20 Hz–20 kHz after third-octave smoothing (asserted 0.1 dB); THD within 0.17 % of its value, 100 Hz–5 kHz (asserted 5 %) | ±100, ±300, ±500 ppm | `ClockOffsetAccuracyTests` |
+| A clock offset, not corrected | Response off by 4.0, 13.7, 18.3 dB at −100, −300, −500 ppm and 1.2, 1.4, 0.9 dB at +100, +300, +500 ppm (the worst point, at 20 Hz; −4 dB at 500 Hz at −500 ppm); THD off by up to 54 % | Same | printed, not asserted |
+| Speed | 60 s searched in 0.17 s (release, Apple silicon Mac; 0.6–2.5 s in a debug build); the follower 0.17 ms a 100 ms block (2–4 ms debug) | | `SweepFinderSpeedTests`, `SweepFollowerTests` |
+
+So a run from another device is never analysed uncorrected: a slow player's bass arrives before the response's peak by more than the 2 ms pre-window keeps. Corrected, its accuracy is the normal path's; the limit is `maximumClockOffset` (1000 ppm), past which something resamples the file wrongly and its sound is pitch-shifted.
+
 For `LogSweep.measurement` the response is trusted from 20 Hz to 20.8 kHz and the second harmonic from 80 Hz to 9.4 kHz.
 
 The signal-to-noise gate stays at 20 dB. With noise 20 dB under the recording the response is still good to a few hundredths of a dB once smoothed, while sweep THD reads 2 to 5 % from noise alone. Distortion confidence is decided per frequency by the floor measured on the recording (`SweepDistortion.isMeasurable(at:)`), so a higher broadband gate would only reject recordings whose response is fine.
@@ -235,6 +280,8 @@ The signal-to-noise gate stays at 20 dB. With noise 20 dB under the recording th
 - `RoomTests`: `DecayTests` (synthetic decays of band-limited noise with known decay times in an octave and in the bass, two bands in one response and the octave table, T30 or T20 or nothing by dynamic range with the range checked against the fixture's own levels, bands outside the trusted band, the bass band's clipping, too short, a unit impulse (the filter's own decay), corrupt and silent responses, a resonance read directly and through sweep and deconvolution against the decay its poles fix, a short tail with the sweep named); `RoomWindowTests` (a reflection's comb against `|1 + g·e^(−j2πfτ)|`, a gate removes it, a 45 Hz mode at its height, the trusted band and flatness with the room window); `ResponseAverageTests` (energy mean, not dB mean; log grid; zero spread for identical responses; different grids; empty and disjoint input).
 - `PublicAPITests`: imports the module without `@testable` and builds every result type, so their initialisers stay public.
 - `EndToEndTests`: the phase's "Done when". A 3 s sweep from 20 Hz to 20 kHz through a simulated speaker (80 Hz high-pass, +6 dB bell at 2 kHz, about 2 % THD, white noise at −60 dBFS, 0.15 s late). It asserts that the delay is within 0.5 ms, the magnitude response within 0.25 dB from 50 Hz to 16 kHz after level matching (the plan's bar was 1 dB), and THD within a quarter of its value at 300, 500, 1000, 2000 and 3000 Hz.
+- `SweepFinderTests`, `SweepFollowerTests`, `ClockOffsetAccuracyTests`, `SweepFinderSpeedTests`: sweeps played on a clock `ratio` times the phone's, computed exactly at the stretched times (`ExternalRecording`, not resampled); 1, 2, 3 sweeps found at their positions, a cut sweep at either end flagged, nothing in pink noise or a tune, a sweep found under music; the clock from three sweeps' spacing and from the tone; the interpolator against an exact sine; the accuracy with and without correction; the follower through a file of tone and three sweeps, the frequency it reports, no event in noise or music, its cost and the finder's.
+- `FaultySpeakerFinderTests`: three sweeps through eighth-order edges: a dead tweeter, a dead woofer and a 200 Hz–2 kHz speaker are each found anchored (and, in this simulation's quiet noise, unanchored too: an attenuated band still peaks over its own surroundings; in a real room the drowned bands will not, which is what anchoring is for); a subwoofer alone is not found; music with a 1 kHz tone and three glissandos where sweeps are due gives nothing, anchored or not; pink noise and the tune give nothing anchored.
 - `SimulatedSpeaker`: not a test; the biquads, seeded noise and polynomial nonlinearity the tests share.
 
 All of this is simulated. Nothing here has run on a microphone, and every first-guess threshold is untested against a real iPhone.
@@ -258,6 +305,8 @@ What the doc comments say the module cannot tell you.
 - **`SignalToNoise`:** the figure is (signal + noise) over noise, so it is never below about 0 dB and is close to the true ratio only well above it. The broadband ratio can pass while one band is drowned; use `bandRatios`.
 - **`RecordingQuality`:** judges the recording, not the speaker. `tooNoisy` never means the speaker is faulty; `corrupt` means the data, not the room.
 - **`NoiseGate`:** cannot tell sweep from noise, and the ceilings only suit room-only blocks. Hysteresis and timing belong to the audio session.
+- **`SweepFinder`:** cannot tell which speaker played a sweep, nor whether the sound went through a lossy format or a sample-rate converter on the way (both bend the top of the range and the distortion figures). One sweep alone does not give the clock: stretching an exponential sweep is a shift plus a delay that grows with frequency, and a speaker's own phase makes delays of that size (a sharpest-peak search missed by up to 360 ppm with one all-pass crossover), hence the clock tone. A phone moving towards the speaker shifts the tone by 30 ppm per cm/s. A real chirp in music with the sweep's exact rate over most of its range would pass the band check.
+- **`SweepFollower`:** says nothing in the first 1.4 s of a sweep (under 150 Hz) and needs 0.8 s more to be sure, so the screen's portrait fills from about 2.3 s; the follower is never the authority on where a sweep is.
 
 ## Open questions
 
@@ -268,4 +317,5 @@ What the doc comments say the module cannot tell you.
 - `flatTopRun` misses mild limiting of a high tone and `fullScaleLevel` misreads a clean low sine at full scale; a real recording may show which matters.
 - Hysteresis, block counts and where to resume the sweep are left to the audio session ([ResoniqAudio](ResoniqAudio.md)).
 - The seat measurement needs a longer recording tail than Diagnose: at least `roomPostWindow` (0.5 s) for the response, and for the decay the decay itself plus a stretch of noise (`Decay.noiseTailFraction` of what is read). For a 1 s bass decay a tail of 2 s or more is safe. The audio session should set it.
+- Playing from another device, only a device can tell: real players' clock offsets (assumed within ±500 ppm) and whether they resample a 48 kHz file to 44.1 kHz (which leaves only the offset, the sweep reaching 22 kHz under the 22.05 kHz Nyquist); a lossy format or AirPlay to a receiver adding its own processing (room correction, loudness, a limiter) between the file and the speakers; and whether `minimumStrength`, `minimumBandStrength` and the follower's prominences hold in real rooms with real music.
 - Whether a phone in a real room reaches `Decay.minimumDynamicRangeT20` (35 dB) in the bass, where the microphone rolls off and rumble is loudest, is unknown. If it rarely does, T15 (−5 to −20 dB, 30 dB) is the next step down.

@@ -25,6 +25,11 @@ public struct SpeakerReport: Sendable, Codable, Equatable {
     /// the phone's motion sensor, so `measured`; nil when none moved. Optional, so reports stored before it decode, and
     /// a reopened report says it as the live one did (`phoneMovedNote`).
     public internal(set) var phoneMovedRuns: [Int]? = nil
+    /// How the sound was played; nil when the phone played it (and in every report stored before this existed).
+    public internal(set) var source: SoundSource? = nil
+
+    /// "Measured from a test sound played on another device."; nil when the phone played the sound.
+    public var sourceNote: String? { DiagnosisText.sourceNote(source) }
 
     /// "The phone moved while run 2 played. I kept that run, so read its details with a little care."; nil when no
     /// run moved.
@@ -59,15 +64,19 @@ public enum SpeakerDiagnosis {
     ///   - counterpart: The other speaker's runs, for a left/right comparison, when it has been tested.
     ///   - phoneMovedRuns: The runs (1-based) in which the phone moved while the sweep played (the session's
     ///     `RunRecording.phoneMoved`); kept on the report as `phoneMovedRuns`, changing nothing else.
+    ///   - source: How the sound was played (the session's `MeasurementResult.source`, mapped by the app); nil for the
+    ///     phone. Kept on the report as `source`, changing nothing else (`SoundSource` says why).
     public static func diagnose(
         runs: [RunAnalysis],
         counterpart: [RunAnalysis]?,
         phoneMovedRuns: [Int] = [],
+        source: SoundSource? = nil,
         thresholds: DiagnosisThresholds = .standard
     ) -> SpeakerReport {
         var report = diagnosis(runs: runs, counterpart: counterpart, thresholds: thresholds)
         let moved = Array(Set(phoneMovedRuns)).sorted()
         report.phoneMovedRuns = moved.isEmpty ? nil : moved
+        report.source = source
         return report
     }
 

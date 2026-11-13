@@ -7,7 +7,10 @@ import SwiftUI
 /// The Result, Finding and Diagnose home screens with fixture data, for looking at them in the simulator.
 /// The launch argument `-screen <name>` shows one; the names are listed in `names`. Debug builds only.
 enum ResultsDebugScreens {
-    static let names = ["result", "result-healthy", "result-inconclusive", "finding", "home", "home-empty", "home-single"]
+    static let names = [
+        "result", "result-healthy", "result-inconclusive", "result-quiet-woofer", "result-not-assessed",
+        "finding", "home", "home-empty", "home-single",
+    ]
 
     /// The screen for `name`, or nil when the name is not one of `names`.
     @MainActor
@@ -19,6 +22,10 @@ enum ResultsDebugScreens {
             AnyView(result(DiagnoseFixtures.healthy, primary: "Now the right speaker", keptIn: Self.keptIn))
         case "result-inconclusive":
             AnyView(result(DiagnoseFixtures.inconclusive, primary: "Try the left speaker again", keptIn: nil))
+        case "result-quiet-woofer":
+            AnyView(result(DiagnoseFixtures.quietWoofer, primary: "Now the right speaker", keptIn: Self.keptIn))
+        case "result-not-assessed":
+            AnyView(result(DiagnoseFixtures.notAssessed, primary: "Now the right speaker", keptIn: Self.keptIn))
         case "finding":
             AnyView(
                 FindingScreen(

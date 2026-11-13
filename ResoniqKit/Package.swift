@@ -16,7 +16,7 @@ let package = Package(
         .library(name: "ResoniqStore", targets: ["ResoniqStore"]),
     ],
     targets: [
-        .target(name: "ResoniqDesign", swiftSettings: swift6),
+        .target(name: "ResoniqDesign", resources: [.process("Resources")], swiftSettings: swift6),
         .target(name: "ResoniqDSP", swiftSettings: swift6),
         .target(name: "ResoniqAudio", dependencies: ["ResoniqDSP"], swiftSettings: swift6),
         .target(name: "ResoniqDiagnostics", dependencies: ["ResoniqDSP"], swiftSettings: swift6),

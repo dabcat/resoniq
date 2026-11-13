@@ -67,10 +67,13 @@ import Testing
         #expect(worst < 0.03, "worst \(100 * worst) %")
     }
 
+    /// For tests about where a curve lies or what the fundamental is, which hold for any length.
+    static let shortSweep = LogSweep(startFrequency: 20, endFrequency: 20000, duration: 1, sampleRate: 48000)
+
     @Test func `each harmonic is reported only inside its trusted band`() {
-        let distortion = Self.analyse(SimulatedSpeaker(quadratic: 0.1))
+        let distortion = Self.analyse(SimulatedSpeaker(quadratic: 0.1), sweep: Self.shortSweep)
         for order in 2...5 {
-            let band = HarmonicDistortion.trustedBand(order: order, sweep: Self.sweep)!
+            let band = HarmonicDistortion.trustedBand(order: order, sweep: Self.shortSweep)!
             let frequencies = distortion.harmonics[order]!.frequencies
             #expect(Double(frequencies.first!) >= band.lowerBound && Double(frequencies.first!) < band.lowerBound * 1.01)
             #expect(Double(frequencies.last!) <= band.upperBound && Double(frequencies.last!) > band.upperBound * 0.99, "order \(order)")
@@ -85,7 +88,7 @@ import Testing
     @Test func `the fundamental is the speaker's linear response`() {
         // Checked against the biquad's own magnitude, not against another output of the module.
         let filter = Biquad.peaking(frequency: 3000, q: 1.4, gain: 6, sampleRate: 48000)
-        let distortion = Self.analyse(SimulatedSpeaker(delaySamples: 800.5, filters: [filter]))
+        let distortion = Self.analyse(SimulatedSpeaker(delaySamples: 800.5, filters: [filter]), sweep: Self.shortSweep)
         for frequency in checkFrequencies(from: 100, to: 16000, perOctave: 6) {
             let expected = Float(20 * log10(filter.magnitude(at: Double(frequency), sampleRate: 48000)))
             #expect(abs(distortion.fundamental.decibels(at: frequency) - expected) < 0.05, "at \(frequency) Hz")
@@ -93,7 +96,8 @@ import Testing
     }
 
     @Test func `a clean system reads as a low floor, not as distortion`() {
-        let distortion = Self.analyse(SimulatedSpeaker(delaySamples: 100, noiseRMS: 0.001))
+        let twoSeconds = LogSweep(startFrequency: 20, endFrequency: 20000, duration: 2, sampleRate: 48000)
+        let distortion = Self.analyse(SimulatedSpeaker(delaySamples: 100, noiseRMS: 0.001), sweep: twoSeconds)
         // −60 dBFS noise against a 0.25 sweep leaves each harmonic window about 60 dB under the fundamental;
         // four of them sum to roughly 0.1–0.2 %. A real 1 % distortion would be five times this.
         for frequency in checkFrequencies(from: 200, to: 2000, perOctave: 1) {

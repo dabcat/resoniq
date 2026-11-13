@@ -31,14 +31,13 @@ public enum Window: Sendable, CaseIterable, Hashable {
         precondition(count > 0, "a window needs at least one sample")
         let coefficients = coefficients
         guard coefficients.count > 1, count > 1 else { return [Float](repeating: 1, count: count) }
-        return (0..<count).map { index in
-            let angle = 2 * Double.pi * Double(index) / Double(count)
-            var value = 0.0
-            for (order, coefficient) in coefficients.enumerated() {
-                value += (order.isMultiple(of: 2) ? 1 : -1) * coefficient * cos(Double(order) * angle)
-            }
-            return Float(value)
+        let angle = vDSP.ramp(withInitialValue: 0, increment: 2 * Double.pi / Double(count), count: count)
+        var value = [Double](repeating: coefficients[0], count: count)
+        for order in 1..<coefficients.count {
+            let sign: Double = order.isMultiple(of: 2) ? 1 : -1
+            value = vDSP.add(value, vDSP.multiply(sign * coefficients[order], vForce.cos(vDSP.multiply(Double(order), angle))))
         }
+        return vDSP.doubleToFloat(value)
     }
 
     /// The mean of the window, as a fraction of 1: how much a windowed tone's peak in the spectrum is lowered.

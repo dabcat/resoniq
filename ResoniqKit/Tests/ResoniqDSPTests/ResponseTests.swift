@@ -83,7 +83,8 @@ func checkFrequencies(from low: Float, to high: Float, perOctave: Int = 6) -> [F
     /// The impulse-response energy a tone of 0.01 at `frequency` adds to a clean recording of `bassSweep`. The
     /// deconvolution is linear, so that is the energy of the tone's own deconvolution.
     static func addedEnergy(of frequency: Double) -> Double {
-        let length = bassSweep.sampleCount + 26000
+        // Two seconds of tone keeps the transform at 2^18 points; every tone has the same length, so the ratio holds.
+        let length = Int(2 * bassSweep.sampleRate)
         let tone = (0..<length).map { Float(0.01 * sin(2 * Double.pi * frequency * Double($0) / bassSweep.sampleRate)) }
         return Deconvolution.impulseResponse(recording: tone, sweep: bassSweep).samples.reduce(0) { $0 + Double($1 * $1) }
     }

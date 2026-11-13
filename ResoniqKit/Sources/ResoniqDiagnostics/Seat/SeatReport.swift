@@ -78,6 +78,9 @@ public struct SeatFinding: Sendable, Codable, Equatable, Identifiable {
         case roomCause
         /// A spot whose recording could not be used.
         case invalidSpot
+        /// The phone was not seen to move between spots and the spots sound alike, so the result may rest on one
+        /// position: always `inconclusive`.
+        case singlePosition
     }
 
     public var id: String { "\(kind.rawValue)-\(headline)" }
@@ -202,6 +205,10 @@ public struct SeatReport: Sendable, Codable, Equatable {
     public let distortionPercent: Float?
     /// The bass decay estimate, when the recordings support one.
     public let bassDecay: SeatDecay?
+    /// True when the phone was not seen to move between spots and the spots' curves are near-identical
+    /// (`SeatThresholds.singlePositionSpreadDecibels`): the result may rest on one position, the verdict says so and
+    /// nothing is inferred from how the spots differ. Nil otherwise; optional, so reports stored before it decode.
+    public let restsOnOnePosition: Bool?
 
     public init(
         schemaVersion: Int = SeatReport.currentSchemaVersion,
@@ -222,8 +229,10 @@ public struct SeatReport: Sendable, Codable, Equatable {
         findings: [SeatFinding],
         numbers: [SeatNumberRow],
         distortionPercent: Float?,
-        bassDecay: SeatDecay?
+        bassDecay: SeatDecay?,
+        restsOnOnePosition: Bool? = nil
     ) {
+        self.restsOnOnePosition = restsOnOnePosition
         for grid in [curve, leftCurve, rightCurve, spread].compactMap({ $0 }) + spotCurves.compactMap({ $0 }) {
             precondition(grid.count == ResponseGrid.count, "curves must be on ResponseGrid")
         }

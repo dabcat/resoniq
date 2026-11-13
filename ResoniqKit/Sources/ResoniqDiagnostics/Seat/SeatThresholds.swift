@@ -113,6 +113,13 @@ public struct SeatThresholds: Sendable, Equatable {
     /// the room's noise, in dB: `DiagnosisThresholds.minimumBandSignalToNoise`'s 10. **First guess.**
     public var minimumBandSignalToNoise: Float
 
+    /// When the phone was not seen to move to a spot (`SpotAnalysis.moveNotDetected`) and the spots' curves stay this
+    /// close everywhere they were judged (the largest spot-to-spot spread from `lowerFrequency` to `upperFrequency`,
+    /// dB), the spots may all be one position, and the report says so. **First guess**: 1 dB. Spots 30 cm apart in a
+    /// room differ by several decibels somewhere (a mode, a reflection's comb even after smoothing); two recordings at
+    /// one position differ only by the noise, a few tenths.
+    public var singlePositionSpreadDecibels: Float = 1
+
     // MARK: Comparison
 
     /// The least change, in dB, that counts as a change between two seat measurements: 1.5. The seat curve is an
@@ -154,8 +161,10 @@ public struct SeatThresholds: Sendable, Equatable {
         minimumBandSignalToNoise: Float,
         repeatabilityDecibels: Float,
         repeatabilitySpreadShare: Float,
-        samePlaceOctaves: Float
+        samePlaceOctaves: Float,
+        singlePositionSpreadDecibels: Float = 1
     ) {
+        self.singlePositionSpreadDecibels = singlePositionSpreadDecibels
         self.smoothingFraction = smoothingFraction
         self.bassSmoothingFraction = bassSmoothingFraction
         self.smoothingCrossoverFrequency = smoothingCrossoverFrequency

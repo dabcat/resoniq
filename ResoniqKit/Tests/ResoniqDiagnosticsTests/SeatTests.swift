@@ -331,3 +331,66 @@ let dipTolerance = 2.0
         #expect(report.extremes.isEmpty && report.numbers.isEmpty)
     }
 }
+
+// MARK: - A move the phone did not register
+
+@Suite struct SeatSinglePositionTests {
+    /// The spots, with the moves to every spot after the first not detected.
+    static func undetected(_ spots: [SpotAnalysis]) -> [SpotAnalysis] {
+        spots.enumerated().map { index, spot in
+            SpotAnalysis(left: spot.left, right: spot.right, moveNotDetected: index == 0 ? nil : true)
+        }
+    }
+
+    /// A narrow boom on a mode of the living room, identical at every spot.
+    static let mode = Float(343.0 / (2 * 5.6) * 2)
+    static var identical: [SpotAnalysis] { handSpots { bell($0, centre: mode, gain: 8, width: 0.06) } }
+
+    @Test func `no move seen and three identical spots: the result rests on one position`() throws {
+        let report = SeatDiagnosis.diagnose(spots: Self.undetected(Self.identical), room: SeatCauseTests.livingRoom)
+        print("one position: \(report.verdict) | \(report.findings.map { "\($0.headline) [\($0.tagLine)]" })")
+        #expect(report.isConclusive)
+        #expect(report.restsOnOnePosition == true)
+        #expect(report.verdict
+            == "From your seat, the bass is uneven. The rest is balanced. The phone may not have moved between spots, so this rests on one position.")
+        let caveat = try #require(report.findings.first { $0.kind == .singlePosition })
+        #expect(caveat.tag == .inconclusive)
+        #expect(caveat.headline == "The phone may not have moved between spots")
+        #expect(report.displayedFindings.contains(caveat))
+        #expect(!report.findings.contains { $0.basis == .spotToSpot })
+        // The measured boom is still reported.
+        #expect(report.findings.first?.kind == .bass)
+    }
+
+    @Test func `no move seen but the spots differ: the missing detection is ignored`() {
+        let offsets: [(Float) -> Float] = [{ bell($0, centre: 61, gain: 3) }, { _ in 0 }, { bell($0, centre: 61, gain: -3) }]
+        let spots = handSpots({ bell($0, centre: 61, gain: -11, width: 0.06) }, offsets: offsets)
+        let plain = SeatDiagnosis.diagnose(spots: spots, room: nil)
+        let flagged = SeatDiagnosis.diagnose(spots: Self.undetected(spots), room: nil)
+        #expect(flagged.restsOnOnePosition == nil)
+        #expect(flagged.verdict == plain.verdict)
+        #expect(flagged.findings == plain.findings)
+        #expect(flagged.findings.contains { $0.basis == .spotToSpot })
+    }
+
+    @Test func `moves seen and identical spots: nothing is said`() {
+        let report = SeatDiagnosis.diagnose(spots: Self.identical, room: SeatCauseTests.livingRoom)
+        #expect(report.restsOnOnePosition == nil)
+        #expect(!report.findings.contains { $0.kind == .singlePosition })
+        #expect(!report.verdict.contains("one position"))
+    }
+
+    @Test func `the analyzer carries the missing detection, and it survives JSON`() throws {
+        let room = SeatBench.evenRoom
+        let sweep = SeatBench.shortSweep
+        let left = room.record(sweep, spot: 1, channel: .left, seed: 91)
+        let spot = SpotAnalyzer.analyze(left: left, right: nil, sweep: sweep, noiseFloor: room.noiseFloor(), movementDetected: false)
+        #expect(spot.moveNotDetected == true)
+        let detected = SpotAnalyzer.analyze(left: left, right: nil, sweep: sweep, noiseFloor: room.noiseFloor())
+        #expect(detected.moveNotDetected == nil)
+        #expect(try JSONDecoder().decode(SpotAnalysis.self, from: JSONEncoder().encode(spot)) == spot)
+        // Nothing is written when the move was seen, so stored spots read as before.
+        let plain = try JSONEncoder().encode(detected)
+        #expect(!String(decoding: plain, as: UTF8.self).contains("moveNotDetected"))
+    }
+}

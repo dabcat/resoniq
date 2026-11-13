@@ -256,6 +256,17 @@ public enum SeatText {
 
     static let inconclusiveTag = "Inconclusive"
 
+    // MARK: Spots that may be one position
+
+    /// Added to the verdict.
+    static let singlePositionCaveat = "The phone may not have moved between spots, so this rests on one position."
+    static let singlePositionHeadline = "The phone may not have moved between spots"
+
+    /// "I didn't see the phone move, and the three spots stay within 0.4 dB of each other, …"
+    static func singlePositionDetail(_ spread: Float) -> String {
+        "I didn't see the phone move, and the spots stay within \(differenceTenths(spread)) of each other, so I can't tell what changes from spot to spot. Measuring again, moving the phone between spots, helps."
+    }
+
     // MARK: Numbers table
 
     static let peakWord = "peak"

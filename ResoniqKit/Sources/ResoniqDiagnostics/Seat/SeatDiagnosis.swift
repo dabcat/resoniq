@@ -48,6 +48,10 @@ enum SeatCurve {
 /// - A result needs `requiredSpots` valid spots; with fewer the report says why, draws the running average, and
 ///   concludes nothing. A spot that failed is reported only while the result is inconclusive (once it has been
 ///   measured again it no longer matters).
+/// - When the phone was not seen to move to a spot (`SpotAnalysis.moveNotDetected`) and the spots' curves are
+///   near-identical (`singlePositionSpreadDecibels`), the result may rest on one position: the verdict says so, an
+///   `inconclusive` finding explains it, and nothing is inferred from how the spots differ (no spot-to-spot cause, and
+///   a room-size cause needs a narrow extreme). When the curves differ, the missing detection is ignored.
 /// - No score; at most three findings are shown, strongest first.
 public enum SeatDiagnosis {
     /// Speed of sound for the room's axial modes, metres per second, at about 20 °C (as `ResoniqRoom` uses).
@@ -179,8 +183,20 @@ public enum SeatDiagnosis {
                 detail: SeatText.leftMatchesDetail(leftRight.difference), strength: 0
             ))
         }
-        var findings = deviations.sorted { $0.strength > $1.strength } + statements
-        if let basis = cause(bass: bass, room: room, thresholds: t) {
+        // A move the phone did not register matters only when the spots also sound alike: then they may all be one
+        // position. When they differ, the phone moved whatever the sensor said.
+        let undetectedMove = valid.contains { spots[$0].moveNotDetected == true }
+        let judged = grid.indices.filter { assessed[$0] && grid[$0] >= t.lowerFrequency && grid[$0] <= t.upperFrequency }
+        let largestSpread = judged.map { spreadCurve[$0] }.max() ?? 0
+        let singlePosition = undetectedMove && largestSpread < t.singlePositionSpreadDecibels
+        let positionFinding: [SeatFinding] = singlePosition ? [SeatFinding(
+            kind: .singlePosition, tag: .inconclusive, basis: nil, isDeviation: false,
+            headline: SeatText.singlePositionHeadline, tagLine: SeatText.inconclusiveTag,
+            detail: SeatText.singlePositionDetail(largestSpread), strength: 0
+        )] : []
+
+        var findings = deviations.sorted { $0.strength > $1.strength } + positionFinding + statements
+        if let basis = cause(bass: bass, room: room, singlePosition: singlePosition, thresholds: t) {
             findings.append(SeatFinding(
                 kind: .roomCause, tag: .inferred, basis: basis, isDeviation: false,
                 headline: SeatText.causeHeadline, tagLine: SeatText.causeTagLine(basis),
@@ -224,11 +240,12 @@ public enum SeatDiagnosis {
             verdict: SeatText.verdict(
                 bassUneven: !bass.isEmpty, voices: voices, treble: treble, leftRightDiffer: differ,
                 bassChecked: bassMissing == nil, restChecked: restMissing == nil
-            ),
+            ) + (singlePosition ? " " + SeatText.singlePositionCaveat : ""),
             isConclusive: true, validSpotCount: valid.count, requiredSpotCount: t.requiredSpots, spots: checks,
             curve: curve, leftCurve: left, rightCurve: right, spotCurves: spotCurves, spread: spread, assessed: assessed,
             evenBandDecibels: t.evenBandDecibels, extremes: extremes, leftRightDifference: leftRight?.difference,
-            findings: findings, numbers: numbers, distortionPercent: distortion, bassDecay: decay
+            findings: findings, numbers: numbers, distortionPercent: distortion, bassDecay: decay,
+            restsOnOnePosition: singlePosition ? true : nil
         )
     }
 

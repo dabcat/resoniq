@@ -63,10 +63,16 @@ public struct SpotRecording: Sendable, Codable, Equatable {
 public struct SpotAnalysis: Sendable, Codable, Equatable {
     public let left: SpotRecording
     public let right: SpotRecording?
+    /// True when the phone was not seen to move to this spot from the previous one (the session captured it after
+    /// its movement timeout), so it may be the previous position again; nil when the move was seen or the spot is the
+    /// first. `SeatDiagnosis` acts on it only when the spots also sound alike. Optional, so spots stored before it
+    /// still decode.
+    public let moveNotDetected: Bool?
 
-    public init(left: SpotRecording, right: SpotRecording?) {
+    public init(left: SpotRecording, right: SpotRecording?, moveNotDetected: Bool? = nil) {
         self.left = left
         self.right = right
+        self.moveNotDetected = moveNotDetected
     }
 
     /// Valid only when every recording it needs is: a spot with one bad channel is measured again.
@@ -89,17 +95,21 @@ public struct SpotAnalysis: Sendable, Codable, Equatable {
 /// The recording must start no later than the sweep's playback and run past its end by the route's delay and at
 /// least `ImpulseResponse.roomPostWindow`; a decay estimate needs about a second more (`Decay.minimumDuration`).
 public enum SpotAnalyzer {
+    /// - Parameter movementDetected: Whether the phone was seen to move to this spot (the session's
+    ///   `SeatSpotRecording.movementDetected`); false is carried as `SpotAnalysis.moveNotDetected`.
     public static func analyze(
         left: [Float],
         right: [Float]?,
         sweep: LogSweep,
         noiseFloor: NoiseFloorReport,
+        movementDetected: Bool = true,
         thresholds: SeatThresholds = .standard,
         quality: QualityThresholds = .standard
     ) -> SpotAnalysis {
         SpotAnalysis(
             left: recording(left, sweep: sweep, noiseFloor: noiseFloor, thresholds: thresholds, quality: quality),
-            right: right.map { recording($0, sweep: sweep, noiseFloor: noiseFloor, thresholds: thresholds, quality: quality) }
+            right: right.map { recording($0, sweep: sweep, noiseFloor: noiseFloor, thresholds: thresholds, quality: quality) },
+            moveNotDetected: movementDetected ? nil : true
         )
     }
 

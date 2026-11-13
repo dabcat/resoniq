@@ -131,6 +131,8 @@ public struct ResoniqLevelBar: View {
             Text(caption)
                 .font(ResoniqFont.caption)
                 .foregroundStyle(ResoniqColor.muted)
+                // Wraps instead of truncating when the panel is narrow.
+                .fixedSize(horizontal: false, vertical: true)
         }
         .accessibilityHidden(true)
     }

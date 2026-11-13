@@ -50,15 +50,15 @@ struct RootView: View {
         VStack(spacing: 0) {
             TabView(selection: $selection) {
                 Tab(value: AppTab.diagnose) {
-                    DiagnoseHomeView()
+                    DiagnoseTab()
                         .toolbarVisibility(.hidden, for: .tabBar)
                 }
                 Tab(value: AppTab.measure) {
-                    MeasureHomeView()
+                    SelectedListeningContext { MeasureHomeView(context: $0) }
                         .toolbarVisibility(.hidden, for: .tabBar)
                 }
                 Tab(value: AppTab.optimize) {
-                    OptimizeHomeView()
+                    SelectedListeningContext { OptimizeHomeView(context: $0) }
                         .toolbarVisibility(.hidden, for: .tabBar)
                 }
             }
@@ -70,5 +70,6 @@ struct RootView: View {
 
 #Preview {
     RootView()
+        .appEnvironment(AppComposition.launch(inMemory: true)!)
         .preferredColorScheme(.dark)
 }

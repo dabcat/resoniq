@@ -8,7 +8,7 @@ import SwiftUI
 /// either side of a shared frequency ruler, each with its name and what was found, the most useful next test, and
 /// the quick check.
 ///
-/// A speaker with a result can be opened. A system with one speaker (a soundbar, a single speaker) shows one
+/// A speaker with a result opens it; a speaker not heard yet starts its test (the caller decides which). A system with one speaker (a soundbar, a single speaker) shows one
 /// portrait with the ruler beside it; there is no mockup for that, so it follows the design system's portrait and
 /// the same screen frame.
 struct DiagnoseHomeView: View {
@@ -144,9 +144,7 @@ struct DiagnoseHomeView: View {
         )
         .frame(maxWidth: Metrics.portraitWidth)
         .contentShape(Rectangle())
-        .onTapGesture {
-            if speaker.hasResult { onOpenSpeaker(speaker.position) }
-        }
+        .onTapGesture { onOpenSpeaker(speaker.position) }
     }
 
     // MARK: Names
@@ -182,17 +180,12 @@ struct DiagnoseHomeView: View {
         .frame(maxWidth: .infinity, minHeight: ResoniqSize.touchMin)
         .contentShape(Rectangle())
 
-        if speaker.hasResult {
-            Button { onOpenSpeaker(speaker.position) } label: { label }
-                .buttonStyle(.plain)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel("\(speaker.name), \(speaker.status)")
-                .accessibilityHint("Opens the result")
-        } else {
-            label
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel("\(speaker.name), \(speaker.status)")
-        }
+        Button { onOpenSpeaker(speaker.position) } label: { label }
+            .buttonStyle(.plain)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(speaker.name), \(speaker.status)")
+            .accessibilityHint(speaker.hasResult ? "Opens the result" : "Starts listening to it")
+            .accessibilityAddTraits(.isButton)
     }
 
     private enum Metrics {
@@ -227,6 +220,7 @@ extension DiagnoseHomeView {
 struct DiagnoseHomeContainer: View {
     /// Starts a test of this speaker: the primary button.
     let onListen: (SpeakerPosition) -> Void
+    /// A tap on a speaker's portrait or name: its result when it has one, else the caller starts its test.
     let onOpenSpeaker: (SpeakerPosition) -> Void
     let onQuickCheck: () -> Void
     let onSettings: () -> Void

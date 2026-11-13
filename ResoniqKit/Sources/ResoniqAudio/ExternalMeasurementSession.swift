@@ -228,6 +228,14 @@ public final class ExternalMeasurementSession {
         var lastProblem: ExternalPlayProblem?
         /// Capture positions: where listening began (after the floor).
         var listeningSince: Int64 = 0
+        /// What the latest play that fell short says was heard (`ExternalListener.hearing(after:)`); nil while a play
+        /// is under way and before the first.
+        var latestHearing: ExternalHearing?
+        /// Where the finder found each play's sweeps, usable or not: their spacing gives the clock without the tone.
+        var foundStarts: [Int: [Double]] = [:]
+        /// Cuts the finder did not take while their place in the file was unknown: checked again, anchored, once a
+        /// later sweep's spacing places them (a speaker that plays only part of the range whose tone was not heard).
+        var deferred: [SweepCut] = []
 
         init(sampleRate: Double, kind: TestSoundFile.Kind, configuration: MeasurementConfiguration, thresholds: QualityThresholds) {
             self.sampleRate = sampleRate
@@ -263,17 +271,22 @@ public final class ExternalMeasurementSession {
             return nil
         }
 
-        for event in test.listener.consume(block, steady: steady) {
+        let loud = SoundLevel(of: block.samples).dBFS > floor.rmsDecibels + thresholds.pauseMarginDecibels
+        for event in test.listener.consume(block, steady: steady, loud: loud) {
             switch event {
             case .toneStarted:
+                test.latestHearing = nil
                 state = .hearing(run: min(test.confirmed.count + 1, runCount))
             case .toneRead(let ratio):
                 if let ratio, !SweepFinder.isCorrectable(ratio) { return .failed(.playerClockOff(ratio: ratio)) }
-            case .sweepStarted:
+            case .sweepStarted(let play, _):
+                test.latestHearing = nil
                 state = .hearing(run: min(test.confirmed.count + 1, runCount))
+                if let final = await recheckDeferred(play: play, floor: floor, in: &test) { return final }
             case .wrongFile(let play, let heard):
                 test.kept.removeAll { $0.play == play }
                 test.lastProblem = .wrongFile(heard: heard)
+                test.latestHearing = .notTheTestSound
                 state = .needsAnotherPlay(have: test.confirmed.count, reason: test.lastProblem)
             case .cutReady:
                 while let cut = test.listener.takeCut() {
@@ -285,8 +298,7 @@ public final class ExternalMeasurementSession {
         }
         report(block, test: test, steady: steady, clipped: clipped)
 
-        let silence = test.seconds(block.end - test.listener.lastHeard)
-        if test.listener.isQuiet, silence >= ExternalListening.nothingHeardLimit { return .failed(.nothingHeard) }
+        if let failure = test.listener.silenceFailure(at: block.end) { return .failed(failure) }
         if test.seconds(block.end - test.listeningSince) >= ExternalListening.maximumListeningTime {
             return .failed(.listeningTimeUp(lastProblem: test.lastProblem))
         }
@@ -303,8 +315,11 @@ public final class ExternalMeasurementSession {
             leadIn: test.listener.leadIn, tail: test.listener.tail
         )
         guard !Task.isCancelled else { return nil }
-        // The follower was fooled, or the play turned out to be another file: nothing to keep.
+        if let start = inspection.start { test.foundStarts[cut.play, default: []].append(start) }
+        // The follower was fooled, or the play turned out to be another file: nothing to keep. A cut not yet placed
+        // in the file may be a speaker that plays part of the range: it waits to be placed.
         let wrong = test.listener.plays.first { $0.id == cut.play }?.wrongFile
+        if inspection.start == nil, wrong == nil, cut.identity == nil { test.deferred.append(cut) }
         guard inspection.start != nil, wrong == nil else {
             if wrong == nil {
                 state = test.listener.currentPlay == nil ? .waitingForSound : .hearing(run: run)
@@ -336,12 +351,14 @@ public final class ExternalMeasurementSession {
 
     /// A play is over: runs that never got a file are dropped, and the file is asked for again if runs are missing.
     private func playEnded(_ play: Int, in test: inout Listening) async -> State? {
+        test.deferred.removeAll { $0.play == play }
         refreshIdentities(&test)
         let unknown = test.kept.contains { $0.play == play && $0.identity == nil }
         test.kept.removeAll { $0.play == play && $0.identity == nil }
         if test.confirmed.count >= runCount { return await finish(&test) }
         if unknown, test.lastProblem == nil { test.lastProblem = .missedSweeps }
         let reason = test.lastProblem ?? .missedSweeps
+        if test.latestHearing != .notTheTestSound { test.latestHearing = ExternalListener.hearing(after: reason) }
         state = .needsAnotherPlay(have: test.confirmed.count, reason: reason)
         test.lastProblem = nil
         test.listener.markListening(at: test.listener.lastHeard)
@@ -395,11 +412,25 @@ public final class ExternalMeasurementSession {
         return .finished(MeasurementResult(channel: channel, sweep: test.sweep, noiseFloor: floor, runs: runs, source: .anotherDevice))
     }
 
-    /// The clock of play `play`: its tone's; else the spacing of its sweeps (one speaker, one path, so exact);
-    /// else the latest tone's.
+    /// Cuts deferred from play `play` that a later sweep's spacing has now placed, checked again, anchored.
+    private func recheckDeferred(play: Int, floor: NoiseFloorReport, in test: inout Listening) async -> State? {
+        guard let record = test.listener.plays.first(where: { $0.id == play }) else { return nil }
+        let placed = test.deferred.filter { cut in
+            cut.play == play && record.sweeps.contains { $0.estimate == cut.estimate && $0.identity != nil }
+        }
+        test.deferred.removeAll { cut in placed.contains { $0.estimate == cut.estimate } }
+        for var cut in placed {
+            cut.identity = record.sweeps.first { $0.estimate == cut.estimate }?.identity
+            if let final = await check(cut, floor: floor, in: &test) { return final }
+        }
+        return nil
+    }
+
+    /// The clock of play `play`: its tone's; else the spacing of its sweeps as found, usable or not (one speaker,
+    /// one path, so exact: the fallback for a speaker that cannot play the 1 kHz tone); else the latest tone's.
     private func clockRatio(forPlay play: Int, in test: Listening) -> Double? {
         if let ratio = test.listener.plays.first(where: { $0.id == play })?.ratio { return ratio }
-        let starts = test.kept.filter { $0.play == play }.compactMap(\.inspection.start)
+        let starts = test.foundStarts[play] ?? []
         if let spacing = file.layout.spacing,
            let ratio = SweepFinder.clockRatio(starts: starts, expectedSpacing: spacing, sampleRate: test.sampleRate) {
             return ratio
@@ -435,7 +466,8 @@ public final class ExternalMeasurementSession {
             isClipping: clipped,
             isPhoneSteady: steady,
             silentFor: waiting && test.floor != nil ? silence : nil,
-            isSilenceLong: waiting && test.floor != nil && silence >= ExternalListening.nothingHeardHint
+            isSilenceLong: waiting && test.floor != nil && silence >= ExternalListening.nothingHeardHint,
+            hearing: test.floor == nil ? .nothing : listener.hearing(latest: test.latestHearing)
         )
     }
 }

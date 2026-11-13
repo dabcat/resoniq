@@ -17,6 +17,18 @@ import Testing
             == "I can't hear the test sound yet. Check that \"Resoniq test sound - left speaker.wav\" is playing, that the volume is up and that your amplifier is on the right input.")
     }
 
+    @Test func `each thing heard has its own sentence`() {
+        #expect(ExternalSessionText.hearingLine(.nothing, file: left)
+            == "I can't hear anything yet. Check that the file is playing, that the volume is up and that your amplifier is on the right input.")
+        #expect(ExternalSessionText.hearingLine(.notTheTestSound, file: left)
+            == "I can hear sound, but not the test sound. Check that \"Resoniq test sound - left speaker.wav\" is playing, the WAV file itself rather than a converted copy, and nothing else.")
+        #expect(ExternalSessionText.hearingLine(.testSoundIncomplete, file: left)
+            == "I can hear the test sound, but it's too quiet or parts of it are missing. Turn the volume up a little and play the file again from the start.")
+        #expect(ExternalSessionText.hearingLine(.testSound, file: left) == nil)
+        #expect(ExternalSessionText.failureHeadline(.soundNotRecognised) == "I couldn't recognise the test sound.")
+        #expect(ExternalSessionText.failureBody(.soundNotRecognised, file: left).contains("subwoofer"))
+    }
+
     @Test func `another play says why`() {
         #expect(ExternalSessionText.anotherPlayText(.run(.unusable(.clipped(ClippingDetector.detect([1, 1, 1, 1])))), have: 2, needed: 3, file: left)
             == "I have 2 of 3. One was too loud and the microphone clipped it. Turn the volume down a little, then play the file again from the start.")

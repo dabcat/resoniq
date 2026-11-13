@@ -71,6 +71,21 @@ public enum ExternalSessionText {
 
     /// While the tone or a sweep is heard.
     public static let hearingLine = "Stay quiet while it plays."
+
+    /// What the phone hears while it waits for the test sound, one sentence for each case the screen must tell apart
+    /// (`ExternalMeasurementProgress.hearing`). Nil while the test sound is heard, where the other lines apply.
+    public static func hearingLine(_ hearing: ExternalHearing, file: TestSoundFile.Kind) -> String? {
+        switch hearing {
+        case .nothing:
+            "I can't hear anything yet. Check that the file is playing, that the volume is up and that your amplifier is on the right input."
+        case .notTheTestSound:
+            "I can hear sound, but not the test sound. Check that \"\(fileName(for: file))\" is playing, the WAV file itself rather than a converted copy, and nothing else."
+        case .testSoundIncomplete:
+            "I can hear the test sound, but it's too quiet or parts of it are missing. Turn the volume up a little and play the file again from the start."
+        case .testSound:
+            nil
+        }
+    }
     /// While the clock tone is heard, before the first sweep.
     public static let toneLine = "I can hear your player. The sweeps start in a moment."
 
@@ -142,6 +157,7 @@ public enum ExternalSessionText {
     public static func failureHeadline(_ failure: ExternalMeasurementFailure) -> String {
         switch failure {
         case .nothingHeard: "I never heard the test sound."
+        case .soundNotRecognised: "I couldn't recognise the test sound."
         case .playerClockOff: "Your player changes the test sound."
         case .listeningTimeUp: "I couldn't get enough clean recordings."
         case .measurement(let failure):
@@ -162,8 +178,12 @@ public enum ExternalSessionText {
     public static func failureBody(_ failure: ExternalMeasurementFailure, file: TestSoundFile.Kind) -> String {
         switch failure {
         case .nothingHeard:
-            return "I listened for a minute and heard nothing of the test sound. Check that \"\(fileName(for: file))\" is playing "
+            return "I listened for a minute and heard nothing louder than the room. Check that \"\(fileName(for: file))\" is playing "
                 + "on the system your speakers are connected to, that the volume is up and that the amplifier is on the right input, then try again."
+        case .soundNotRecognised:
+            return "I heard sound while I listened, but none of it was the test sound. That happens when another file or music is playing, "
+                + "when the file is converted on the way (a streaming service or a lossy copy), or when the speaker plays only deep bass, like a subwoofer "
+                + "on its own, which I can't test this way. Play \"\(fileName(for: file))\" itself through your speakers and try again."
         case .playerClockOff(let ratio):
             let percent = String(format: "%.1f", abs(ratio - 1) * 100)
             return "It plays the file \(percent) % \(ratio > 1 ? "fast" : "slow"), so every tone comes out at the wrong pitch and I can't measure it. "

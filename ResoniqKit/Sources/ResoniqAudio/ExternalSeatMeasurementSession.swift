@@ -250,6 +250,9 @@ public final class ExternalSeatMeasurementSession {
         var moved = false
         var movementDetected = true
         var listeningSince: Int64 = 0
+        /// As in `ExternalMeasurementSession`.
+        var latestHearing: ExternalHearing?
+        var deferred: [SweepCut] = []
 
         init(sampleRate: Double, kind: TestSoundFile.Kind, configuration: MeasurementConfiguration, thresholds: QualityThresholds) {
             self.sampleRate = sampleRate
@@ -281,6 +284,8 @@ public final class ExternalSeatMeasurementSession {
         seat.waitedSamples = 0
         seat.kept = []
         seat.lastProblem = nil
+        seat.latestHearing = nil
+        seat.deferred = []
         state = .waitingForStillness(spot: seat.spot)
         (stillness as? any SpotAwareStillnessMonitor)?.willWaitForStillness(at: seat.spot)
     }
@@ -304,7 +309,8 @@ public final class ExternalSeatMeasurementSession {
 
         // The listener hears everything, so the audio it keeps is continuous; what it hears counts only while
         // listening at a spot.
-        let events = seat.listener.consume(block, steady: steady)
+        let loud = SoundLevel(of: block.samples).dBFS > floor.rmsDecibels + thresholds.pauseMarginDecibels
+        let events = seat.listener.consume(block, steady: steady, loud: loud)
         switch seat.phase {
         case .floor:
             return nil
@@ -350,8 +356,7 @@ public final class ExternalSeatMeasurementSession {
             }
             report(block, seat: seat, steady: steady, clipped: clipped)
             if case .listening = seat.phase {
-                let silence = seat.seconds(block.end - seat.listener.lastHeard)
-                if seat.listener.isQuiet, silence >= ExternalListening.nothingHeardLimit { return .failed(.nothingHeard) }
+                if let failure = seat.listener.silenceFailure(at: block.end) { return .failed(failure) }
             }
             if seat.seconds(block.end - seat.listeningSince) >= ExternalListening.maximumListeningTime * Double(spotCount) {
                 return .failed(.listeningTimeUp(lastProblem: seat.lastProblem))
@@ -363,14 +368,18 @@ public final class ExternalSeatMeasurementSession {
     private func listen(_ event: ExternalListener.Event, floor: NoiseFloorReport, in seat: inout Listening) async -> State? {
         switch event {
         case .toneStarted:
+            seat.latestHearing = nil
             state = .hearing(spot: seat.spot, channel: nil)
         case .toneRead(let ratio):
             if let ratio, !SweepFinder.isCorrectable(ratio) { return .failed(.playerClockOff(ratio: ratio)) }
-        case .sweepStarted(_, let identity):
+        case .sweepStarted(let play, let identity):
+            seat.latestHearing = nil
             state = .hearing(spot: seat.spot, channel: channel(of: identity))
+            return await recheckDeferred(play: play, floor: floor, in: &seat)
         case .wrongFile(let play, let heard):
             seat.kept.removeAll { $0.play == play }
             seat.lastProblem = .wrongFile(heard: heard)
+            seat.latestHearing = .notTheTestSound
             state = .needsAnotherPlay(spot: seat.spot, reason: seat.lastProblem)
         case .cutReady:
             while let cut = seat.listener.takeCut() {
@@ -398,6 +407,7 @@ public final class ExternalSeatMeasurementSession {
         )
         guard !Task.isCancelled else { return nil }
         let wrong = seat.listener.plays.first { $0.id == cut.play }?.wrongFile
+        if inspection.start == nil, wrong == nil, cut.identity == nil { seat.deferred.append(cut) }
         if inspection.start != nil, wrong == nil {
             if let problem = inspection.problem {
                 seat.lastProblem = .run(problem)
@@ -484,13 +494,31 @@ public final class ExternalSeatMeasurementSession {
         return nil
     }
 
+    /// Cuts deferred from play `play` that a later sweep's spacing has now placed, checked again, anchored.
+    private func recheckDeferred(play: Int, floor: NoiseFloorReport, in seat: inout Listening) async -> State? {
+        guard let record = seat.listener.plays.first(where: { $0.id == play }) else { return nil }
+        let placed = seat.deferred.filter { cut in
+            cut.play == play && record.sweeps.contains { $0.estimate == cut.estimate && $0.identity != nil }
+        }
+        seat.deferred.removeAll { cut in placed.contains { $0.estimate == cut.estimate } }
+        for var cut in placed {
+            cut.identity = record.sweeps.first { $0.estimate == cut.estimate }?.identity
+            if let final = await check(cut, floor: floor, in: &seat) { return final }
+            if case .captured = seat.phase { return nil }
+        }
+        return nil
+    }
+
     private func playEnded(_ play: Int, in seat: inout Listening) -> State? {
+        seat.deferred.removeAll { $0.play == play }
         guard case .listening = seat.phase else { return nil }
         _ = recordingsByChannel(&seat)
         let unknown = seat.kept.contains { $0.play == play && $0.identity == nil }
         seat.kept.removeAll { $0.play == play && $0.identity == nil }
         if unknown, seat.lastProblem == nil { seat.lastProblem = .missedSweeps }
-        state = .needsAnotherPlay(spot: seat.spot, reason: seat.lastProblem ?? .missedSweeps)
+        let reason = seat.lastProblem ?? .missedSweeps
+        if seat.latestHearing != .notTheTestSound { seat.latestHearing = ExternalListener.hearing(after: reason) }
+        state = .needsAnotherPlay(spot: seat.spot, reason: reason)
         seat.lastProblem = nil
         return nil
     }
@@ -532,7 +560,8 @@ public final class ExternalSeatMeasurementSession {
             stillness: stillnessFraction,
             wait: wait,
             silentFor: waiting ? silence : nil,
-            isSilenceLong: waiting && silence >= ExternalListening.nothingHeardHint
+            isSilenceLong: waiting && silence >= ExternalListening.nothingHeardHint,
+            hearing: seat.floor == nil ? .nothing : listener.hearing(latest: seat.latestHearing)
         )
     }
 }

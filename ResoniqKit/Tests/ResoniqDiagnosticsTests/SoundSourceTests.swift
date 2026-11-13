@@ -55,6 +55,35 @@ extension SimulatedRoom {
         #expect(DiagnosisText.holdToHearUnavailable(frequency: nil).hasSuffix("listen as it plays."))
     }
 
+    /// A speaker with a dead tweeter (nothing above 2 kHz), played on another device 300 ppm slow and corrected as
+    /// the listening session corrects it, goes through the normal analysis and is reported as the normal path reports
+    /// it: the tweeter barely heard.
+    @Test func `a dead tweeter played elsewhere is reported as barely heard`() throws {
+        let ratio = 0.9997
+        let rate = Self.sweep.sampleRate
+        let filters = [Biquad.highPass(frequency: 60, q: 0.707, sampleRate: rate)]
+            + Array(repeating: Biquad.lowPass(frequency: 2000, q: 0.707, sampleRate: rate), count: 4)
+        let lead = Int(0.05 * rate)
+        let length = lead + Int(Double(Self.sweep.sampleCount) / ratio) + Int(0.6 * rate)
+        let quiet = SeededGenerator(state: 77)
+        var floorGenerator = quiet
+        let floor = NoiseFloor.measure(floorGenerator.noise(count: Int(rate), rms: 0.0005).map(Float.init), sampleRate: rate)
+        let runs = (0..<3).map { run -> RunAnalysis in
+            let source = Interpolation.resample(Self.sweep.samples(), from: -Double(lead) * ratio, step: ratio, count: length)
+            var signal = source.map { Double($0) * 0.5 }
+            for filter in filters { signal = filter.process(signal) }
+            var generator = SeededGenerator(state: UInt64(100 + run))
+            signal = zip(signal, generator.noise(count: length, rms: 0.0005)).map(+)
+            let recording = SweepFinder.corrected(signal.map(Float.init), ratio: ratio)
+            return RunAnalyzer.analyze(recording: recording, sweep: Self.sweep, noiseFloor: floor)
+        }
+        #expect(runs.allSatisfy { $0.record.measurement != nil })
+        let report = SpeakerDiagnosis.diagnose(runs: runs, counterpart: nil, source: .anotherDevice)
+        print("dead tweeter played elsewhere: \(report.verdict) / \(report.findings.map(\.headline))")
+        #expect(report.source == .anotherDevice)
+        #expect(report.findings.contains { $0.kind == .quietBand && $0.bands.contains(.tweeter) })
+    }
+
     /// A seat measured from another device whose clock runs 300 ppm slow, corrected as the session corrects it, reads
     /// as the same seat measured the normal way: the same verdict and curve, and the bass decay still estimated.
     @Test func `a seat played elsewhere and corrected reads as one played by the phone`() throws {

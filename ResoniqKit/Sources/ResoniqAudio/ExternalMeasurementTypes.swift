@@ -22,8 +22,12 @@ public enum ExternalMeasurementFailure: Error, Sendable, Equatable {
     /// A failure a normal test can also end with: `permissionDenied`, `interrupted`, `routeChanged`,
     /// `audioUnavailable`, `tooNoisy` (no floor), `phoneNeverStill` (seat), `cancelled`.
     case measurement(MeasurementFailure)
-    /// Nothing of the test sound was heard for `ExternalListening.nothingHeardLimit` after "Press play".
+    /// Nothing at all was heard above the room for `ExternalListening.nothingHeardLimit` after "Press play".
     case nothingHeard
+    /// For `ExternalListening.nothingHeardLimit` sound was heard, at least `ExternalListening.unrecognisedSoundMinimum`
+    /// of it, but none of it was the test sound: another file or music, a copy converted on the way, or a speaker that
+    /// plays only under 150 Hz (a subwoofer alone, which this mode cannot test).
+    case soundNotRecognised
     /// The player's clock is further off than `SweepFinder.maximumClockOffset` (`ratio`): something resamples the file
     /// wrongly, so its sound is pitch-shifted and cannot be measured.
     case playerClockOff(ratio: Double)
@@ -53,6 +57,26 @@ public enum ExternalListening {
     public static let playTimeout: Double = 9.5
     /// Audio kept for cutting runs from, seconds: a sweep, its tail and the time it takes to recognise, with room.
     static let bufferHorizon: Double = 30
+    /// Seconds of sound louder than the room, none of it recognised, after which the progress says the sound heard is
+    /// not the test sound (`ExternalHearing.notTheTestSound`), and the session ends as `soundNotRecognised` rather
+    /// than `nothingHeard`. "Louder" is `QualityThresholds.pauseMarginDecibels` over the floor, the pause rule's
+    /// margin. *First guess*: 2 s.
+    public static let unrecognisedSoundMinimum: Double = 2
+}
+
+/// What the phone hears while it waits for the test sound, so the screen can tell the three cases apart.
+public enum ExternalHearing: Sendable, Equatable {
+    /// Nothing louder than the room: the file is not playing, the volume is down or the amplifier is on another input.
+    case nothing
+    /// Sound louder than the room, but not the test sound: music or another file, a copy converted on the way (a
+    /// lossy format), or a speaker that plays only the deep bass. Also the latest play when it was another of the
+    /// test sound files (`ExternalPlayProblem.wrongFile`).
+    case notTheTestSound
+    /// The test sound is being heard: its tone, a sweep, or the silence between them.
+    case testSound
+    /// The latest play was the test sound, but too quiet or partly missing: a run too quiet, sweeps missed or cut
+    /// short, or the tone missed.
+    case testSoundIncomplete
 }
 
 /// What the listening screens show while a speaker test listens to another device.
@@ -89,6 +113,9 @@ public struct ExternalMeasurementProgress: Sendable, Equatable {
     /// Whether `silentFor` has passed `ExternalListening.nothingHeardHint`: the screen lists what to check (the
     /// volume, the right file, the right input on the amplifier).
     public var isSilenceLong: Bool
+    /// What is heard: nothing, sound that is not the test sound, the test sound, or the latest play heard but too
+    /// quiet or partly missing. Each has its sentence (`ExternalSessionText.hearingLine(_:file:)`).
+    public var hearing: ExternalHearing
 }
 
 /// What the Three spots screens show while a seat measurement listens to another device.
@@ -116,4 +143,5 @@ public struct ExternalSeatMeasurementProgress: Sendable, Equatable {
     /// As `ExternalMeasurementProgress`.
     public var silentFor: Double?
     public var isSilenceLong: Bool
+    public var hearing: ExternalHearing
 }

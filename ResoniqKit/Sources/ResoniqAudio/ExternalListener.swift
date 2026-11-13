@@ -72,7 +72,12 @@ struct ExternalListener {
     /// The latest clock read from a tone, for plays whose tone was missed.
     private(set) var knownRatio: Double?
     /// The capture position of the latest sound of the file (or of "Press play").
-    private(set) var lastHeard: Int64 = 0
+    private(set) var lastHeard: Int64 = 0 {
+        didSet { loudSinceHeard = 0 }
+    }
+    /// Samples since `lastHeard` in blocks louder than the room (`consume`'s `loud`) while nothing of the file was
+    /// being recognised: sound that is not the test sound (music, a broken copy, a subwoofer alone).
+    private(set) var loudSinceHeard = 0
     /// Cuts waiting for their tail: the sweep's estimated start, its play and identity, and whether the phone moved.
     private var waiting: [(estimate: Int64, play: Int, identity: SweepIdentity?, phoneMoved: Bool)] = []
     private var movedDuringSweep = false
@@ -96,6 +101,33 @@ struct ExternalListener {
     /// Whether nothing is being heard or waited for: no tone, no sweep, no tail.
     var isQuiet: Bool { !isHearingTone && !isHearingSweep && waiting.isEmpty && ready.isEmpty }
 
+    /// What is heard now (`ExternalHearing`): the test sound while a play is under way; sound that is not the test
+    /// sound once `ExternalListening.unrecognisedSoundMinimum` of it has been heard with nothing recognised; else what
+    /// the latest play was (`latest`, from `hearing(after:)`), or nothing.
+    func hearing(latest: ExternalHearing?) -> ExternalHearing {
+        if !isQuiet || currentPlay != nil { return .testSound }
+        if Double(loudSinceHeard) >= ExternalListening.unrecognisedSoundMinimum * sampleRate { return .notTheTestSound }
+        return latest ?? .nothing
+    }
+
+    /// What a play that fell short for `problem` says about what was heard: another file is not the test sound; a run
+    /// too quiet, missed or cut short, or a missed tone, is the test sound incomplete; a run clipped or drowned was the
+    /// test sound, heard.
+    static func hearing(after problem: ExternalPlayProblem?) -> ExternalHearing {
+        switch problem {
+        case .wrongFile: .notTheTestSound
+        case .run(.unusable(.tooQuiet)), .run(.didNotArrive), .missedSweeps, .clockUnknown, nil: .testSoundIncomplete
+        case .run: .testSound
+        }
+    }
+
+    /// Whether the silence after the latest sound has lasted `ExternalListening.nothingHeardLimit`, and if so how the
+    /// session ends: `soundNotRecognised` when enough sound was heard that was not the test sound, else `nothingHeard`.
+    func silenceFailure(at position: Int64) -> ExternalMeasurementFailure? {
+        guard isQuiet, currentPlay == nil, Double(position - lastHeard) >= ExternalListening.nothingHeardLimit * sampleRate else { return nil }
+        return Double(loudSinceHeard) >= ExternalListening.unrecognisedSoundMinimum * sampleRate ? .soundNotRecognised : .nothingHeard
+    }
+
     /// Starts counting silence afresh from `position` (when the screen says "Press play").
     mutating func markListening(at position: Int64) {
         lastHeard = position
@@ -112,7 +144,8 @@ struct ExternalListener {
     }
 
     /// Takes the next block; `steady` is whether the phone is held still.
-    mutating func consume(_ block: CapturedBlock, steady: Bool) -> [Event] {
+    mutating func consume(_ block: CapturedBlock, steady: Bool, loud: Bool = false) -> [Event] {
+        if loud, isQuiet, currentPlay == nil { loudSinceHeard += block.samples.count }
         if buffer.isEmpty { bufferStart = block.position }
         buffer += block.samples
         let horizon = Int(ExternalListening.bufferHorizon * sampleRate)
@@ -303,7 +336,10 @@ struct SweepInspection: Sendable {
         leadIn: Int,
         tail: Int
     ) async -> SweepInspection {
-        guard let found = SweepFinder.find(in: cut.window, sampleRate: sweep.sampleRate, sweep: sweep, expectedCount: 1).first else {
+        // A sweep the file's timing placed (by the tone, or by another sweep's spacing) is anchored: a speaker that
+        // plays only part of the range is still found. One not placed must span the range (`SweepFinder.find`).
+        let anchored = cut.identity != nil
+        guard let found = SweepFinder.find(in: cut.window, sampleRate: sweep.sampleRate, sweep: sweep, expectedCount: 1, anchored: anchored).first else {
             return SweepInspection(start: nil)
         }
         var inspection = SweepInspection(start: Double(cut.windowStart) + found.start)

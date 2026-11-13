@@ -350,7 +350,8 @@ final class DiagnoseCoordinator {
     // MARK: Navigation
 
     func openFinding(_ finding: Finding) {
-        guard let index = outcome?.report.findings.firstIndex(where: { $0.id == finding.id }) else { return }
+        guard finding.noteAction != .informational,
+              let index = outcome?.report.findings.firstIndex(where: { $0.id == finding.id }) else { return }
         path.append(.finding(index))
     }
 

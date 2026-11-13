@@ -113,13 +113,17 @@ private struct FindingHost: View {
 }
 
 /// Makes the real player the first time a tone is wanted, so building the screen opens no audio.
+@Observable
 private final class LazyTonePlayer: FindingTonePlaying {
-    private let make: () -> any FindingTonePlaying
+    @ObservationIgnored private let make: () -> any FindingTonePlaying
     private var player: (any FindingTonePlaying)?
 
     init(make: @escaping () -> any FindingTonePlaying) {
         self.make = make
     }
+
+    var failure: TonePlayerError? { player?.failure }
+    var endedByItself: Int { player?.endedByItself ?? 0 }
 
     func start(frequency: Double, on channel: SpeakerChannel) {
         let player = player ?? make()

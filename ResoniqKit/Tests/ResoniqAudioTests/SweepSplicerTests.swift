@@ -49,7 +49,7 @@ import Testing
         let rate = Fixture.sampleRate
         let plan = try #require(SweepSplicer.plan(
             noiseOnset: 200_000, sweepOrigin: 100_000, firstIndex: 0, delay: 4800,
-            sweepCount: 144_000, configuration: configuration, sampleRate: rate
+            sweepCount: Fixture.sweep.sampleCount, configuration: configuration, sampleRate: rate
         ))
         let noiseIndex = 200_000 - 100_000 - 4800
         #expect(plan.resumeIndex == noiseIndex - Int(configuration.resumeOverlap * rate))
@@ -63,12 +63,12 @@ import Testing
         let rate = Fixture.sampleRate
         #expect(SweepSplicer.plan(
             noiseOnset: 110_000, sweepOrigin: 100_000, firstIndex: 0, delay: 1000,
-            sweepCount: 144_000, configuration: configuration, sampleRate: rate
+            sweepCount: Fixture.sweep.sampleCount, configuration: configuration, sampleRate: rate
         ) == nil)
         // A take that resumed from sample 50 000 and was caught again 0.1 s later.
         #expect(SweepSplicer.plan(
             noiseOnset: 100_000 + 50_000 + 1000 + 4800, sweepOrigin: 100_000, firstIndex: 50_000, delay: 1000,
-            sweepCount: 144_000, configuration: configuration, sampleRate: rate
+            sweepCount: Fixture.sweep.sampleCount, configuration: configuration, sampleRate: rate
         ) == nil)
     }
 

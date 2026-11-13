@@ -115,6 +115,8 @@ enum DiagnoseText {
                 "That run was too quiet, so I'm playing it again. Hold the phone a little closer or turn the volume up."
             case .tooNoisy:
                 "That run was too noisy to read, so I'm playing it again. Please keep the room quiet."
+            case .corrupt, .incomplete:
+                "That run didn't come through whole, so I'm playing it again."
             case .silent, nil:
                 "I heard nothing on that run, so I'm playing it again."
             }
@@ -170,6 +172,8 @@ enum DiagnoseText {
                 "Both recordings were too quiet to read. Turn the volume up or hold the phone closer to the speaker."
             case .tooNoisy:
                 "The room was too noisy for me to hear the speaker over it. Try again when it is quieter."
+            case .corrupt, .incomplete:
+                "Both recordings came back incomplete, so I can't read them. Check the connection to your speakers and try again."
             case .silent, nil:
                 "The microphone didn't pick up anything. Check that nothing covers it and that the speaker is on."
             }

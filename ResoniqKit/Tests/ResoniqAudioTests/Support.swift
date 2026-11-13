@@ -3,10 +3,11 @@ import ResoniqDSP
 import Testing
 @testable import ResoniqAudio
 
-/// Shared settings: a 3 s sweep at 48 kHz, so a three-run test is about 15 s of audio and runs in well under a second.
+/// Shared settings: the app's own configuration at 48 kHz, so every run plays the measurement sweep (4 s); a three-run
+/// test is about 18 s of audio and runs in well under a second.
 enum Fixture {
     static let sampleRate = 48000.0
-    static let configuration = MeasurementConfiguration(sweepDuration: 3)
+    static let configuration = MeasurementConfiguration.standard
     static let sweep = configuration.sweep(sampleRate: sampleRate)
 
     static func io(

@@ -53,10 +53,18 @@ import Testing
         #expect(after.allSatisfy { abs($0) < 1e-3 })
     }
 
+    /// Ten 10 ms blocks take at least 100 ms, and not much more than that plus however late the scheduler wakes a
+    /// plain 100 ms sleep at the same moment: the other suites' sessions check their recordings (a deconvolution
+    /// each) on the same thread pool, so the wake-up latency is the test machine's, not the IO's.
     @Test func `real-time pacing delivers about one block per block of time`() async throws {
+        let clock = ContinuousClock()
+        async let lateness: Duration = {
+            let start = ContinuousClock.now
+            try? await Task.sleep(for: .milliseconds(100))
+            return ContinuousClock.now - start - .milliseconds(100)
+        }()
         let io = SimulatedAudioIO(configuration: .init(blockSize: 480, pacing: .realTime))
         let stream = try await io.start()
-        let clock = ContinuousClock()
         let began = clock.now
         var count = 0
         for try await _ in stream.blocks {
@@ -65,8 +73,9 @@ import Testing
         }
         await io.stop()
         let elapsed = clock.now - began
+        let schedulerLateness = await lateness
         #expect(elapsed >= .milliseconds(95))
-        #expect(elapsed < .milliseconds(1000))
+        #expect(elapsed < .milliseconds(1000) + schedulerLateness, "elapsed \(elapsed), a plain sleep was \(schedulerLateness) late")
     }
 
     @Test func `a failure ends the stream with its error`() async throws {

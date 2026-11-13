@@ -6,14 +6,9 @@ public struct MeasurementConfiguration: Sendable, Equatable {
     // MARK: The test
 
     /// Runs of the sweep in one test. Three, because a finding is only "Inferred" when it repeats ("3 of 3 runs").
+    /// The sweep itself is not configured here: every run plays `LogSweep.measurement(sampleRate:)`, the one
+    /// definition of the measurement sweep (10 Hz to 22 kHz over 4 s, at the safe level).
     public var runCount: Int
-    /// The sweep's lowest frequency, hertz.
-    public var sweepStartFrequency: Double
-    /// The sweep's highest frequency, hertz; lowered to 0.45 × the sample rate when the device runs slower.
-    public var sweepEndFrequency: Double
-    /// The sweep's length. *First guess*: 8 s, long enough for a good signal-to-noise ratio in a living room, short
-    /// enough that a phone held at arm's length stays still.
-    public var sweepDuration: Double
 
     /// The length of the blocks every live decision is made on. 100 ms, the block `NoiseGate` and the noise floor's
     /// steadiness are defined on.
@@ -38,7 +33,10 @@ public struct MeasurementConfiguration: Sendable, Equatable {
     /// After the sweep's end has arrived, the room must be quiet enough for this long before the recording stops.
     /// *First guess*: 0.3 s.
     public var decayHold: Double
-    /// Recording kept after the sweep's end arrives, at the least, for the response's own decay. *First guess*: 0.2 s.
+    /// Recording kept after the sweep's end arrives, at the least: `HarmonicDistortion.minimumTail` (about 0.2 s, the
+    /// response's own window plus the longest harmonic window), so the analysis can measure the noise floor that
+    /// decides whether distortion is measurable. Measured from the live arrival estimate, which is good to a fraction
+    /// of a block; the `decayHold` that follows normally adds more.
     public var minimumTail: Double
     /// After the sweep has been sent, the recording waits at most `maximumRouteDelay` plus this for the end to
     /// arrive and die away. *First guess*: 1 s.
@@ -69,16 +67,13 @@ public struct MeasurementConfiguration: Sendable, Equatable {
 
     public init(
         runCount: Int = 3,
-        sweepStartFrequency: Double = 20,
-        sweepEndFrequency: Double = 20000,
-        sweepDuration: Double = 8,
         blockDuration: Double = 0.1,
         settleDuration: Double = 0.2,
         noiseFloorDuration: Double = 1,
         leadIn: Double = 0.05,
         maximumRouteDelay: Double = 2.5,
         decayHold: Double = 0.3,
-        minimumTail: Double = 0.2,
+        minimumTail: Double = HarmonicDistortion.minimumTail,
         maximumDecay: Double = 1,
         resumeHold: Double = 0.5,
         resumeOverlap: Double = 0.4,
@@ -94,9 +89,6 @@ public struct MeasurementConfiguration: Sendable, Equatable {
             "the resume overlap must hold the guard, the crossfade, the fade in and the delay margin"
         )
         self.runCount = runCount
-        self.sweepStartFrequency = sweepStartFrequency
-        self.sweepEndFrequency = sweepEndFrequency
-        self.sweepDuration = sweepDuration
         self.blockDuration = blockDuration
         self.settleDuration = settleDuration
         self.noiseFloorDuration = noiseFloorDuration
@@ -117,14 +109,15 @@ public struct MeasurementConfiguration: Sendable, Equatable {
     /// The defaults the app uses.
     public static let standard = MeasurementConfiguration()
 
-    /// The sweep every run plays, at the stream's sample rate, at the safe level.
+    /// The lowest stream sample rate a test runs at, hertz: 44.1 kHz, what `LogSweep.measurement(sampleRate:)`
+    /// requires (its 22 kHz end must lie under the Nyquist frequency). A route that runs slower (a Bluetooth headset
+    /// profile) fails the test with `MeasurementFailure.audioUnavailable` instead of playing a narrower sweep.
+    public static let minimumSampleRate: Double = 44100
+
+    /// The sweep every run plays: `LogSweep.measurement(sampleRate:)`. `sampleRate` must be at least
+    /// `minimumSampleRate`.
     public func sweep(sampleRate: Double) -> LogSweep {
-        LogSweep(
-            startFrequency: sweepStartFrequency,
-            endFrequency: min(sweepEndFrequency, 0.45 * sampleRate),
-            duration: sweepDuration,
-            sampleRate: sampleRate
-        )
+        LogSweep.measurement(sampleRate: sampleRate)
     }
 
     /// `seconds` as a whole number of samples at `sampleRate`.

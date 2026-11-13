@@ -5,7 +5,8 @@ public struct CapturedAudio: Sendable, Equatable {
     public var samples: [Float]
     public var sampleRate: Double
     /// Whether the sweep was playing in it: a recording judged too noisy. False for the audio kept while a run was
-    /// paused, when nothing played.
+    /// paused, which starts only once the sweep stopped at the speakers can no longer be arriving or dying away
+    /// (`PausedAudioKeeper.sweepArrival`).
     public var sweepPlaying: Bool
 
     public init(samples: [Float], sampleRate: Double, sweepPlaying: Bool) {
@@ -21,26 +22,63 @@ public struct CapturedAudio: Sendable, Equatable {
     /// *First guess*: 4 s, four of the sound classifier's 1.5 s windows at half overlap, enough to name a voice or an
     /// appliance, and no more memory than a fifth of a run's recording.
     public static let pausedDuration: Double = 4
+
+    /// The least audio of a pause offered for naming the noise, seconds: 1.5, one window of the sound classifier
+    /// (`SystemSoundClassifier.windowDuration`, which classifies nothing shorter). Less is not offered at all.
+    public static let minimumDuration: Double = 1.5
+
+    /// After the sweep's sound has arrived, how long the room takes to let it die away, seconds: 0.5, the room
+    /// window the seat reads a response with (`ImpulseResponse.roomPostWindow`), by which a living room's
+    /// reverberation has fallen well under the noise that paused the run. *First guess*.
+    public static let sweepDecayAllowance: Double = 0.5
 }
 
-/// What both sessions keep of a pause for noise: the latest `CapturedAudio.pausedDuration` of it.
+/// What both sessions keep of a pause for noise: the latest `CapturedAudio.pausedDuration` of it, from the moment the
+/// sweep can no longer be heard.
+///
+/// **Why it skips the start of a pause.** Playback stops at the speakers' end, but what was already sent keeps
+/// arriving for the route's delay (up to about two seconds over AirPlay) and then rings in the room. Classified as if
+/// nothing played, the app's own sweep is named "music or a TV". So the first `sweepArrival` samples of a pause (the
+/// block in which noise was heard, the delay, and `CapturedAudio.sweepDecayAllowance`) are not kept, and nothing is
+/// offered until at least `CapturedAudio.minimumDuration` has been.
 struct PausedAudioKeeper {
     let sampleRate: Double
     private var ring: AudioRing
+    private var skipRemaining = 0
 
     init(sampleRate: Double) {
         self.sampleRate = sampleRate
         ring = AudioRing(capacity: max(1, Int((CapturedAudio.pausedDuration * sampleRate).rounded())))
     }
 
-    /// A new pause began: what an earlier one held is not this noise.
-    mutating func pauseBegan() { ring.reset() }
+    /// Samples from the start of a pause's first block until the sweep can no longer be heard: that block, the
+    /// route's delay (`delay` in samples; `maximumRouteDelay` when it is not known) and the decay allowance.
+    static func sweepArrival(delay: Int?, blockLength: Int, configuration: MeasurementConfiguration, sampleRate: Double) -> Int {
+        blockLength
+            + (delay ?? configuration.samples(configuration.maximumRouteDelay, at: sampleRate))
+            + configuration.samples(CapturedAudio.sweepDecayAllowance, at: sampleRate)
+    }
 
-    mutating func keep(_ samples: [Float]) { ring.append(samples) }
+    /// A new pause began with the block about to be kept: what an earlier one held is not this noise, and the first
+    /// `skipping` samples may still hold the sweep.
+    mutating func pauseBegan(skipping: Int = 0) {
+        ring.reset()
+        skipRemaining = max(skipping, 0)
+    }
 
-    /// Nil when nothing has been kept.
+    mutating func keep(_ samples: [Float]) {
+        guard skipRemaining < samples.count else {
+            skipRemaining -= samples.count
+            return
+        }
+        ring.append(skipRemaining == 0 ? samples : Array(samples[skipRemaining...]))
+        skipRemaining = 0
+    }
+
+    /// Nil until `CapturedAudio.minimumDuration` has been kept.
     var audio: CapturedAudio? {
-        ring.isEmpty ? nil : CapturedAudio(samples: ring.contents, sampleRate: sampleRate, sweepPlaying: false)
+        guard Double(ring.count) >= CapturedAudio.minimumDuration * sampleRate else { return nil }
+        return CapturedAudio(samples: ring.contents, sampleRate: sampleRate, sweepPlaying: false)
     }
 }
 

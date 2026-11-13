@@ -20,7 +20,7 @@ launch the app and test a speaker immediately.
 | 3 | Measure flow | planned | [phase-3-measure](plans/phase-3-measure.md) | |
 | 4 | Optimize: room scan and layout | planned | [phase-4-room](plans/phase-4-room.md) | |
 | 5 | Optimize: AR guidance and before/after | planned | [phase-5-ar](plans/phase-5-ar.md) | |
-| 6 | AI diagnostics and finish | planned | | |
+| 6 | AI diagnostics and finish | active | [phase-6-ai-finish](plans/phase-6-ai-finish.md) | |
 
 ## Phases
 

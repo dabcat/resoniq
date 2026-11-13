@@ -672,11 +672,17 @@ public enum SpeakerDiagnosis {
     /// could not be read at its bottom (THD is trusted from 80 Hz with the measurement sweep), the words say it was not
     /// checked there. Nothing at all is said about rattle, which a sweep does not measure.
     ///
+    /// **The bass roll-off.** Every speaker rolls off at the bottom of its range. When the response falls steadily below
+    /// a knee at or under `rollOffUpperFrequency` (`rollOffKnee`), the woofer is judged from the knee up, and the
+    /// statement says so plainly ("Bass rolls off below 70 Hz."), `measured` and not a deviation. Above that knee the
+    /// bass is judged as it is: uneven (below), or barely heard (`quietBandFindings`, which reads from the same 100 Hz).
+    ///
     /// A driver that is assessed everywhere and overlapped by no finding, but strays more than `edgeDecibels` from the
-    /// trend somewhere (3 to 6 dB, or a bass roll-off, which is never a dip), is returned in `leftOut`, so the verdict
+    /// trend somewhere above the knee (3 to 6 dB), or where at least `minimumAgreeingRuns` runs measured distortion at
+    /// or over `distortionPercent` that made no buzz (too narrow to be one), is returned in `leftOut`, so the verdict
     /// does not call it healthy, and the statement says why it is left out: where its response strays, where its
-    /// distortion could not be checked, and any distortion over `distortionPercent` that did not make a buzz.
-    /// `readings` are each run's `DistortionReading`s on the grid, `.notRead` where the band was not audible.
+    /// distortion could not be checked, and the distortion that fell short of a buzz. `readings` are each run's
+    /// `DistortionReading`s on the grid, `.notRead` where the band was not audible.
     static func evenFinding(
         findings: [Finding],
         consensus: [Float],
@@ -691,6 +697,8 @@ public enum SpeakerDiagnosis {
         let cut = findings.filter { $0.kind == .topEndDip }.compactMap(\.frequencyRange?.lower).min()
         let blocking = findings.filter { ![.topEndDip, .even, .invalidRecording].contains($0.kind) }.compactMap(\.frequencyRange)
         let unclear = findings.filter { $0.kind == .distortionUnclear }.compactMap(\.frequencyRange)
+        let knee = rollOffKnee(consensus: consensus, deviation: deviation, assessed: assessed, thresholds: thresholds)
+        var rollOffBelow: Float?
         var spans: [(band: DriverBand, range: FrequencyRange)] = []
         var leftOut: [(band: DriverBand, words: String)] = []
         for band in DriverBand.allCases.reversed() {
@@ -699,21 +707,25 @@ public enum SpeakerDiagnosis {
                 guard cut > range.lower else { continue }
                 range = FrequencyRange(lower: range.lower, upper: cut)
             }
-            let points = grid.indices.filter { range.contains(grid[$0]) && grid[$0] < (cut ?? .infinity) }
-            guard let first = points.first, let last = points.last,
-                  points.allSatisfy({ assessed[$0] }),
-                  !blocking.contains(where: { $0.overlaps(range) }) else { continue }
+            guard !blocking.contains(where: { $0.overlaps(range) }) else { continue }
+            // The woofer is judged from the knee of a natural roll-off up.
+            let bottom = band == .woofer ? knee.map { grid[$0] } : nil
+            let points = grid.indices.filter {
+                range.contains(grid[$0]) && grid[$0] < (cut ?? .infinity) && grid[$0] >= (bottom ?? 0)
+            }
+            guard let first = points.first, let last = points.last, points.allSatisfy({ assessed[$0] }) else { continue }
+            if let bottom { rollOffBelow = bottom }
             let off = points.filter { abs(deviation[$0]) > thresholds.edgeDecibels }
-            if let firstOff = off.first, let lastOff = off.last {
-                leftOut.append((band, leftOutWords(
-                    band,
-                    points: points,
-                    off: FrequencyRange(lower: grid[firstOff], upper: grid[lastOff]),
-                    offBy: off.map { abs(deviation[$0]) }.max() ?? 0,
-                    distortionRuledOut: distortionRuledOut,
-                    readings: readings,
-                    thresholds: thresholds
-                )))
+            if let words = leftOutWords(
+                band,
+                points: points,
+                off: off.first.flatMap { lower in off.last.map { FrequencyRange(lower: grid[lower], upper: grid[$0]) } },
+                offBy: off.map { abs(deviation[$0]) }.max() ?? 0,
+                distortionRuledOut: distortionRuledOut,
+                readings: readings,
+                thresholds: thresholds
+            ) {
+                leftOut.append((band, words))
                 continue
             }
             spans.append((band, FrequencyRange(lower: grid[first], upper: grid[last])))
@@ -758,7 +770,8 @@ public enum SpeakerDiagnosis {
             response: response,
             distortionBelow: thresholds.distortionPercent,
             over: clean,
-            uncheckedBelow: uncheckedBelow
+            uncheckedBelow: uncheckedBelow,
+            rollOffBelow: rollOffBelow
         )
         for item in leftOut { words.detail += " " + item.words }
         let finding = Finding(
@@ -792,28 +805,53 @@ public enum SpeakerDiagnosis {
         }
     }
 
-    /// The even statement's words for a driver it leaves out (see `evenFinding`). Over `points`, the driver's grid
-    /// points: where a buzz was not ruled out, a point where some run measured THD at or over `distortionPercent` is
-    /// distortion "short of a buzz" (it made no buzz finding, or the driver would be blocked); any other is a point
-    /// where distortion could not be checked (not read, or the noise's bound over the threshold).
+    /// The index of the knee of a natural bass roll-off on `ResponseGrid`, nil when there is none.
+    ///
+    /// From the bottom of the woofer's judged range (`responseLowerFrequency`) going up, the response must start more
+    /// than `edgeDecibels` under its trend and rise steadily (never falling by more than `rollOffToleranceDecibels`
+    /// from one point to the next) until it is back within `edgeDecibels`; that point is the knee, and it must lie at
+    /// or under `rollOffUpperFrequency`. Every point on the way must be assessed. A dip that comes back lower down is
+    /// not a roll-off (the response falls going up), and neither is bass still falling above 100 Hz.
+    static func rollOffKnee(consensus: [Float], deviation: [Float], assessed: [Bool], thresholds: DiagnosisThresholds) -> Int? {
+        let grid = ResponseGrid.frequencies
+        guard let bottom = grid.indices.first(where: { grid[$0] >= thresholds.responseLowerFrequency }),
+              assessed[bottom], deviation[bottom] < -thresholds.edgeDecibels else { return nil }
+        var index = bottom
+        while deviation[index] < -thresholds.edgeDecibels {
+            let next = index + 1
+            guard next < grid.count, grid[next] <= thresholds.rollOffUpperFrequency, assessed[next],
+                  consensus[next] >= consensus[index] - thresholds.rollOffToleranceDecibels else { return nil }
+            index = next
+        }
+        return index
+    }
+
+    /// The even statement's words for a driver it leaves out (see `evenFinding`), nil when it is not left out: no
+    /// stretch `off` its trend and no distortion short of a buzz. Over `points`, the driver's grid points: where a buzz
+    /// was not ruled out, a point where at least `minimumAgreeingRuns` runs measured THD at or over `distortionPercent`
+    /// is distortion "short of a buzz" (it made no buzz finding, or the driver would be blocked); any other is a point
+    /// where distortion could not be checked (not read, the noise's bound over the threshold, or over it in one run).
     static func leftOutWords(
         _ band: DriverBand,
         points: [Int],
-        off: FrequencyRange,
+        off: FrequencyRange?,
         offBy: Float,
         distortionRuledOut: [Bool],
         readings: [[DistortionReading]],
         thresholds: DiagnosisThresholds
-    ) -> String {
+    ) -> String? {
         let grid = ResponseGrid.frequencies
+        // Over the threshold in at least `minimumAgreeingRuns` runs: in one run it is dropped, like any deviation.
         func measuredOver(_ index: Int) -> Float? {
-            readings.compactMap { run -> Float? in
+            let over = readings.compactMap { run -> Float? in
                 if case .measured(let percent) = run[index], percent >= thresholds.distortionPercent { return percent }
                 return nil
-            }.max()
+            }
+            return over.count >= thresholds.minimumAgreeingRuns ? over.max() : nil
         }
         let open = points.filter { !distortionRuledOut[$0] }
         let over = open.compactMap { index in measuredOver(index).map { (index, $0) } }.max { $0.1 < $1.1 }
+        guard off != nil || over != nil else { return nil }
         let unchecked = open.filter { measuredOver($0) == nil }
         var below: Float?
         var around: FrequencyRange?

@@ -96,6 +96,18 @@ public struct DiagnosisThresholds: Sendable, Equatable {
     /// The middle driver is read over 300 Hz–3 kHz, the tweeter from 3 kHz to `topEndFrequency`.
     public var quietBandLowerFrequency: Float
 
+    // MARK: Bass roll-off
+
+    /// How far, in dB, the response may rise going down within a roll-off: below the knee it must fall steadily, each
+    /// grid point no more than this above the next one up. **First guess**: 0.5 dB, above the ripple of a 1/3-octave
+    /// smoothed median; a dip that comes back lower down rises by far more and is not a roll-off.
+    public var rollOffToleranceDecibels: Float
+
+    /// The highest knee, in hertz, accepted as a natural roll-off: `quietBandLowerFrequency` (100 Hz, **first guess**),
+    /// where the quiet-band rule starts reading the woofer's level. The two rules meet there: a knee at or under it is
+    /// a roll-off; above it the bass is judged as it is (uneven, or barely heard at 15 dB down), never as both.
+    public var rollOffUpperFrequency: Float { quietBandLowerFrequency }
+
     // MARK: Noise
 
     /// A frequency is assessed only when its octave band's signal-to-noise ratio (recording over room floor) is at
@@ -121,8 +133,10 @@ public struct DiagnosisThresholds: Sendable, Equatable {
         leftRightDecibels: Float,
         minimumBandSignalToNoise: Float,
         quietBandDecibels: Float = 15,
-        quietBandLowerFrequency: Float = 100
+        quietBandLowerFrequency: Float = 100,
+        rollOffToleranceDecibels: Float = 0.5
     ) {
+        self.rollOffToleranceDecibels = rollOffToleranceDecibels
         self.quietBandDecibels = quietBandDecibels
         self.quietBandLowerFrequency = quietBandLowerFrequency
         self.smoothingFraction = smoothingFraction
@@ -164,6 +178,7 @@ public struct DiagnosisThresholds: Sendable, Equatable {
         leftRightDecibels: 6,
         minimumBandSignalToNoise: 10,
         quietBandDecibels: 15,
-        quietBandLowerFrequency: 100
+        quietBandLowerFrequency: 100,
+        rollOffToleranceDecibels: 0.5
     )
 }

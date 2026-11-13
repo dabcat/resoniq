@@ -89,4 +89,15 @@ func blocks(_ samples: [Float], length: Int = 4800) -> [[Float]] {
         #expect(loud.isTooNoisy)
         #expect(abs(loud.roomLevel.dBFS - -60) < 1)
     }
+
+    /// The strongest tone is chosen by its rise over the floor, so it need not be the loudest bin around it. A
+    /// parabola through a bin that is not a local maximum puts its vertex far away (here about 20 bins up), and the
+    /// excluded band's bounds then crossed and trapped (seen with 1031-sample blocks and a 0.7 s route, and in a
+    /// simulated room).
+    @Test func `a strongest tone that is not the loudest of its neighbours is placed at the louder bin beside it`() {
+        // −40, −20 and −1 dB: the middle bin is above its neighbours' mean but below the louder one.
+        let power: [Float] = [1e-3, 1e-4, 1e-2, 0.79, 1e-3]
+        let bin = SweepNoiseDetector.interpolatedBin(power, at: 2)
+        #expect(bin >= 2.5 && bin <= 3.5, "\(bin)")
+    }
 }

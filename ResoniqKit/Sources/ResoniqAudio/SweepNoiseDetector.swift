@@ -164,14 +164,27 @@ public struct SweepNoiseDetector: Sendable {
         }
     }
 
-    /// The peak's position between bins, from a parabola through the log power of it and its neighbours.
-    static func interpolatedBin(_ power: [Float], at peak: Int) -> Double {
+    /// The peak's position between bins, from a parabola through the log power of it and its neighbours. The peak is
+    /// chosen by its rise over the floor, so it need not be a local maximum of the power: it is first moved to the
+    /// local maximum within the main lobe (4 bins), and the vertex is kept within half a bin of that, since a
+    /// parabola through bins that do not straddle a maximum puts its vertex anywhere.
+    static func interpolatedBin(_ power: [Float], at start: Int) -> Double {
+        var peak = start
+        while peak > 0, peak < power.count - 1, abs(peak - start) < 4 {
+            if power[peak + 1] > power[peak], power[peak + 1] >= power[peak - 1] {
+                peak += 1
+            } else if power[peak - 1] > power[peak] {
+                peak -= 1
+            } else {
+                break
+            }
+        }
         guard peak > 0, peak < power.count - 1 else { return Double(peak) }
         let before = Double(Decibels.fromPower(power[peak - 1]))
         let centre = Double(Decibels.fromPower(power[peak]))
         let after = Double(Decibels.fromPower(power[peak + 1]))
         let curvature = before - 2 * centre + after
-        guard curvature < 0 else { return Double(peak) }
-        return Double(peak) + 0.5 * (before - after) / curvature
+        guard curvature < 0, centre >= before, centre >= after else { return Double(peak) }
+        return Double(peak) + min(max(0.5 * (before - after) / curvature, -0.5), 0.5)
     }
 }

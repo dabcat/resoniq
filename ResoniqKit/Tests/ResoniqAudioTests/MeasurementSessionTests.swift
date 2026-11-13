@@ -221,6 +221,14 @@ import Testing
         #expect(final.result?.runs.count == 3)
     }
 
+    @Test func `odd blocks, a long route and a loud burst do not trap the noise detector`() async throws {
+        // This trapped in `SweepNoiseDetector.assess` (crossed range bounds) before its peak interpolation was bounded.
+        let burst = NoiseBurst(start: .afterScheduling(buffer: 2, offset: 3.0), duration: 0.4, rms: 0.05)
+        let io = Fixture.io(routeDelay: 0.7, bursts: [burst], blockSize: 1031)
+        let final = await Fixture.session(io: io).run()
+        #expect(final.result?.runs.count == 3, "ended \(final)")
+    }
+
     @Test func `a stream slower than 44.1 kHz fails before any sound`() async {
         let io = SimulatedAudioIO(configuration: .init(sampleRate: 22050, pacing: .immediate))
         let final = await Fixture.session(io: io).run()

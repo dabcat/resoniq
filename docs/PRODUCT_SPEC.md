@@ -1,3 +1,8 @@
+---
+type: "spec"
+tags:
+  - "spec"
+---
 # Resoniq — High-Level Product Specification
 
 **Version:** 0.2  

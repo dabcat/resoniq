@@ -7,6 +7,11 @@ public enum ResoniqIcon: CaseIterable, Sendable {
     case optimize
     case settings
     case chevronDown
+    case check
+    case speaker
+    case back
+    case arrowRight
+    case directionArrow
 
     struct Layer {
         enum Paint {
@@ -24,6 +29,11 @@ public enum ResoniqIcon: CaseIterable, Sendable {
         case .diagnose, .measure, .optimize: 22
         case .settings: 18
         case .chevronDown: 14
+        case .check: 12
+        case .speaker: 34
+        case .back: 18
+        case .arrowRight: 16
+        case .directionArrow: 34
         }
     }
 
@@ -76,6 +86,53 @@ public enum ResoniqIcon: CaseIterable, Sendable {
                 p.move(to: CGPoint(x: 3, y: 5))
                 p.addLine(to: CGPoint(x: 7, y: 9))
                 p.addLine(to: CGPoint(x: 11, y: 5))
+            })]
+        case .check:
+            // V3MRunning, the done status pill.
+            [Layer(paint: .stroke(width: 2.2), path: Path { p in
+                p.move(to: CGPoint(x: 2, y: 6.5))
+                p.addLine(to: CGPoint(x: 4.5, y: 9))
+                p.addLine(to: CGPoint(x: 10, y: 3.5))
+            })]
+        case .back:
+            // V3Finding, the button back to the portrait.
+            [Layer(paint: .stroke(width: 2), path: Path { p in
+                p.move(to: CGPoint(x: 11, y: 3.5))
+                p.addLine(to: CGPoint(x: 5.5, y: 9))
+                p.addLine(to: CGPoint(x: 11, y: 14.5))
+            })]
+        case .arrowRight:
+            // V3OVerify, between a before value and an after value.
+            [Layer(paint: .stroke(width: 1.8), path: Path { p in
+                p.move(to: CGPoint(x: 3, y: 8))
+                p.addLine(to: CGPoint(x: 13, y: 8))
+                p.move(to: CGPoint(x: 9, y: 4))
+                p.addLine(to: CGPoint(x: 13, y: 8))
+                p.addLine(to: CGPoint(x: 9, y: 12))
+            })]
+        case .directionArrow:
+            // V3OScan, the instruction's arrow; it points right, and a view turns it.
+            [Layer(paint: .stroke(width: 3), path: Path { p in
+                p.move(to: CGPoint(x: 6, y: 17))
+                p.addLine(to: CGPoint(x: 28, y: 17))
+                p.move(to: CGPoint(x: 19, y: 8))
+                p.addLine(to: CGPoint(x: 28, y: 17))
+                p.addLine(to: CGPoint(x: 19, y: 26))
+            })]
+        case .speaker:
+            // V3Finding, the hold-to-hear button: a speaker cone and two sound arcs.
+            [Layer(paint: .stroke(width: 2.6), path: Path { p in
+                p.move(to: CGPoint(x: 5, y: 13))
+                p.addLine(to: CGPoint(x: 5, y: 21))
+                p.addLine(to: CGPoint(x: 11, y: 21))
+                p.addLine(to: CGPoint(x: 19, y: 28))
+                p.addLine(to: CGPoint(x: 19, y: 6))
+                p.addLine(to: CGPoint(x: 11, y: 13))
+                p.closeSubpath()
+                p.move(to: CGPoint(x: 24, y: 12))
+                p.addCurve(to: CGPoint(x: 24, y: 22), control1: CGPoint(x: 26, y: 15), control2: CGPoint(x: 26, y: 19))
+                p.move(to: CGPoint(x: 28, y: 8))
+                p.addCurve(to: CGPoint(x: 28, y: 26), control1: CGPoint(x: 32, y: 13), control2: CGPoint(x: 32, y: 21))
             })]
         }
     }

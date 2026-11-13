@@ -1,0 +1,115 @@
+import ResoniqDesign
+import ResoniqRoom
+import SwiftUI
+
+/// The Optimize tab: home, and over it, without the tab bar, the full-screen cover that holds the scan, manual entry,
+/// Confirm layout, the AR guide or Before and after. `OptimizeCoordinator` decides what is shown and what is stored;
+/// this only lays it out.
+struct OptimizeTab: View {
+    @Environment(OptimizeCoordinator.self) private var coordinator
+
+    var body: some View {
+        OptimizeHomeContainer(
+            onScan: coordinator.scan,
+            onManualEntry: coordinator.enterByHand,
+            onEditLayout: coordinator.editLayout,
+            onMeasure: coordinator.measureFromSeat,
+            onGuideInAR: coordinator.guideInAR,
+            onMoveMyself: coordinator.moveMyself,
+            onShowVerification: coordinator.showVerification,
+            onRescan: coordinator.scan
+        )
+        .fullScreenCover(
+            isPresented: Binding(
+                get: { coordinator.cover != nil },
+                set: { if !$0 { coordinator.closeCover() } }
+            ),
+            onDismiss: coordinator.coverDismissed
+        ) {
+            OptimizeCover()
+        }
+        // A cover asked for but never presented must not block the home (`OptimizeCoordinator.tabAppeared`).
+        .onAppear { coordinator.tabAppeared() }
+        .onDisappear { coordinator.tabDisappeared() }
+        // An alert with no cover on screen is shown here; with one on screen, on the cover.
+        .optimizeAlert(coordinator, whenCoverIsUp: false)
+    }
+}
+
+// MARK: - The cover
+
+private struct OptimizeCover: View {
+    @Environment(OptimizeCoordinator.self) private var coordinator
+
+    var body: some View {
+        Group {
+            switch coordinator.cover {
+            case .scan:
+                ScanScreen(
+                    readiness: coordinator.sources.scanReadiness(), makeSource: coordinator.sources.makeScanSource,
+                    onScanned: coordinator.scanned, onManualEntry: { coordinator.showManualEntry() },
+                    onClose: { coordinator.closeCover() })
+            case .manualRoom(let initial):
+                ManualRoomScreen(
+                    initial: initial, onDone: coordinator.manualRoomMade, onClose: { coordinator.closeCover() })
+            case .layout(let draft):
+                LayoutScreen(
+                    room: draft.room, isGuess: draft.isGuess, roomName: roomName,
+                    onConfirm: coordinator.confirmLayout, onRescan: coordinator.scanAgain,
+                    // A hand-entered room reopens manual entry; a scanned one offers a new scan.
+                    onManualEntry: draft.room.source == .manual
+                        ? { coordinator.showManualEntry(starting: coordinator.manualRoom(of: draft.room)) } : nil,
+                    onClose: { coordinator.closeCover() })
+            case .guide(let request):
+                ARGuidanceScreen(
+                    suggestion: request.suggestion, room: request.room, readiness: coordinator.sources.arReadiness(),
+                    source: coordinator.sources.makeARSource(), haptics: coordinator.sources.makeARHaptics(),
+                    onPlaced: { coordinator.placed($0, in: request) }, onDeclined: { coordinator.declined(request) },
+                    onFixLayout: { coordinator.fixLayout(from: request) }, onClose: { coordinator.closeCover() })
+            case .verification(let verification):
+                VerifyScreen(
+                    comparison: verification.comparison, before: verification.before, after: verification.after,
+                    placementNote: verification.placementNote, onKeep: { coordinator.keep(verification) }, onNextSuggestion: { coordinator.keep(verification) },
+                    onPutBack: { coordinator.putBack(verification) }, onClose: { coordinator.closeCover() })
+            case nil:
+                // The cover is on its way out.
+                ResoniqColor.ink.ignoresSafeArea()
+            }
+        }
+        .id(coordinator.coverID)
+        .background(ResoniqColor.ink)
+        .preferredColorScheme(.dark)
+        .onAppear { coordinator.coverAppeared() }
+        // VoiceOver starts at the top of each new screen.
+        .onChange(of: coordinator.coverID) {
+            UIAccessibility.post(notification: .screenChanged, argument: nil)
+        }
+        .optimizeAlert(coordinator, whenCoverIsUp: true)
+    }
+
+    /// The room's name for Confirm layout's header.
+    private var roomName: String { coordinator.roomName }
+}
+
+// MARK: - Alerts
+
+private extension View {
+    /// The coordinator's alert, shown by whichever of the tab and its cover is on top: the cover while it is on screen
+    /// and staying, the tab once no cover is on screen. An alert set as the cover leaves waits for the dismissal to
+    /// finish and then shows on the tab, with no timer.
+    func optimizeAlert(_ coordinator: OptimizeCoordinator, whenCoverIsUp: Bool) -> some View {
+        let shown = Binding(
+            get: {
+                guard coordinator.alert != nil else { return false }
+                return whenCoverIsUp
+                    ? coordinator.isCoverShowing && coordinator.cover != nil : !coordinator.isCoverShowing
+            },
+            set: { if !$0 { coordinator.alert = nil } }
+        )
+        return alert(coordinator.alert?.title ?? "", isPresented: shown) {
+            Button(OptimizeText.alertOK, role: .cancel) { coordinator.alert = nil }
+        } message: {
+            Text(coordinator.alert?.message ?? "")
+        }
+    }
+}

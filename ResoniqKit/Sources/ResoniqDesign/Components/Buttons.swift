@@ -1,10 +1,29 @@
 import SwiftUI
 
+/// Touch feedback shared by every button style: scale to 0.97 with the press spring. With Reduce Motion nothing moves:
+/// the label dims while it is pressed instead.
+private struct PressFeedback: ViewModifier {
+    let isPressed: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        if reduceMotion {
+            content.opacity(isPressed ? Metrics.dimmed : 1)
+        } else {
+            content
+                .scaleEffect(isPressed ? ResoniqMotion.pressedScale : 1)
+                .animation(ResoniqMotion.press, value: isPressed)
+        }
+    }
+
+    private enum Metrics {
+        static let dimmed = 0.7
+    }
+}
+
 private extension View {
-    /// Touch feedback shared by every button style: scale to 0.97 with the press spring.
     func resoniqPressFeedback(_ isPressed: Bool) -> some View {
-        scaleEffect(isPressed ? ResoniqMotion.pressedScale : 1)
-            .animation(ResoniqMotion.press, value: isPressed)
+        modifier(PressFeedback(isPressed: isPressed))
     }
 }
 
@@ -64,7 +83,7 @@ public struct ResoniqTextLinkStyle: ButtonStyle {
             .font(ResoniqFont.body)
             .underline()
             .foregroundStyle(configuration.isPressed ? ResoniqColor.ivory : ResoniqColor.muted)
-            .frame(minHeight: ResoniqSize.touchMin)
+            .frame(minWidth: ResoniqSize.touchMin, minHeight: ResoniqSize.touchMin)
             .contentShape(Rectangle())
     }
 }

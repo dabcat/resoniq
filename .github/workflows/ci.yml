@@ -13,6 +13,8 @@ jobs:
   kit-tests:
     name: ResoniqKit tests (Mac)
     runs-on: macos-26
+    # A hang must fail in bounded time, not run for the runner's default six hours (run 43504323796 hung).
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Toolchain
@@ -23,9 +25,12 @@ jobs:
   simulator-build:
     name: App build (iOS simulator)
     runs-on: macos-26
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Install XcodeGen
         run: brew install xcodegen
-      - name: Build
+      - name: Build (Debug)
         run: make build
+      - name: Build (Release)
+        run: make build-release

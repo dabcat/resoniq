@@ -290,12 +290,22 @@ public enum SeatText {
         kind == .dip ? "The missing bass note is back." : "The booming bass note is calmer now."
     }
 
-    /// "It's a little better: the missing bass note is less quiet."
-    static func partlyVerdict(_ kind: SeatExtreme.Kind) -> String {
+    /// For a note that improved but is still outside the even band, with what is left of it (`now`, dB):
+    /// "It's a little better: the missing bass note is less quiet, now −7 dB."
+    static func partlyVerdict(_ kind: SeatExtreme.Kind, now: Float) -> String {
         kind == .dip
-            ? "It's a little better: the missing bass note is less quiet."
-            : "It's a little better: the booming bass note is less loud."
+            ? "It's a little better: the missing bass note is less quiet, now \(signedDecibels(now))."
+            : "It's a little better: the booming bass note is less strong, now \(signedDecibels(now))."
     }
+
+    /// A note that changed sign and now lies outside the even band: a new problem, not a fix.
+    static func flippedVerdict(_ kind: SeatExtreme.Kind) -> String {
+        kind == .dip ? "The missing bass note now booms instead." : "The booming bass note is now missing instead."
+    }
+
+    /// When only voices and treble improved.
+    static let restEvenVerdict = "Voices and treble are even now."
+    static let restBetterVerdict = "It's a little better: voices and treble are more even."
 
     /// "Missing note, 61 Hz", "Booming note, 41 Hz", "Quiet note, 70 Hz"; "New booming note, 120 Hz".
     static func rowLabel(_ kind: SeatExtreme.Kind, frequency: Float, depth: Float, threshold: Float, new: Bool = false) -> String {
@@ -312,14 +322,19 @@ public enum SeatText {
     static let restBetter = "Better, still uneven"
     static let restWorse = "Worse than before"
     static let restUnchangedUneven = "Unchanged, still uneven"
+    /// A change inside the repeatability that crossed the edge of the even band.
+    static let restAboutSameEven = "About the same, just inside the even band"
+    static let restAboutSameUneven = "About the same, just outside the even band"
 
     static let notePrefix = "All measured just now."
 
-    /// "The 41 Hz boom is still a little strong; the next suggestion targets it."
-    static func remaining(_ extreme: SeatExtreme, threshold: Float, bass: Bool) -> String {
+    /// "The 41 Hz boom is still a little strong; the next suggestion targets it." Without "still" for a problem the
+    /// move made (`new`).
+    static func remaining(_ extreme: SeatExtreme, threshold: Float, bass: Bool, new: Bool = false) -> String {
         let mild = abs(extreme.deviation) < threshold
         let name = extreme.kind == .peak ? "boom" : "dip"
-        let state = extreme.kind == .peak ? (mild ? "still a little strong" : "still strong") : (mild ? "still a little deep" : "still deep")
+        var state = extreme.kind == .peak ? (mild ? "still a little strong" : "still strong") : (mild ? "still a little deep" : "still deep")
+        if new { state = String(state.dropFirst("still ".count)) }
         let tail = bass ? "; the next suggestion targets it." : ". Moving speakers won't change it much."
         return "The \(frequency(extreme.frequency)) \(name) is \(state)\(tail)"
     }

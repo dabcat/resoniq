@@ -1,4 +1,4 @@
-import Foundation
+import Accelerate
 
 /// The one raised-cosine fade in the module: the ends of `LogSweep` and `TestSignal.sine`, and the tapers of the
 /// impulse-response windows.
@@ -17,6 +17,18 @@ enum RaisedCosine {
     static func edgeGain(index: Int, count: Int, fadeSamples: Int) -> Double {
         let distance = min(index, count - 1 - index)
         return rise(Double(distance), over: Double(max(fadeSamples, 1)))
+    }
+
+    /// `wave` times `peak`, faded in and out over `fadeSamples` at each end by `edgeGain`, as Float samples. Only
+    /// the faded ends are touched one by one.
+    static func faded(_ wave: [Double], peak: Double, fadeSamples: Int) -> [Float] {
+        var samples = vDSP.multiply(peak, wave)
+        let count = samples.count
+        let fade = min(max(fadeSamples, 1), count)
+        for index in Array(0..<fade) + Array(max(count - fade, fade)..<count) {
+            samples[index] *= edgeGain(index: index, count: count, fadeSamples: fadeSamples)
+        }
+        return vDSP.doubleToFloat(samples)
     }
 
     /// `fadeDuration` seconds made safe for a signal of `duration` seconds: a missing (NaN) fade is the default, and

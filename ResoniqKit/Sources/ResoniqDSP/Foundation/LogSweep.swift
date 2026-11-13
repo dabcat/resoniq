@@ -1,4 +1,4 @@
-import Foundation
+import Accelerate
 
 /// An exponential sine sweep: the test signal every measurement plays.
 ///
@@ -71,13 +71,10 @@ public struct LogSweep: Sendable, Equatable {
     public func samples() -> [Float] {
         let count = sampleCount
         let scale = 2 * Double.pi * startFrequency * duration / logRatio
-        let fadeSamples = RaisedCosine.sampleCount(of: fadeDuration, sampleRate: sampleRate)
-        return (0..<count).map { index in
-            let time = Double(index) / sampleRate
-            let phase = scale * (exp(time / duration * logRatio) - 1)
-            let gain = RaisedCosine.edgeGain(index: index, count: count, fadeSamples: fadeSamples)
-            return Float(Double(amplitude) * gain * sin(phase))
-        }
+        guard count > 0 else { return [] }
+        let times = vDSP.ramp(withInitialValue: 0, increment: 1 / sampleRate, count: count)
+        let phase = vDSP.multiply(scale, vDSP.add(-1, vForce.exp(vDSP.multiply(logRatio / duration, times))))
+        return RaisedCosine.faded(vForce.sin(phase), peak: Double(amplitude), fadeSamples: RaisedCosine.sampleCount(of: fadeDuration, sampleRate: sampleRate))
     }
 
     /// `amplitude` made safe: clamped to `0…maximumAmplitude`, and 0 when it is not finite. Silence is safe.

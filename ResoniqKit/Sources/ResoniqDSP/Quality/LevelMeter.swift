@@ -52,6 +52,9 @@ public enum LevelMeter {
 
     /// How many samples are NaN or infinite. No microphone delivers one; a corrupt buffer or a bug upstream does.
     static func nonFiniteCount(_ samples: [Float]) -> Int {
-        samples.reduce(0) { $1.isFinite ? $0 : $0 + 1 }
+        // Zero times a finite sample is zero and times NaN or infinity is NaN, so one vector pass clears the
+        // usual, all-finite buffer; only a corrupt one is counted sample by sample.
+        guard !samples.isEmpty, vDSP.sum(vDSP.multiply(0, samples)).isNaN else { return 0 }
+        return samples.reduce(0) { $1.isFinite ? $0 : $0 + 1 }
     }
 }

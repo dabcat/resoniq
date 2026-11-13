@@ -1,4 +1,4 @@
-import Foundation
+import Accelerate
 
 /// Steady test signals: a tone and silence. The sweep is `LogSweep`.
 public enum TestSignal {
@@ -22,10 +22,9 @@ public enum TestSignal {
         let peak = Double(LogSweep.safeAmplitude(amplitude))
         let step = 2 * Double.pi * frequency / sampleRate
         let fade = RaisedCosine.safeFade(fadeDuration, duration: duration)
-        let fadeSamples = RaisedCosine.sampleCount(of: fade, sampleRate: sampleRate)
-        return (0..<count).map { index in
-            Float(peak * RaisedCosine.edgeGain(index: index, count: count, fadeSamples: fadeSamples) * sin(step * Double(index)))
-        }
+        guard count > 0 else { return [] }
+        let phase = vDSP.ramp(withInitialValue: 0, increment: step, count: count)
+        return RaisedCosine.faded(vForce.sin(phase), peak: peak, fadeSamples: RaisedCosine.sampleCount(of: fade, sampleRate: sampleRate))
     }
 
     /// `duration` seconds of zeros at `sampleRate`.

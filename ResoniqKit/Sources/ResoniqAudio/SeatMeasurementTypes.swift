@@ -9,6 +9,11 @@ public enum SeatSpot: Int, Sendable, Hashable, CaseIterable {
 
     /// 0-based position in the procedure.
     public var index: Int { rawValue }
+
+    /// How far the left and right spots are from the seat, metres: the one definition that the instruction
+    /// ("Now move the phone 30 cm to your left.") and the plan's spot markers read. *First guess*: 30 cm, a short
+    /// step of the hand at ear height, enough for a room mode to change, too little for the speakers' sound to.
+    public static let spacing: Double = 0.30
 }
 
 /// One spot's captures.
@@ -81,8 +86,34 @@ public struct SeatMeasurementProgress: Sendable, Equatable {
     /// While waiting for a spot: how much of `SeatMeasurementSession.stillnessHold` the phone has been still for,
     /// 0 to 1. Nil otherwise.
     public var stillness: Double?
+    /// While waiting for a spot: where the wait is (waiting for the move, moved and settling, still). Nil otherwise.
+    public var wait: SeatWaitPhase? = nil
     /// The route delay estimated so far, seconds.
     public var routeDelay: Double?
+}
+
+/// Where the wait for a spot is, so the screen can show one stable instruction for each part of it.
+///
+/// **Rule.** At the first spot there is no move to wait for: the phone is `settling` while it moves and `still`
+/// while it is steady. At every later spot it is `waitingForMove` until the stillness monitor has seen it move away
+/// from the previous spot (or the move was never seen and `SeatMeasurementSession.movementTimeout` lets the spot be
+/// captured anyway); from then on it never goes back to `waitingForMove`, however the phone settles: `settling` while
+/// it moves, `still` while it is steady and the hold is counted.
+public enum SeatWaitPhase: String, Sendable, Hashable, CaseIterable {
+    /// The phone has not been seen to move to the new spot yet ("Now move the phone 30 cm to your left.").
+    case waitingForMove
+    /// It has moved (or this is the first spot) and is still moving ("Now hold the phone still.").
+    case settling
+    /// It is steady; the spot is captured once it has been for `SeatMeasurementSession.stillnessHold`.
+    case still
+
+    init(firstSpot: Bool, moved: Bool, steady: Bool) {
+        if !firstSpot && !moved {
+            self = .waitingForMove
+        } else {
+            self = steady ? .still : .settling
+        }
+    }
 }
 
 /// A stillness monitor that is told when the seat measurement starts waiting for a spot, so a simulation can act out

@@ -39,5 +39,8 @@ import ResoniqDSP
             .corrupt(nonFiniteSampleCount: 1),
         ]
         #expect(verdicts.count == 6)
+
+        let decay = DecayEstimate(band: 20...80, seconds: 0.6, evaluationRange: .t20, dynamicRangeDecibels: 40, nonlinearity: 5)
+        #expect(decay.evaluationRange.bottom == -25)
     }
 }

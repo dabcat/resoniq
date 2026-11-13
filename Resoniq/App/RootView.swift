@@ -54,7 +54,11 @@ struct RootView: View {
                         .toolbarVisibility(.hidden, for: .tabBar)
                 }
                 Tab(value: AppTab.measure) {
-                    SelectedListeningContext { MeasureHomeView(context: $0) }
+                    // The measuring flow, The numbers and the live view are wired by the next task; until then the
+                    // buttons do nothing.
+                    MeasureHomeContainer(
+                        onMeasure: {}, onShowNumbers: { _, _ in }, onWatchLive: {}, onOpenOptimize: {}
+                    )
                         .toolbarVisibility(.hidden, for: .tabBar)
                 }
                 Tab(value: AppTab.optimize) {

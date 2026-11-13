@@ -5,8 +5,11 @@ import SwiftUI
 enum DebugScreens {
     @MainActor
     static func view(named name: String) -> AnyView? {
-        FlowDebugScreens.view(named: name) ?? ResultsDebugScreens.view(named: name) ?? ScanDebugScreens.view(named: name)
+        FlowDebugScreens.view(named: name)
+            ?? ResultsDebugScreens.view(named: name)
+            ?? ScanDebugScreens.view(named: name)
             ?? ARDebugScreens.view(named: name)
+            ?? MeasureDebugScreens.view(named: name)
     }
 }
 #endif

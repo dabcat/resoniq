@@ -352,6 +352,8 @@ final class DiagnoseFlow {
             case .audioUnavailable: .failed(.audioUnavailable)
             case .tooNoisy: .failed(.tooNoisy)
             case .speakersNotConnected(let route): .failed(.speakersNotConnected(route))
+            // A speaker test never waits for stillness, so it never ends this way; shown as the audio stopping.
+            case .phoneNeverStill: .failed(.interrupted)
             }
         }
     }

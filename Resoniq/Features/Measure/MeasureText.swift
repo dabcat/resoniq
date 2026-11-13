@@ -146,6 +146,7 @@ extension SeatFlow.Failure {
         case .audioUnavailable: .audioUnavailable("")
         case .tooNoisy: .tooNoisy
         case .speakersNotConnected(let route): .speakersNotConnected(route)
+        case .phoneNeverStill: .phoneNeverStill
         }
     }
 }

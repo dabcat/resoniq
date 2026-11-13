@@ -182,6 +182,7 @@ public enum SeatSessionText {
         case .recordingUnusable: "I couldn't get a clean recording."
         case .audioUnavailable: "I couldn't start the sound."
         case .tooNoisy: "The room stayed too noisy."
+        case .phoneNeverStill: "The phone never settled."
         case .speakersNotConnected: "The sound is coming from the iPhone itself."
         case .cancelled: ""
         }
@@ -202,6 +203,8 @@ public enum SeatSessionText {
             "I tried that spot twice. " + unusableReason(problem)
         case .tooNoisy:
             "The room never got quiet enough for me to measure, so I stopped. Try again when it is quieter, and keep the room quiet while the tones play."
+        case .phoneNeverStill:
+            "I wait for the phone to be still before each spot, and it kept moving, so I stopped. Rest your elbow on something, hold the phone at your head and try again."
         case .speakersNotConnected(let route):
             "I can only measure your speakers, and right now the sound is coming out of "
                 + (route.name.isEmpty ? "the iPhone's own speaker" : "the iPhone (\(route.name))") + ". "
@@ -216,6 +219,7 @@ public enum SeatSessionText {
         switch failure {
         case .recordingUnusable: "a spot failed twice"
         case .tooNoisy: "the room stayed too noisy"
+        case .phoneNeverStill: "the phone never held still"
         default: nil
         }
     }

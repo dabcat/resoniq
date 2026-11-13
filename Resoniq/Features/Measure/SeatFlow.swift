@@ -209,6 +209,8 @@ final class SeatFlow {
         case tooNoisy
         /// The sound would come out of the phone itself.
         case speakersNotConnected(AudioOutputRoute)
+        /// The phone never held still long enough for a spot.
+        case phoneNeverStill
     }
 
     enum Step: Equatable {
@@ -327,6 +329,7 @@ final class SeatFlow {
             case .audioUnavailable: .failed(.audioUnavailable)
             case .tooNoisy: .failed(.tooNoisy)
             case .speakersNotConnected(let route): .failed(.speakersNotConnected(route))
+            case .phoneNeverStill: .failed(.phoneNeverStill)
             }
         }
     }

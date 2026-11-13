@@ -34,13 +34,14 @@ public final class ConstantStillnessMonitor: StillnessMonitor {
 /// stayed under their limits for `steadyWindow`.
 @MainActor
 public final class MotionStillnessMonitor: StillnessMonitor {
-    /// Rotation faster than this, in radians a second, is movement. *First guess*: 0.2 rad/s (about 11°/s); a hand
-    /// holding a phone still trembles at a few hundredths.
+    /// Rotation faster than this, in radians a second, is movement. *First guess for a hand-held phone*, not yet
+    /// checked on a device: 0.2 rad/s (about 11°/s); a hand holding a phone still trembles at a few hundredths.
     public static let maximumRotationRate = 0.2
-    /// User acceleration above this, in g, is movement. *First guess*: 0.05 g.
+    /// User acceleration above this, in g, is movement. *First guess for a hand-held phone*, not yet checked on a
+    /// device: 0.05 g.
     public static let maximumUserAcceleration = 0.05
     /// How long both must stay under their limits, in seconds, before the phone counts as steady again.
-    /// *First guess*: 0.5 s.
+    /// *First guess for a hand-held phone*: 0.5 s.
     public static let steadyWindow = 0.5
     /// Updates a second. *First guess*: 50, enough to catch a jolt between two 100 ms blocks.
     public static let updateRate = 50.0

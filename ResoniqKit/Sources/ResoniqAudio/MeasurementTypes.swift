@@ -36,8 +36,13 @@ public enum MeasurementFailure: Error, Sendable, Equatable {
     case cancelled
     /// The audio could not be started; the text is for the log.
     case audioUnavailable(String)
-    /// The room stayed too loud to resume for `MeasurementConfiguration.maximumPauseWait`.
+    /// The room stayed too loud to resume for `MeasurementConfiguration.maximumPauseWait`, or gave no steady, quiet
+    /// enough floor for `MeasurementConfiguration.maximumFloorWait`.
     case tooNoisy
+    /// The phone never held still for `SeatMeasurementSession.stillnessHold` within
+    /// `SeatMeasurementSession.maximumStillnessWait` while a spot was waited for; nothing was played at that spot.
+    /// Seat measurement only.
+    case phoneNeverStill
     /// The sound would come out of the phone itself (`route`), not the user's speakers; nothing was played. The
     /// screen explains how to connect the speakers.
     case speakersNotConnected(AudioOutputRoute)

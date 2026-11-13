@@ -7,7 +7,8 @@ import ResoniqDSP
 // the screen sees and the progress; these types decide nothing about states or screens.
 
 /// Listens to the room before the first run: drops `settleDuration` while the input settles, then keeps listening
-/// until `noiseFloorDuration` of steady, quiet enough sound gives a floor, half a window at a time.
+/// until `noiseFloorDuration` of steady, quiet enough sound gives a floor, half a window at a time. After
+/// `maximumFloorWait` of listening without one it gives up (`hasTimedOut`): the room is too loud or never steady.
 struct FloorListener {
     let sampleRate: Double
     let sweep: LogSweep
@@ -16,6 +17,11 @@ struct FloorListener {
     let thresholds: QualityThresholds
     private var settleRemaining: Int
     private var samples: [Float] = []
+    /// Samples listened to after settling, across resets.
+    private var listened = 0
+
+    /// Whether `maximumFloorWait` has passed without a floor: the session ends as too noisy.
+    var hasTimedOut: Bool { listened > configuration.samples(configuration.maximumFloorWait, at: sampleRate) }
 
     init(sampleRate: Double, sweep: LogSweep, blockLength: Int, configuration: MeasurementConfiguration, thresholds: QualityThresholds) {
         self.sampleRate = sampleRate
@@ -38,6 +44,7 @@ struct FloorListener {
             return nil
         }
         samples += block.samples
+        listened += block.samples.count
         let needed = configuration.samples(configuration.noiseFloorDuration, at: sampleRate)
         guard samples.count >= needed else { return nil }
         let report = NoiseFloor.measure(samples, sampleRate: sampleRate, thresholds: thresholds)
@@ -321,6 +328,11 @@ enum MeasurementOpening {
 
     /// Starts `io`; fails, with the stream stopped and nothing played, when it cannot start, runs under
     /// `MeasurementConfiguration.minimumSampleRate`, or plays through the phone itself.
+    ///
+    /// **A route that cannot be told** (`outputRoute` nil) is measured: refusing would block every IO that cannot
+    /// report its route, and a recording of the phone's own speaker is still checked like any other. Nothing is said
+    /// about the route then, neither that it is the user's speakers nor that it is not; only a route known to be the
+    /// phone's (`AudioOutputRoute.isPhone`) is refused.
     static func open(_ io: any AudioIO) async -> Result<CaptureStream, MeasurementFailure> {
         let stream: CaptureStream
         do {

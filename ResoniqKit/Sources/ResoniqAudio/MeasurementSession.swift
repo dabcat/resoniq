@@ -250,7 +250,8 @@ public final class MeasurementSession {
     private func handle(_ block: CapturedBlock, in test: inout TestRun) async throws -> State? {
         guard let floor = test.floor, let detector = test.detector else {
             measureFloor(block, in: &test)
-            return nil
+            // No floor within the longest wait: the room is too loud or never steady.
+            return test.floor == nil && test.listener.hasTimedOut ? .failed(.tooNoisy) : nil
         }
 
         let assessment = detector.assess(block.samples)
@@ -282,7 +283,7 @@ public final class MeasurementSession {
             sampleRate: test.sampleRate,
             io: io
         )
-        if case .paused = step { paused?.pauseBegan() }
+        if case .paused = step { paused?.pauseBegan(skipping: sweepArrival(block, delay: test.tracker.delay, sampleRate: test.sampleRate)) }
         if test.performer.isPaused { paused?.keep(block.samples) }
         report(block, assessment: assessment, quiet: quiet, steady: steady, clipped: clipped, test: test)
 
@@ -303,6 +304,11 @@ public final class MeasurementSession {
         case .recorded(let recording):
             return await check(recording, in: &test)
         }
+    }
+
+    /// Samples from `block`, where a pause began, until the sweep stopped at the speakers can no longer be heard.
+    private func sweepArrival(_ block: CapturedBlock, delay: Int?, sampleRate: Double) -> Int {
+        PausedAudioKeeper.sweepArrival(delay: delay, blockLength: block.samples.count, configuration: configuration, sampleRate: sampleRate)
     }
 
     private func measureFloor(_ block: CapturedBlock, in test: inout TestRun) {

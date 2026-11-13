@@ -7,6 +7,8 @@ import SwiftUI
 struct ComponentGallery: View {
     @State private var speaker = Speaker.left
     @State private var holding = false
+    @State private var optimizeRoom = RoomPlanContent.sampleMeasured
+    @State private var optimizeSelection: String? = "right"
 
     private enum Speaker: Hashable {
         case left, right, only
@@ -47,6 +49,15 @@ struct ComponentGallery: View {
                 section("Values table") { values }
                 section("Numbered steps") { steps }
                 section("Spectrum bars") { spectrum }
+                Text("Optimize").font(ResoniqFont.title3).foregroundStyle(ResoniqColor.ivory)
+                section("Progress tracker") { trackers }
+                section("Room plan") { roomPlans }
+                section("Room plan editor") { roomEditors }
+                section("Chips") { chips }
+                section("Floor plan inset") { floorInsets }
+                section("AR guidance") { arGuidance }
+                section("Direction instruction") { directions }
+                section("Before and after") { beforeAfter }
             }
             .padding(.horizontal, ResoniqSpace.screenInset)
             .padding(.vertical, ResoniqSpace.s6)
@@ -293,6 +304,139 @@ private extension ComponentGallery {
             .resoniqPanel()
             SpectrumBars(levels: [], title: "Waiting for sound", accessibilityLabel: "No sound yet.")
                 .resoniqPanel()
+        }
+    }
+}
+
+// MARK: - Optimize
+
+private extension ComponentGallery {
+    var trackers: some View {
+        VStack(alignment: .leading, spacing: ResoniqSpace.s5) {
+            ResoniqProgressTracker(steps: ["Scanned", "Measured", "Move", "Verify"], current: 2)
+            ResoniqProgressTracker(steps: ["Scanned", "Measured", "Move", "Verify"], current: 1)
+            ResoniqProgressTracker(steps: ["Scanned", "Measured", "Moved", "Verified"], current: 4)
+            ResoniqProgressTracker(steps: ["Scanned", "Measured", "Move", "Verify"], current: 3)
+                .environment(\.dynamicTypeSize, .accessibility2)
+        }
+    }
+
+    var roomPlans: some View {
+        VStack(alignment: .leading, spacing: ResoniqSpace.s5) {
+            RoomPlanView(.sample, accessibilityLabel: RoomPlanContent.sampleSummary)
+            RoomPlanView(.sample, isSuggestionAnimating: true, accessibilityLabel: RoomPlanContent.sampleSummary)
+            RoomPlanView(
+                .sampleMeasured, showsLegend: false, height: 260,
+                accessibilityLabel: "The room with three measured spots at the seat inside a bass dip. Nothing is suggested yet."
+            )
+            RoomPlanView(
+                RoomPlanContent(walls: [.init(x1: 0, y1: 0, x2: 3, y2: 0)]), showsLegend: false, height: 140,
+                accessibilityLabel: "One wall scanned so far."
+            )
+            RoomPlanView(RoomPlanContent(), showsLegend: false, height: 120, accessibilityLabel: "Nothing scanned yet.")
+        }
+    }
+
+    var roomEditors: some View {
+        VStack(alignment: .leading, spacing: ResoniqSpace.s5) {
+            RoomPlanEditor(
+                optimizeRoom,
+                selection: $optimizeSelection,
+                distance: optimizeSelection == "right"
+                    ? RoomPlanWallDistance(label: "0.90 m", wallPoint: CGPoint(x: optimizeRoom.speakers.first { $0.id == "right" }?.position.x ?? 3.4, y: 0))
+                    : nil,
+                accessibilityLabel: "Room plan with the left and right speakers and the seat. Drag one to move it.",
+                onMove: { id, proposed in
+                    let held = CGPoint(x: min(max(proposed.x, 0.2), 4.0), y: min(max(proposed.y, 0.2), 5.4))
+                    if let index = optimizeRoom.speakers.firstIndex(where: { $0.id == id }) { optimizeRoom.speakers[index].position = held }
+                    if let index = optimizeRoom.seats.firstIndex(where: { $0.id == id }) { optimizeRoom.seats[index].position = held }
+                    return held
+                },
+                onRotate: { id, facing in
+                    if let index = optimizeRoom.speakers.firstIndex(where: { $0.id == id }) { optimizeRoom.speakers[index].facing = facing }
+                    return facing
+                }
+            )
+            RoomPlanEditor(
+                .sampleMeasured, selection: .constant(nil), height: 240,
+                accessibilityLabel: "Room plan with nothing selected.", onMove: { $1 }, onRotate: { $1 }
+            )
+        }
+    }
+
+    var chips: some View {
+        VStack(alignment: .leading, spacing: ResoniqSpace.s4) {
+            HStack(spacing: ResoniqSpace.s2) {
+                ResoniqChip("Add subwoofer") {}
+                ResoniqChip("Add a seat") {}
+                ResoniqChip("Fix a wall") {}
+            }
+            HStack(spacing: ResoniqSpace.s2) {
+                ResoniqChip("Window", style: .detected)
+                ResoniqChip("Door", style: .detected)
+                ResoniqChip("Sofa", style: .detected)
+                ResoniqChip("4.20 m", style: .measurement)
+            }
+            .padding(ResoniqSpace.s3)
+            .background(ResoniqColor.panelRaised)
+        }
+    }
+
+    var floorInsets: some View {
+        HStack(alignment: .top, spacing: ResoniqSpace.s3) {
+            FloorPlanInset(
+                walls: FloorPlanInset.sampleWalls, camera: CGPoint(x: 2, y: 3.6), cameraFacing: 70,
+                accessibilityLabel: "Small floor plan: three walls drawn, the right wall still missing, a wedge shows where the camera points."
+            )
+            FloorPlanInset(
+                walls: FloorPlanInset.sampleWalls.map { FloorPlanInset.Wall($0.segment, isCaptured: true) }, camera: CGPoint(x: 2, y: 3.6), cameraFacing: 0,
+                accessibilityLabel: "Small floor plan: all four walls drawn."
+            )
+            FloorPlanInset(walls: [], camera: .zero, cameraFacing: 0, accessibilityLabel: "Small floor plan: nothing captured yet.")
+        }
+        .padding(ResoniqSpace.s3)
+        .background(ResoniqColor.panelRaised)
+    }
+
+    var arGuidance: some View {
+        VStack(alignment: .leading, spacing: ResoniqSpace.s4) {
+            ZStack(alignment: .topLeading) {
+                ResoniqColor.panelRaised
+                VStack(alignment: .leading, spacing: ResoniqSpace.s3) {
+                    ARStepPill("Right speaker \u{00B7} step 1 of 2")
+                    ARToGoCard(value: "18", unit: "cm")
+                }
+                .padding(ResoniqSpace.s4)
+            }
+            .frame(height: 180)
+            ARGuidanceReadout(
+                title: "Right speaker \u{00B7} step 1 of 2", toGoValue: "18", unit: "cm", progress: 0.62,
+                instruction: "Slide it toward you until it fills the blue outline.", progressLabel: "Distance moved",
+                leadingLine: "35 cm in total", trailingLine: "then turn 12\u{00B0} toward your seat",
+                hint: "Taps in your hand speed up as you get closer."
+            )
+            ARGuidanceReadout(
+                title: "Right speaker \u{00B7} step 2 of 2", toGoValue: "12", unit: "\u{00B0}", progress: 1,
+                instruction: "Turn it toward your seat."
+            )
+        }
+    }
+
+    var directions: some View {
+        VStack(alignment: .leading, spacing: ResoniqSpace.s4) {
+            DirectionArrowInstruction(.right, text: "Turn right to catch the last wall.")
+            DirectionArrowInstruction(.left, text: "Turn left to the window.")
+            DirectionArrowInstruction(.forward, text: "Walk forward a little.")
+            DirectionArrowInstruction(.back, text: "Step back to see the whole wall.")
+        }
+    }
+
+    var beforeAfter: some View {
+        VStack(spacing: 0) {
+            BeforeAfterRow(label: "Missing note, 61 Hz", before: "\u{2212}11 dB", after: "\u{2212}4 dB", improved: true, showsDivider: false)
+            BeforeAfterRow(label: "Booming note, 41 Hz", before: "+9 dB", after: "+5 dB", improved: true)
+            BeforeAfterRow(label: "Midrange, 400 Hz", before: "+1 dB", after: "+2 dB", improved: false)
+            BeforeAfterRow(label: "Voices and treble", unchanged: "Unchanged, still even")
         }
     }
 }

@@ -173,6 +173,8 @@ final class DiagnoseFlow {
     /// A finished test.
     struct Completed: Equatable {
         let report: SpeakerReport
+        /// The runs' analyses the report was made from, for the left/right comparison with the other speaker.
+        let analyses: [RunAnalysis]
         let position: SpeakerPosition
         /// A quick check is not kept in a room.
         let isQuickCheck: Bool
@@ -229,7 +231,7 @@ final class DiagnoseFlow {
     let isQuickCheck: Bool
 
     @ObservationIgnored private let audio: AudioEnvironment
-    @ObservationIgnored private let counterpart: [RunAnalysis]?
+    @ObservationIgnored private let counterpart: (SpeakerPosition) -> [RunAnalysis]?
     @ObservationIgnored private let configuration: MeasurementConfiguration
     @ObservationIgnored private var runTask: Task<Void, Never>?
     @ObservationIgnored private var progressTask: Task<Void, Never>?
@@ -243,11 +245,12 @@ final class DiagnoseFlow {
 
     /// - Parameters:
     ///   - position: The speaker Aim starts on.
-    ///   - counterpart: The other speaker's analysed runs, for a left/right comparison, when it has been tested.
+    ///   - counterpart: The other speaker's analysed runs for the speaker being tested, for a left/right comparison,
+    ///     when it has been tested. A closure, because the speaker can still be changed on Aim.
     init(
         position: SpeakerPosition = .left,
         isQuickCheck: Bool = false,
-        counterpart: [RunAnalysis]? = nil,
+        counterpart: @escaping (SpeakerPosition) -> [RunAnalysis]? = { _ in nil },
         audio: AudioEnvironment = .current,
         configuration: MeasurementConfiguration = .standard
     ) {
@@ -366,9 +369,9 @@ final class DiagnoseFlow {
 
     private func finish(_ session: MeasurementSession) async {
         guard case .finished(let result) = session.state else { return }
-        let report = await Self.analyse(result, counterpart: counterpart)
+        let (report, analyses) = await Self.analyse(result, counterpart: counterpart(position))
         guard !Task.isCancelled, case .running(let current) = phase, current === session else { return }
-        phase = .finished(Completed(report: report, position: position, isQuickCheck: isQuickCheck))
+        phase = .finished(Completed(report: report, analyses: analyses, position: position, isQuickCheck: isQuickCheck))
     }
 
     /// Each run's response and distortion (about a second a run, the runs side by side), then the comparison of the
@@ -376,7 +379,7 @@ final class DiagnoseFlow {
     @concurrent nonisolated private static func analyse(
         _ result: MeasurementResult,
         counterpart: [RunAnalysis]?
-    ) async -> SpeakerReport {
+    ) async -> (SpeakerReport, [RunAnalysis]) {
         let analyses = await withTaskGroup(of: (Int, RunAnalysis).self) { group in
             for (index, run) in result.runs.enumerated() {
                 group.addTask {
@@ -387,7 +390,7 @@ final class DiagnoseFlow {
             for await item in group { collected.append(item) }
             return collected.sorted { $0.0 < $1.0 }.map(\.1)
         }
-        return SpeakerDiagnosis.diagnose(runs: analyses, counterpart: counterpart)
+        return (SpeakerDiagnosis.diagnose(runs: analyses, counterpart: counterpart), analyses)
     }
 
     static func channel(for position: SpeakerPosition) -> SpeakerChannel {

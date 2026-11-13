@@ -45,12 +45,92 @@ public enum ARTracking: Sendable, Equatable {
     public var isNormal: Bool { self == .normal }
 }
 
+/// What the person marks after the speaker, so the plan can be lined up with the room from two points.
+public struct ARReference: Sendable, Equatable {
+    public enum Kind: Sendable, Equatable {
+        /// Another speaker of the system: the person puts the dot at the middle of its front.
+        case speaker(SpeakerRole)
+        /// The listening seat: the person puts the dot on the floor below where their head is when they sit.
+        case seat
+    }
+
+    public var kind: Kind
+    /// The point the person marks, in room-model coordinates.
+    public var modelPoint: PlanPoint
+
+    public init(kind: Kind, modelPoint: PlanPoint) {
+        self.kind = kind
+        self.modelPoint = modelPoint
+    }
+
+    /// A second point closer than this to the speaker's own mark gives too short a baseline to fix the rotation,
+    /// metres. A first guess: with marks good to 2 cm, half a metre still holds the heading to about 3°.
+    public static let minimumBaseline = 0.5
+
+    /// The second mark for a move: the other speaker of the pair (a long, visible baseline), else another main
+    /// speaker (the farthest), else the primary seat, else a subwoofer. Nil when the room holds nothing else at least
+    /// `minimumBaseline` from the speaker being moved.
+    public static func choose(for suggestion: PlacementSuggestion, in room: RoomModel) -> ARReference? {
+        let size = room.speaker(suggestion.speakerID)?.size
+            ?? (suggestion.role == .subwoofer ? PlacedSpeaker.defaultSubwooferSize : PlacedSpeaker.defaultSize)
+        let mark = ARGuidanceGeometry.frontEdgeCentre(of: suggestion.from, size: size)
+        func far(_ point: PlanPoint) -> Bool { point.distance(to: mark) >= minimumBaseline }
+        func reference(_ speaker: PlacedSpeaker) -> ARReference {
+            ARReference(kind: .speaker(speaker.role),
+                        modelPoint: ARGuidanceGeometry.frontEdgeCentre(of: speaker.pose, size: speaker.size))
+        }
+        let others = room.speakers.filter { $0.id != suggestion.speakerID }.map(reference).filter { far($0.modelPoint) }
+        let partner: SpeakerRole? = switch suggestion.role {
+        case .left: .right
+        case .right: .left
+        default: nil
+        }
+        if let partner, let found = others.first(where: { $0.kind == .speaker(partner) }) { return found }
+        let mains = others.filter { $0.kind != .speaker(.subwoofer) }
+        if let farthest = mains.max(by: { $0.modelPoint.distance(to: mark) < $1.modelPoint.distance(to: mark) }) {
+            return farthest
+        }
+        if let seat = room.primarySeat, far(seat.position) { return ARReference(kind: .seat, modelPoint: seat.position) }
+        return others.first
+    }
+}
+
+/// Why the guide cannot draw a target.
+public enum ARAlignmentIssue: Sendable, Equatable {
+    /// The two marks are not as far apart as the plan says: the root-mean-square residual of the fit, metres, is
+    /// above `WorldAlignment.maximumResidual` (infinity when no fit was possible).
+    case marksDisagree(residual: Double)
+    /// The plan has nothing besides the speaker to mark (no other speaker, no seat far enough away).
+    case nothingElseToMark
+}
+
+/// "It's in place": where the speaker is now, as the person last pointed at it, in room-model coordinates.
+public struct ARPlacement: Sendable, Equatable {
+    /// The position the follow control last saw, mapped back through the fitted alignment; the facing is the
+    /// suggestion's, because the person turned it by eye and said so.
+    public var pose: PlanPose
+    /// Metres between that position and the suggestion's target.
+    public var distanceFromTarget: Double
+    /// Farther than `MoveGuidance.positionTolerance` from the target: the speaker is recorded where it was marked,
+    /// which is not the suggested spot.
+    public var isApproximate: Bool { distanceFromTarget > MoveGuidance.positionTolerance }
+
+    public init(pose: PlanPose, distanceFromTarget: Double) {
+        self.pose = pose
+        self.distanceFromTarget = distanceFromTarget
+    }
+}
+
 /// Where AR guidance is.
 public enum ARGuidancePhase: Sendable, Equatable {
     /// No horizontal plane yet.
     case findingFloor
     /// The floor is found; the person puts the reticle on the speaker's front edge and taps "This is the speaker".
     case markingSpeaker
+    /// The speaker is marked; the person marks the second point (`ARGuidanceState.reference`). No target yet.
+    case markingReference
+    /// The marks cannot line the plan up with the room; the person marks again or fixes the layout.
+    case cannotAlign(ARAlignmentIssue)
     /// The target is drawn; the speaker is short of it.
     case sliding
     /// In position, with a turn still to make. The phone cannot see the speaker turn: the person turns it by eye
@@ -58,8 +138,8 @@ public enum ARGuidancePhase: Sendable, Equatable {
     case turning
     /// In position and nothing to turn; waiting for "It's in place".
     case arrived
-    /// "It's in place": the speaker's new pose in room-model coordinates.
-    case placed(PlanPose)
+    /// "It's in place".
+    case placed(ARPlacement)
     /// "Can't move it".
     case declined
 
@@ -79,11 +159,11 @@ public enum ARGuidanceEvent: Sendable, Equatable {
     case reticleMoved(FloorHit?)
     /// The camera's place and heading on the floor, world coordinates.
     case cameraMoved(Viewer)
-    /// "This is the speaker".
+    /// "This is the speaker", then "This is the left speaker" (or "This is my seat") for the second mark.
     case marked
     /// The follow control held (true) or let go (false).
     case follow(Bool)
-    /// "Mark it again": throw the alignment away and mark the speaker afresh.
+    /// "Mark again": throw both marks away and start with the speaker.
     case remark
     /// "It's in place".
     case confirm
@@ -99,7 +179,7 @@ public enum ARGuidanceEvent: Sendable, Equatable {
 public enum ARGuidanceEffect: Sendable, Equatable {
     /// The speaker came within `MoveGuidance.positionTolerance` of the target (the `speakerInPlace` haptic).
     case reachedPosition
-    case placed(PlanPose)
+    case placed(ARPlacement)
     case declined
 }
 
@@ -108,13 +188,23 @@ public enum ARGuidanceEffect: Sendable, Equatable {
 ///
 /// What the phone measures and what the person confirms:
 /// - **Measured by the phone:** the floor plane, the reticle's point on it (a raycast), the camera's position and
-///   heading, and the tracking quality.
-/// - **Confirmed by the person:** that the reticle is on the middle of the speaker's front edge when they tap
-///   "This is the speaker" (which, with the camera's heading, fixes the speaker's world pose and the
-///   `WorldAlignment`), that the reticle is on the front edge again while they hold "follow" (the phone does not
-///   track the loudspeaker; the current footprint is where the person points), and the turn, which the phone
-///   cannot see at all. The returned pose's facing is the suggestion's target facing, because the person said
-///   they turned it so.
+///   heading (used only to say "toward you" or "to your left"), and the tracking quality.
+/// - **Confirmed by the person:** two marks — the middle of the moving speaker's front edge, then the middle of the
+///   other speaker's front (or the floor under the seat) — which fix the `WorldAlignment` by a two-point fit with
+///   a residual that says whether they agree with the plan; that the reticle is on the speaker's front edge again
+///   while they hold "follow" (the phone does not track the loudspeaker; the current footprint is where the person
+///   points); and the turn, which the phone cannot see at all.
+///
+/// **Why two marks.** One mark plus the camera's heading assumes the person stands square to the speaker and that
+/// the plan's facing is the speaker's real facing. A heading error ε then swings a target `d` metres away by about
+/// `d·ε` (35 cm at 20° is 12 cm, against a 3 cm arrival tolerance), and nothing can notice: one point leaves no
+/// residual. Two marked points fix the rotation from their baseline instead: with marks good to 2 cm on the pair's
+/// 2 m baseline the rotation is good to about 0.6°, and a target 35 cm away to a few millimetres; marks that do not
+/// fit the plan show as a residual and stop the guide before it draws a wrong target.
+///
+/// **What still cannot be checked here:** how well a person puts the dot on a front edge, how far ARKit's floor
+/// drifts over a walk across the room, and whether the plan's speaker size and facing match the real speaker. Those
+/// need a device and a tape measure.
 public struct ARGuidanceState: Sendable, Equatable {
     /// How far the speaker may drift back out of position before the guide goes back to sliding: twice the
     /// arrival tolerance, so a reticle that wobbles at the boundary does not flicker between steps.
@@ -123,37 +213,47 @@ public struct ARGuidanceState: Sendable, Equatable {
     public let suggestion: PlacementSuggestion
     /// The speaker's footprint, from the room model.
     public let size: FootprintSize
+    /// The second point to mark; nil when the room has none (the guide then stops at `cannotAlign`).
+    public let reference: ARReference?
 
     public private(set) var phase: ARGuidancePhase = .findingFloor
     public private(set) var tracking: ARTracking = .limited(.initializing)
     public private(set) var isFloorFound = false
     public private(set) var reticle: FloorHit?
     public private(set) var camera: Viewer?
-    /// Room model to world, from the mark; nil before it.
+    /// Where the person marked the middle of the speaker's front edge, world; nil before the first mark.
+    public private(set) var speakerMark: PlanPoint?
+    /// Where the person marked the second point, world; nil before it.
+    public private(set) var referenceMark: PlanPoint?
+    /// Room model to world, fitted from the two marks; nil until both agree with the plan.
     public private(set) var alignment: WorldAlignment?
-    /// The speaker's centre and facing in the world, as last marked or followed; nil before the mark.
+    /// The speaker's centre and facing in the world where it was marked, before the move; nil before the fit.
+    public private(set) var markedStart: PlanPose?
+    /// The speaker's centre and facing in the world, as last marked or followed; nil before the fit.
     public private(set) var speaker: PlanPose?
-    /// The floor's world height under the speaker, from the mark.
+    /// The floor's world height under the speaker, from the first mark.
     public private(set) var floorHeight: Double?
     public private(set) var isFollowing = false
 
-    public init(suggestion: PlacementSuggestion, size: FootprintSize) {
+    public init(suggestion: PlacementSuggestion, size: FootprintSize, reference: ARReference?) {
         self.suggestion = suggestion
         self.size = size
+        self.reference = reference
     }
 
-    /// The footprint size is the room's for this speaker, or the default for its role.
+    /// The footprint size is the room's for this speaker, or the default for its role; the second mark is
+    /// `ARReference.choose`'s.
     public init(suggestion: PlacementSuggestion, room: RoomModel) {
         let size = room.speaker(suggestion.speakerID)?.size
             ?? (suggestion.role == .subwoofer ? PlacedSpeaker.defaultSubwooferSize : PlacedSpeaker.defaultSize)
-        self.init(suggestion: suggestion, size: size)
+        self.init(suggestion: suggestion, size: size, reference: ARReference.choose(for: suggestion, in: room))
     }
 
     // MARK: Derived
 
-    /// The tap can be taken as a mark: floor found, tracking normal, the reticle on the floor and a camera heading.
+    /// The tap can be taken as a mark: marking, tracking normal and the reticle on the floor.
     public var canMark: Bool {
-        phase == .markingSpeaker && tracking.isNormal && reticle != nil && camera != nil
+        (phase == .markingSpeaker || phase == .markingReference) && tracking.isNormal && reticle != nil
     }
 
     public var canConfirm: Bool { phase == .turning || phase == .arrived }
@@ -161,8 +261,19 @@ public struct ARGuidanceState: Sendable, Equatable {
     /// Whether the person needs to see the follow control: the target is on the floor and not yet finished.
     public var canFollow: Bool { phase == .sliding || phase == .turning || phase == .arrived }
 
-    /// The suggestion's target pose in the world.
-    public var target: PlanPose? { alignment.map { $0.apply(suggestion.to) } }
+    /// The suggestion's target pose in the world, once both marks agree.
+    ///
+    /// A slide is defined relative to the speaker (forward, back, left, right of where it stands), so the target is
+    /// the marked speaker's centre displaced by the slide vector turned into the world by the fitted rotation, not
+    /// the fitted transform applied to the plan's target: the fit spreads its residual over both marks, and this
+    /// keeps the target tied to the speaker the person actually marked. What remains is the rotation's own error,
+    /// which turns the slide direction: a slide of `d` metres lands about `d·ε` off for a rotation error ε (with two
+    /// marks on a 2 m baseline, ε is a fraction of a degree, so a 35 cm slide is off by millimetres).
+    public var target: PlanPose? {
+        guard let alignment, let markedStart else { return nil }
+        let slide = (suggestion.to.position - suggestion.from.position).rotated(by: alignment.rotation)
+        return PlanPose(position: markedStart.position + slide, facing: alignment.apply(heading: suggestion.to.facing))
+    }
 
     public var targetFootprint: OrientedRect? {
         target.map { ARGuidanceGeometry.footprint(of: $0, size: size) }
@@ -172,20 +283,25 @@ public struct ARGuidanceState: Sendable, Equatable {
         speaker.map { ARGuidanceGeometry.footprint(of: $0, size: size) }
     }
 
-    /// The speaker's pose in room-model coordinates.
+    /// The speaker's pose in room-model coordinates, through the fitted alignment.
     public var speakerInModel: PlanPose? {
         guard let alignment, let speaker else { return nil }
         return alignment.inverse.apply(speaker)
     }
 
-    /// How far the move has come, in room-model coordinates, seen by the camera (or, before there is one, by
-    /// someone standing in front of the target).
+    /// How far the move has come, measured against the drawn target and seen by the camera (or, before there is one,
+    /// by someone standing in front of the target). The world is carried into the suggestion's frame about the
+    /// marked speaker, so the distance to go is the distance between the two outlines on the floor.
     public var progress: MoveProgress? {
-        guard let alignment, let current = speakerInModel else { return nil }
+        guard let alignment, let markedStart, let speaker else { return nil }
+        func toMove(_ point: PlanPoint) -> PlanPoint {
+            suggestion.from.position + (point - markedStart.position).rotated(by: -alignment.rotation)
+        }
+        let current = PlanPose(position: toMove(speaker.position),
+                               facing: alignment.inverse.apply(heading: speaker.facing))
         let viewer: Viewer
         if let camera {
-            viewer = Viewer(position: alignment.inverse.apply(camera.position),
-                            heading: alignment.inverse.apply(heading: camera.heading))
+            viewer = Viewer(position: toMove(camera.position), heading: alignment.inverse.apply(heading: camera.heading))
         } else {
             viewer = Viewer(position: suggestion.to.position + PlanPoint(angle: suggestion.to.facing),
                             heading: suggestion.to.facing + .pi)
@@ -200,25 +316,17 @@ public struct ARGuidanceState: Sendable, Equatable {
         return MoveGuidance.hapticInterval(distance: progress.distanceToGo)
     }
 
-    /// The pose handed back by "It's in place".
-    public var placedPose: PlanPose? {
-        if case .placed(let pose) = phase { return pose }
+    /// What "It's in place" handed back.
+    public var placement: ARPlacement? {
+        if case .placed(let placement) = phase { return placement }
         return nil
     }
 
+    /// The pose handed back by "It's in place".
+    public var placedPose: PlanPose? { placement?.pose }
+
     /// Whether the turn arc is drawn: in position with a turn left.
     public var showsTurn: Bool { phase == .turning }
-
-    /// Refits the alignment with the speaker's mark and further matched points (the seat, another speaker),
-    /// by least squares, with the residual that says whether they agree (`WorldAlignment.isConsistent`). Nil
-    /// before the mark. The mark contributes the speaker's centre where it was marked (its place before the move);
-    /// its heading is dropped in a fit of two or more points.
-    public func refinedAlignment(matching matches: [(model: PlanPoint, world: PlanPoint)]) -> WorldAlignment? {
-        guard let alignment, !matches.isEmpty else { return nil }
-        let model = [suggestion.from.position] + matches.map(\.model)
-        let world = [alignment.apply(suggestion.from.position)] + matches.map(\.world)
-        return WorldAlignment.fit(model: model, world: world)
-    }
 
     // MARK: Reducer
 
@@ -244,7 +352,10 @@ public struct ARGuidanceState: Sendable, Equatable {
         case .remark:
             guard isFloorFound else { return [] }
             phase = .markingSpeaker
+            speakerMark = nil
+            referenceMark = nil
             alignment = nil
+            markedStart = nil
             speaker = nil
             floorHeight = nil
             isFollowing = false
@@ -252,9 +363,10 @@ public struct ARGuidanceState: Sendable, Equatable {
         case .confirm:
             guard canConfirm, let current = speakerInModel else { return [] }
             let pose = PlanPose(position: current.position, facing: suggestion.to.facing)
-            phase = .placed(pose)
+            let placement = ARPlacement(pose: pose, distanceFromTarget: pose.position.distance(to: suggestion.to.position))
+            phase = .placed(placement)
             isFollowing = false
-            return [.placed(pose)]
+            return [.placed(placement)]
         case .decline:
             phase = .declined
             isFollowing = false
@@ -275,15 +387,26 @@ public struct ARGuidanceState: Sendable, Equatable {
     }
 
     private mutating func mark() -> [ARGuidanceEffect] {
-        guard canMark, let reticle, let camera else { return [] }
-        // The person faces the speaker, so the speaker faces back along the camera's heading.
-        let facing = PlanAngle.normalized(camera.heading + .pi)
-        let centre = ARGuidanceGeometry.centre(behindFrontEdge: reticle.point, facing: facing, size: size)
-        alignment = WorldAlignment(
-            modelPoint: suggestion.from.position, worldPoint: centre,
-            modelHeading: suggestion.from.facing, worldHeading: facing)
-        speaker = PlanPose(position: centre, facing: facing)
-        floorHeight = reticle.height
+        guard canMark, let reticle else { return [] }
+        if phase == .markingSpeaker {
+            speakerMark = reticle.point
+            floorHeight = reticle.height
+            phase = reference == nil ? .cannotAlign(.nothingElseToMark) : .markingReference
+            return []
+        }
+        guard let reference, let speakerMark else { return [] }
+        referenceMark = reticle.point
+        let model = [ARGuidanceGeometry.frontEdgeCentre(of: suggestion.from, size: size), reference.modelPoint]
+        let fitted = WorldAlignment.fit(model: model, world: [speakerMark, reticle.point])
+        guard let fit = fitted, fit.isConsistent else {
+            phase = .cannotAlign(.marksDisagree(residual: fitted?.residual ?? .infinity))
+            return []
+        }
+        alignment = fit
+        let facing = fit.apply(heading: suggestion.from.facing)
+        let centre = ARGuidanceGeometry.centre(behindFrontEdge: speakerMark, facing: facing, size: size)
+        markedStart = PlanPose(position: centre, facing: facing)
+        speaker = markedStart
         isFollowing = false
         phase = .sliding
         _ = updatePhase()

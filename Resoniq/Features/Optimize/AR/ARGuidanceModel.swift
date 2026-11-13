@@ -128,6 +128,11 @@ final class ARGuidanceModel {
         switch state.phase {
         case .findingFloor: return ARGuidanceText.findFloor
         case .markingSpeaker: return state.reticle == nil ? ARGuidanceText.markAimLower : ARGuidanceText.markSpeaker
+        case .markingReference:
+            guard state.reticle != nil, let reference = state.reference else { return ARGuidanceText.markReferenceAimLower }
+            return ARGuidanceText.markReference(reference.kind)
+        case .cannotAlign(.marksDisagree): return ARGuidanceText.marksDisagree
+        case .cannotAlign(.nothingElseToMark): return ARGuidanceText.nothingElseToMark
         default: return nil
         }
     }

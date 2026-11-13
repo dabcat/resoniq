@@ -2,19 +2,23 @@ import Foundation
 import ResoniqRoom
 import SwiftUI
 
-/// The AR guide without ARKit, for the simulator and previews: a scripted floor, a person standing in front of
-/// the speaker, a mark on its front edge, then a reticle that slides from the speaker's place toward the target,
-/// so the whole screen runs unattended. The world is the room model turned and shifted, as a fresh AR session
-/// would put it, so the alignment is exercised too.
+/// The AR guide without ARKit, for the simulator and previews: a scripted floor, a mark on the speaker's front edge,
+/// a second mark on the other speaker's front (or the floor under the seat), then a reticle that slides from the
+/// speaker's place toward the target, so the whole screen runs unattended. The world is the room model turned and
+/// shifted, as a fresh AR session would put it, so the two-point alignment is exercised too.
 final class ScriptedARGuidanceSource: ARGuidanceSource {
     enum Script: Sendable {
         /// Stays on finding the floor.
         case findFloor
         /// Finds the floor and puts the reticle on the speaker's front edge, then waits for the tap.
         case mark
-        /// Marks, follows, and stops 18 cm short as in V3OAR.
+        /// Marks the speaker and puts the reticle on the second point, then waits for the tap.
+        case markSecond
+        /// Marks the speaker, then a second point 60 cm from where the plan has it: the marks do not agree.
+        case disagree
+        /// Marks both, follows, and stops 18 cm short as in V3OAR.
         case slide
-        /// The whole move: marks, follows to the target, and waits on the turn (or on "It's in place").
+        /// The whole move: marks both, follows to the target, and waits on the turn (or on "It's in place").
         case whole
         /// Straight to the turn.
         case turn
@@ -28,6 +32,8 @@ final class ScriptedARGuidanceSource: ARGuidanceSource {
     static let world = WorldAlignment(rotation: 0.5, translation: PlanPoint(x: 0.4, z: -0.8))
     /// V3OAR's state: 18 cm of 35 to go.
     static let mockupFraction = 17.0 / 35.0
+    /// How far the second mark lands from the plan in `disagree`, metres.
+    static let disagreement = 0.6
 
     private let script: Script
     private let slideDuration: Duration
@@ -71,6 +77,21 @@ final class ScriptedARGuidanceSource: ARGuidanceSource {
 
         guard await pause(.milliseconds(800)) else { return }
         model.mark()
+        // The second point: where the plan has it, carried into the scripted world.
+        guard let reference = model.state.reference else { return }
+        var second = Self.world.apply(reference.modelPoint)
+        if script == .disagree {
+            second = second + (second - Self.world.apply(suggestion.from.position)).normalized * Self.disagreement
+        }
+        guard await pause(.milliseconds(600)) else { return }
+        model.receive([.reticleMoved(FloorHit(point: second, height: floor))])
+        guard script != .markSecond else { return }
+
+        guard await pause(.milliseconds(800)) else { return }
+        model.mark()
+        guard script != .disagree else { return }
+        // Back to the speaker's front edge before following it.
+        model.receive([.reticleMoved(frontEdge(start.position))])
         model.setFollowing(true)
 
         let quick = script == .turn || script == .arrive

@@ -32,8 +32,8 @@ Rules:
 
 | # | Task | Module | Model | Status |
 |---|---|---|---|---|
-| 1 | `SoundClassifying` protocol; SoundAnalysis implementation over a buffer; mapping of labels to plain interference kinds and sentences; use in the too-noisy and paused paths | Diagnostics | Opus | todo |
-| 2 | Log-mel features; `DefectClassifying` protocol; Core ML loader that finds no model and says so; joining a classifier's output to a `SpeakerReport` under the rules above; a note on how the first dataset will be collected with the app's own recordings | Diagnostics, docs | Opus | todo |
+| 1 | `SoundClassifying` protocol; SoundAnalysis implementation over a buffer; mapping of labels to plain interference kinds and sentences; use in the too-noisy and paused paths | Diagnostics | Opus | done |
+| 2 | Log-mel features; `DefectClassifying` protocol; Core ML loader that finds no model and says so; joining a classifier's output to a `SpeakerReport` under the rules above; a note on how the first dataset will be collected with the app's own recordings | Diagnostics, docs | Opus | done |
 | 3 | Intro screens (three, skippable) leading into the first test | App | Sonnet | todo |
 | 4 | Settings (what the app stores, delete data, keep or drop recordings, about, licences) and the rooms and systems sheet behind the switcher | App, Store | Sonnet | todo |
 | 5 | Remaining states from the design spec: level too low or clipping, phone moved during a run, all speakers healthy, no improvement, subwoofer suggestion | App | Sonnet | todo |

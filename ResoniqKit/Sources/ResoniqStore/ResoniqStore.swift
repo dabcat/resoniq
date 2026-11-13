@@ -10,14 +10,21 @@ public final class ResoniqStore {
     /// Put this in the SwiftUI environment (`.modelContainer(store.container)`) to use `@Query`.
     public let container: ModelContainer
 
-    public var context: ModelContext { container.mainContext }
+    /// The context every call reads and writes: the container's main context, unless a test gives another one to
+    /// prove that something was saved rather than only held in memory.
+    public let context: ModelContext
 
     /// Where scan files live. Nil: the store keeps no files and never touches the disk beyond the database.
     public let scanFiles: ScanFileStore?
 
-    public init(container: ModelContainer, scanFiles: ScanFileStore? = nil) {
+    /// Called after "Delete all results" and "Delete everything" have saved, so whatever the app holds in memory about
+    /// deleted data (a comparison memory, an unsaved result, a pushed screen) can be dropped in one place.
+    public var onDataReset: (@MainActor () -> Void)?
+
+    public init(container: ModelContainer, scanFiles: ScanFileStore? = nil, context: ModelContext? = nil) {
         self.container = container
         self.scanFiles = scanFiles
+        self.context = context ?? container.mainContext
     }
 
     /// A store on disk (local only) or, for tests and previews, in memory.

@@ -90,8 +90,11 @@ enum OptimizeFixtures {
     /// The mockup.
     static let homeSuggestion = OptimizeHomeState.make(OptimizeHomeInput(layout: room, seat: before, progress: measured)).state
     static let homeNothing = OptimizeHomeState.make(OptimizeHomeInput(layout: room, seat: even, progress: measured)).state
+    /// After "I'll move it myself": the plan shows where the speaker was meant to go, not seen there.
     static let homeMoved = OptimizeHomeState.make(
-        OptimizeHomeInput(layout: room, seat: before, progress: OptimizeProgress(scanned: true, measured: true, moved: true))
+        OptimizeHomeInput(
+            layout: room, seat: before, progress: OptimizeProgress(scanned: true, measured: true, moved: true),
+            placement: .notConfirmed)
     ).state
     static let homeVerified = OptimizeHomeState.make(
         OptimizeHomeInput(

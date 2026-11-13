@@ -88,9 +88,11 @@ struct ResoniqStoreTests {
         let (room, _) = try store.defaultContext()
         let sub = try store.addSystem(name: "Sub", kind: .stereoWithSubwoofer, to: room)
         try store.select(sub)
-        let again = ResoniqStore(container: container)
-        #expect(again.selectedSystem === sub)
-        #expect(try again.defaultContext().system === sub)
+        // A second context reads what was saved, not the objects the first one holds.
+        let again = ResoniqStore(container: container, context: ModelContext(container))
+        #expect(again.selectedSystem?.persistentModelID == sub.persistentModelID)
+        #expect(again.selectedSystem !== sub)
+        #expect(try again.defaultContext().system.persistentModelID == sub.persistentModelID)
     }
 
     @Test func selectionFallsBackToDefaultWhenDeleted() throws {
@@ -128,7 +130,8 @@ struct ResoniqStoreTests {
         let (room, system) = try store.defaultContext()
         try store.rename(room, to: "Study")
         try store.rename(system, to: "Desk")
-        let again = ResoniqStore(container: container)
+        let again = ResoniqStore(container: container, context: ModelContext(container))
+        #expect(try again.rooms().first !== room)
         #expect(try again.rooms().first?.name == "Study")
         #expect(try again.defaultContext().system.name == "Desk")
     }

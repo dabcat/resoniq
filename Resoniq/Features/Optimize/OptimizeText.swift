@@ -1,4 +1,5 @@
 import Foundation
+import ResoniqStore
 
 /// The static words of the Optimize screens that the Kit does not own: buttons, headings that say what a screen is
 /// for, and the labels of the form. Every sentence about the room, a suggestion or a result comes from the Kit
@@ -32,6 +33,21 @@ nonisolated enum OptimizeText {
     static let notMeasuredHeadline = "Measure from your seat to see what the room is doing to the bass."
     /// The speaker was moved and nothing has been measured since.
     static let movedHeadline = "Measure again from the same seat to see whether the move helped."
+    /// Under it after "I'll move it myself": nobody saw where the speaker went.
+    static let movedNotConfirmed =
+        "The plan shows where I suggested the speaker go. I didn't see it move, so I can't say it's there. Measuring compares what you hear at your seat, wherever it ended up."
+    /// Under it after the AR guide, when the speaker was marked away from the suggested spot.
+    static let movedApproximate =
+        "The plan shows the speaker where you marked it, a little way from the suggested spot."
+
+    /// The line under the moved headline for how the move was placed; nil when it was marked on the spot.
+    static func movedNote(_ placement: OptimizeRules.MovePlacement) -> String? {
+        switch placement {
+        case .atTarget: nil
+        case .approximate: movedApproximate
+        case .notConfirmed: movedNotConfirmed
+        }
+    }
 
     static let measuredAtSeat = "Measured at three spots at your seat."
     static func problemArea(_ label: String) -> String { "A problem area at your seat: \(label)." }
@@ -73,7 +89,7 @@ nonisolated enum OptimizeText {
     // MARK: Problems along the way
 
     static let roomUnreadable = "I couldn't open the room I saved. Scan it again, or enter it by hand."
-    static let alertTitle = "I couldn't save that"
+    static let alertTitle = StoreText.saveFailedTitle
     static let saveFailed = "The phone wouldn't let me write it down, so nothing has changed. Free up some space and try again."
     static let scanNotKept = "I couldn't keep the scan file, so I saved the room without it."
     static let noSeatMeasurement = "I need a measurement from your seat first. Measure from your seat, then try again."
@@ -82,6 +98,8 @@ nonisolated enum OptimizeText {
     static let alertOK = "OK"
     static let putBackTitle = "Move the speaker back"
     static let putBackNotice = "I can't move it for you. Put the speaker back where it was; the plan is back to how it was before the move."
+    static let putBackUnavailable =
+        "The plan has changed since the move, so I won't put the old one back. Check the layout, then measure from your seat."
 
     // MARK: Before and after
 
@@ -91,6 +109,21 @@ nonisolated enum OptimizeText {
     static let putBack = "Put the speaker back where it was"
     static let gotWorse = ", got worse"
     static let curveIntro = "Loudness at your seat, before and after the move, at the same spots."
+    /// Under the comparison when nobody saw where the speaker went ("I'll move it myself").
+    static let verifyNotConfirmed =
+        "This compares two measurements from your seat. I didn't see where the speaker went, so the plan shows where I suggested it go."
+    /// Under the comparison when the speaker was marked away from the suggested spot.
+    static let verifyApproximate =
+        "The speaker was marked a little way from the suggested spot, and the plan shows where you marked it."
+
+    /// The line under the comparison for how the move was placed; nil when it was marked on the spot.
+    static func verifyNote(_ placement: OptimizeRules.MovePlacement) -> String? {
+        switch placement {
+        case .atTarget: nil
+        case .approximate: verifyApproximate
+        case .notConfirmed: verifyNotConfirmed
+        }
+    }
     static let afterWordsLocale = Locale(identifier: "en_US")
 
     /// "After, same three spots".

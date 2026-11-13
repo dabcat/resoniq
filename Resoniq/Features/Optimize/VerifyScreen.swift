@@ -22,6 +22,10 @@ struct VerifyScreen: View {
     let comparison: ComparisonReport
     let before: SeatReport
     let after: SeatReport
+    /// How sure the plan is of where the speaker went (`OptimizeText.verifyNote`); nil when it was marked on the
+    /// spot. The comparison is of two measurements either way; this keeps the screen from implying the speaker is in
+    /// the suggested place when nobody saw it there.
+    var placementNote: String? = nil
     let onKeep: () -> Void
     let onNextSuggestion: () -> Void
     let onPutBack: () -> Void
@@ -46,6 +50,12 @@ struct VerifyScreen: View {
                         .font(ResoniqFont.caption)
                         .foregroundStyle(ResoniqColor.muted)
                         .fixedSize(horizontal: false, vertical: true)
+                    if let placementNote {
+                        Text(placementNote)
+                            .font(ResoniqFont.caption)
+                            .foregroundStyle(ResoniqColor.muted)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
                 .padding(.horizontal, ResoniqSpace.screenInset)
             }

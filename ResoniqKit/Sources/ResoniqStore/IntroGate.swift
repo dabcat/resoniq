@@ -21,7 +21,7 @@ public struct UserDefaultsIntroFlag: IntroFlagStore {
 }
 
 /// Whether the three intro screens are shown: until they have been finished (or skipped) once. Settings can
-/// show them again with `reset()`; the debug launch argument `-resetIntro YES` does the same at launch.
+/// show them again with `reset()`; a debug build's launch argument `-resetIntro YES` does the same at launch.
 public struct IntroGate {
     private let flag: any IntroFlagStore
 
@@ -29,11 +29,12 @@ public struct IntroGate {
         self.flag = flag
     }
 
-    /// The gate on the standard defaults. `-resetIntro YES` resets it first (the launch argument reads as a
-    /// default).
-    public static func standard(defaults: UserDefaults = .standard) -> IntroGate {
+    /// The gate on the standard defaults, reset first when `resetRequested`. The Kit cannot see the app's build
+    /// configuration, so it never reads a launch argument itself: the app reads `-resetIntro` under `#if DEBUG` and
+    /// passes the answer in, and a Release build always passes false.
+    public static func standard(defaults: UserDefaults = .standard, resetRequested: Bool = false) -> IntroGate {
         let gate = IntroGate(flag: UserDefaultsIntroFlag(defaults))
-        if defaults.bool(forKey: "resetIntro") { gate.reset() }
+        if resetRequested { gate.reset() }
         return gate
     }
 

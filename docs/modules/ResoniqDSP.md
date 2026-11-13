@@ -10,7 +10,7 @@ tags:
 
 Pure signal maths on `[Float]` buffers with Accelerate: test signals, FFT, frequency response, impulse response, THD, noise floor, clipping, smoothing. No audio hardware, no actors, runs on the Mac.
 
-The module turns a recording of a played [`LogSweep`](#foundation) into an impulse response, a frequency response and harmonic distortion, and it decides whether a recording is fit to analyse. It knows nothing about the microphone, the session or the screen: callers hand it samples and a sample rate. Plan: [phase-1-dsp.md](../plans/phase-1-dsp.md).
+The module turns a recording of a played [`LogSweep`](#foundation) into an impulse response, a frequency response and harmonic distortion, and it decides whether a recording is fit to analyse. For a listening seat it also reads the room: the response with a long window, the decay time by band, and the power average and spread of several spots ([Room](#room)). It knows nothing about the microphone, the session or the screen: callers hand it samples and a sample rate. Plans: [phase-1-dsp.md](../plans/phase-1-dsp.md), [phase-3-measure.md](../plans/phase-3-measure.md).
 
 Paths below are relative to `ResoniqKit/Sources/ResoniqDSP/`.
 
@@ -26,7 +26,9 @@ Each is stated once, here, with the symbol that defines it.
 - **FFT normalisation.** `FFT.forward` is unnormalised and `FFT.inverse` divides by N, so `inverse(forward(x)) == x`. Sizes are powers of two. Bin `k` of an N-point transform is `k · sampleRate / N` Hz (`FFT.frequency(ofBin:size:sampleRate:)`). Functions that transform repeatedly set the transform up once (`FFT.Plan`, internal).
 - **Spectrum level.** `SpectrumAnalyzer` divides out the window's coherent gain, so a sine of amplitude `A` on a bin reads `20·log10(A/√2)` whatever the window. Bins run from DC to Nyquist, `size / 2 + 1` of them. White noise reads `10·log10(2σ² · ENBW / N)` per bin (`Window.equivalentNoiseBandwidth`).
 - **Impulse-response layout.** `ImpulseResponse.samples` is one period of a circular buffer. Index 0 is the instant the sweep's first sample was played, counted from the recording's first sample. Positive time runs up the first half, negative time wraps to the end, and the harmonics' responses land before the linear peak, possibly wrapped past index 0. Use `index(atTime:)` and `index(atOffset:)`, not hand-written modular arithmetic. Defined at `Response/ImpulseResponse.swift:6`.
-- **Bands of a response.** `band` is what the sweep played, `capturedBand` what the recording holds of it (nil: nothing), `trustedBand` what is reported. Defined at `Response/ImpulseResponse.swift:37–50`.
+- **Bands of a response.** `band` is what the sweep played, `capturedBand` what the recording holds of it (nil: nothing), `trustedBand` what is reported. Defined at `Response/ImpulseResponse.swift:51–64`.
+- **Windows.** `frequencyResponse` reads the speaker with `ImpulseResponse.defaultPostWindow` (100 ms) and the seat with `ImpulseResponse.roomPostWindow` (500 ms), so the room's reflections and modes stay in; a window shorter than the first reflection gives a reflection-free reading. Defined at `Response/ImpulseResponse.swift:24–40`.
+- **A decay is an estimate.** `Decay` returns nil rather than a figure the response cannot support, and every `DecayEstimate` carries what it rests on (evaluation range, dynamic range, fit). Pass the sweep, so the noise is read only where the recording holds data.
 - **The safe level.** `LogSweep.maximumAmplitude` (0.25, −12 dBFS) is the one definition of the loudest a test signal may be. `LogSweep` and `TestSignal.sine` both clamp to it, turn a non-finite amplitude into silence, and fade over at least `LogSweep.minimumFadeDuration` with first and last samples exactly zero. The playback volume is the user's.
 - **Hostile input.** No public analysis traps on a buffer a microphone can produce (empty, a few samples, shorter than the sweep, silent, or holding NaN or infinity). Each returns a neutral result that says so: `capturedBand` nil, `ToneDistortionResult.fundamentalFrequency` nil, NaN levels for non-finite input, `Decibels.floor` for silence, `RecordingVerdict.corrupt`. Preconditions remain only for choices made in code: a sample rate, a transform size, a frequency outside 0…Nyquist, harmonic orders below 2.
 - **Gross and net THD.** `SweepDistortion.thd` is gross (it includes the noise its windows collect) and carries `noiseFloor` beside it; `ToneDistortionResult.thdPercent` is net (the noise share is subtracted). Both say whether they are a measurement with the same margin, `SweepDistortion.measurableMarginDecibels`.
@@ -76,13 +78,28 @@ Each is stated once, here, with the symbol that defines it.
 |---|---|---|
 | `Deconvolution` | `Response/Deconvolution.swift:26` | Regularised spectral division of a recording by its sweep; the five constants (:28–42) |
 | `Deconvolution.impulseResponse(recording:sweep:)` | `Response/Deconvolution.swift:52` | The impulse response, with `capturedBand` and `trustedBand` from the peak's delay and the recording's length; never traps |
-| `ImpulseResponse` | `Response/ImpulseResponse.swift:16` | Circular buffer (layout under Conventions); `samples` (:31), `sampleRate` (:33), `peakIndex` (:35), `band` (:37), `capturedBand` (:43), `trustedBand` (:47), `recordingDuration` (:50), hand-built `init` (:57), full `init` (:66), `count` (:87), `capturesWholeSweep` (:90) |
-| `ImpulseResponse.index(atTime:)`, `index(atOffset:)` | `Response/ImpulseResponse.swift:93`, `:98` | Buffer index of a time after time zero, or of an offset from the linear peak, wrapped |
-| `ImpulseResponse.delay` | `Response/ImpulseResponse.swift:107` | Seconds from time zero to the linear peak, refined by a parabola; negative if the peak is in the wrapped half |
-| `ImpulseResponse.frequencyResponse(preWindow:postWindow:)` | `Response/ImpulseResponse.swift:126` | Magnitude windowed around the peak, in dB re the sweep, on the transform's linear grid within `trustedBand`; empty when nothing is trusted |
+| `ImpulseResponse` | `Response/ImpulseResponse.swift:16` | Circular buffer (layout under Conventions); window constants (:19–43); `samples` (:45), `sampleRate` (:47), `peakIndex` (:49), `band` (:51), `capturedBand` (:57), `trustedBand` (:61), `recordingDuration` (:64), hand-built `init` (:71), full `init` (:80), `count` (:101), `capturesWholeSweep` (:104) |
+| `ImpulseResponse.index(atTime:)`, `index(atOffset:)` | `Response/ImpulseResponse.swift:107`, `:112` | Buffer index of a time after time zero, or of an offset from the linear peak, wrapped |
+| `ImpulseResponse.delay` | `Response/ImpulseResponse.swift:121` | Seconds from time zero to the linear peak, refined by a parabola; negative if the peak is in the wrapped half |
+| `ImpulseResponse.frequencyResponse(preWindow:postWindow:)` | `Response/ImpulseResponse.swift:142` | Magnitude windowed around the peak, in dB re the sweep, on the transform's linear grid within `trustedBand`; empty when nothing is trusted. `postWindow: roomPostWindow` for the seat |
 | `ResponseComparison` | `Response/ResponseComparison.swift:7` | Comparing two responses with unknown absolute levels; `defaultMatchBand` (:9), `pointsPerOctave` (:11) |
 | `ResponseComparison.levelMatched(_:to:band:)` | `Response/ResponseComparison.swift:18` | Shifts a response so its median in the band equals the reference's |
 | `ResponseComparison.difference(_:_:)` | `Response/ResponseComparison.swift:33` | `first − second` in dB on a log grid over the shared range |
+
+### Room
+
+| Symbol | Where | Holds |
+|---|---|---|
+| `DecayEstimate` | `Room/Decay.swift:5` | One band's decay and what it rests on: `band` (:19), `seconds` (RT60, :21), `evaluationRange` (:22), `dynamicRangeDecibels` (:25), `nonlinearity` (ISO 3382-2 ξ in ‰, :32), `init` (:34) |
+| `DecayEstimate.EvaluationRange` | `Room/Decay.swift:8` | `t20`, `t30`; `top` (−5 dB, :13), `bottom` (−25 or −35 dB, :15) |
+| `Decay` | `Room/Decay.swift:86` | Decay time by band: zero-phase band filter, Lundeby noise and truncation, Schroeder integration with compensation, a line over T30 or T20; the constants (:90–120) |
+| `Decay.minimumDuration(of:)`, `blockDuration(of:sampleRate:)` | `Room/Decay.swift:124`, `:130` | Response needed after the peak (`minimumCycles` periods of the band's bottom); the averaging block |
+| `Decay.estimate(impulseResponse:band:sweep:)` | `Room/Decay.swift:141` | One band; nil when the response cannot support it (outside `trustedBand` or `capturedBand`, too short, too little dynamic range, too fast to tell from the filter, non-finite). `sweep` defaults to nil; pass it for a deconvolved response |
+| `Decay.estimates(impulseResponse:sweep:)` | `Room/Decay.swift:152` | `[(band, estimate?)]` over the `OctaveBands` octaves 63 Hz to 4 kHz; bands over the same stretch share one transform |
+| `Decay.bassBand(for:)`, `bass(impulseResponse:sweep:)` | `Room/Decay.swift:185`, `:194` | The band under 80 Hz (from 20 Hz or the bottom of `trustedBand`; nil under half an octave) and its decay: "< 80 Hz ≈ 0.6 s" |
+| `ResponseAverage` | `Room/ResponseAverage.swift:9` | Several responses on the common log grid (`ResponseComparison.pointsPerOctave`) over the range they all cover; empty when none or nothing shared |
+| `ResponseAverage.power(_:)` | `Room/ResponseAverage.swift:13` | Power (energy) average in dB: mean of `10^(dB/10)` |
+| `ResponseAverage.spread(_:)` | `Room/ResponseAverage.swift:23` | Loudest less quietest, in dB: large where the response changes from spot to spot |
 
 ### Distortion
 
@@ -140,8 +157,22 @@ Every public static constant, and the `standard` quality thresholds. A value mar
 | `Deconvolution.cutMargin` | `Response/Deconvolution.swift:42` | 1 octave | Trusted band inside a cut in the recording |
 | `ImpulseResponse.defaultPreWindow` | `Response/ImpulseResponse.swift:19` | 0.002 s | |
 | `ImpulseResponse.defaultPostWindow` | `Response/ImpulseResponse.swift:24` | 0.1 s | Resolves down to about 10 Hz |
-| `ImpulseResponse.postTaperFraction` | `Response/ImpulseResponse.swift:26` | 0.5 | |
-| `ImpulseResponse.minimumTransformSize` | `Response/ImpulseResponse.swift:29` | 16384 | 2.9 Hz a point at 48 kHz |
+| `ImpulseResponse.roomPostWindow` | `Response/ImpulseResponse.swift:33` | 0.5 s | Resolves about 2 Hz (1.5 Hz grid at 48 kHz); about 8 dB more noise than the default |
+| `ImpulseResponse.postTaperFraction` | `Response/ImpulseResponse.swift:36` | 0.5 | |
+| `ImpulseResponse.maximumPostTaper` | `Response/ImpulseResponse.swift:40` | 0.05 s | Caps the fade; equal to the default window's, so only longer windows change |
+| `ImpulseResponse.minimumTransformSize` | `Response/ImpulseResponse.swift:43` | 16384 | 2.9 Hz a point at 48 kHz |
+| `Decay.minimumDynamicRangeT20` | `Room/Decay.swift:90` | 35 dB | Bottom of T20 10 dB above the noise (ISO 3382-1) |
+| `Decay.minimumDynamicRangeT30` | `Room/Decay.swift:92` | 45 dB | T30 from here |
+| `Decay.minimumCycles` | `Room/Decay.swift:96` | 20 periods | Of the band's bottom: 0.45 s in the 63 Hz octave, 1 s from 20 Hz. First guess |
+| `Decay.filterSkirtOctaves` | `Room/Decay.swift:99` | 0.5 octave | Raised-cosine skirt at each edge, −6 dB at the edge. First guess |
+| `Decay.noiseTailFraction` | `Room/Decay.swift:101` | 0.1 | Least share the noise is read from (Lundeby) |
+| `Decay.minimumBlockDuration` | `Room/Decay.swift:104` | 0.01 s | Or 1 / bandwidth when longer |
+| `Decay.lundebyIterations` | `Room/Decay.swift:106` | 5 | |
+| `Decay.minimumBandwidthTimeProduct` | `Room/Decay.swift:112` | 7 | Bandwidth × T60; the filter's own reads 5.8. First guess |
+| `Decay.octaveRange` | `Room/Decay.swift:114` | 63 Hz…4 kHz | Seven octaves |
+| `Decay.bassUpperFrequency` | `Room/Decay.swift:116` | 80 Hz | |
+| `Decay.bassLowerFrequency` | `Room/Decay.swift:118` | 20 Hz | `LogSweep.reportedBand`'s bottom |
+| `Decay.minimumBassOctaves` | `Room/Decay.swift:120` | 0.5 octave | First guess |
 | `ResponseComparison.defaultMatchBand` | `Response/ResponseComparison.swift:9` | 300…3000 Hz | |
 | `ResponseComparison.pointsPerOctave` | `Response/ResponseComparison.swift:11` | 48 | |
 | `SweepDistortion.measurableMarginDecibels` | `Distortion/HarmonicDistortion.swift:14` | 10 dB | Above the floor; shared with `ToneDistortion` |
@@ -182,6 +213,10 @@ What the tests hold the module to, all on simulated recordings at 48 kHz (and 44
 | THD under noise | Third-octave average within 3 % of √(THD² + floor²); a single point scatters by up to floor/THD | Where `isMeasurable(at:)` | `DistortionNoiseFloorTests` |
 | End to end (filter, 2 % THD, −60 dBFS noise, delay) | Response 0.25 dB from 50 Hz to 16 kHz; THD within a quarter | 3 s sweep from 20 Hz | `EndToEndTests` |
 | Tone THD | 2.236 % read within 0.01 percentage points, fifth harmonic within 0.1 dB, with up to a 100 ppm clock offset | 1–10 s tones | `ToneDistortionTests` |
+| Decay, one synthetic decay | Within 10 % (0.3, 0.6, 1.2 s read 1.2, 3.5, 4.7 % long); 1.0 and 0.3 s in two octaves of one response within 3 % | 500 Hz octave; 125 Hz and 1 kHz octaves | `DecayTests` |
+| Decay, bass | Mean of 16 decays within 10 % (read 0.0, 4.5, 1.6 % long for 0.3, 0.6, 1.2 s); one reading scatters 12–17 % | 40–80 Hz | `DecayTests` |
+| Decay through the whole chain | A 0.52 s resonance read within 0.2 % from its own impulse response and from a deconvolved 4 s sweep, the two within 0.01 %; a 0.14 s treble resonance with a short tail within 0.1 % | 35–70 Hz; 2 kHz octave | `DecayTests` |
+| Room window | A 20 ms reflection's comb within 0.08 dB; a 45 Hz mode within 0.05 dB of its level on the grid (the default window reads it 2.7 dB low); an unchanged sweep flat within 0.18 dB over the trusted band | `roomPostWindow` | `RoomWindowTests` |
 
 For `LogSweep.measurement` the response is trusted from 20 Hz to 20.8 kHz and the second harmonic from 80 Hz to 9.4 kHz.
 
@@ -197,6 +232,7 @@ The signal-to-noise gate stays at 20 dB. With noise 20 dB under the recording th
 - `ResponseTests`: unit impulse; flat, delayed, quieter and filtered responses inside the band; content above and below the sweep is not amplified (10–14 Hz at least 10 dB under an equal 40 Hz tone); 12 Hz rumble does not bend the bass; `CapturedBandTests` (whole, cut early, started late, empty, short, all-zero and corrupt recordings); `TrustedBandTests` (the measurement sweep covers the reported band; every point of the trusted band within the stated accuracy for four sweeps at two rates); level matching and the log-grid difference.
 - `DistortionTests`: square and cubic laws inside the trusted bands within 0.25 dB; THD within 3 % across the trusted band for three sweeps; the top band of a 1 s sweep stops below its fade; the fundamental against the biquad's own magnitude; a clean system is not measurable; `DistortionNoiseFloorTests` (noise 20 dB under reads THD but is not measurable, the floor matches what the windows collect, real distortion above the floor is measured, a short tail has no floor); `ToneDistortion` THD, THD+N, harmonics below Nyquist, the residue for lines and clicks, a clock offset, silence, noise alone, short and corrupt recordings, and measurability.
 - `QualityTests`: level, clipping (full scale, limiter flat tops, mild limiting, one sample is not clipping, the app's sweep quantised to 16 bits and slow clean sines are not clipping), noise floor bands (that add up to the broadband level) and steadiness, signal-to-noise against independently computed RMS and per band, the verdict order including corrupt, a real measurement-sweep recording, the gate's hysteresis, and non-finite input everywhere.
+- `RoomTests`: `DecayTests` (synthetic decays of band-limited noise with known decay times in an octave and in the bass, two bands in one response and the octave table, T30 or T20 or nothing by dynamic range with the range checked against the fixture's own levels, bands outside the trusted band, the bass band's clipping, too short, a unit impulse (the filter's own decay), corrupt and silent responses, a resonance read directly and through sweep and deconvolution against the decay its poles fix, a short tail with the sweep named); `RoomWindowTests` (a reflection's comb against `|1 + g·e^(−j2πfτ)|`, a gate removes it, a 45 Hz mode at its height, the trusted band and flatness with the room window); `ResponseAverageTests` (energy mean, not dB mean; log grid; zero spread for identical responses; different grids; empty and disjoint input).
 - `PublicAPITests`: imports the module without `@testable` and builds every result type, so their initialisers stay public.
 - `EndToEndTests`: the phase's "Done when". A 3 s sweep from 20 Hz to 20 kHz through a simulated speaker (80 Hz high-pass, +6 dB bell at 2 kHz, about 2 % THD, white noise at −60 dBFS, 0.15 s late). It asserts that the delay is within 0.5 ms, the magnitude response within 0.25 dB from 50 Hz to 16 kHz after level matching (the plan's bar was 1 dB), and THD within a quarter of its value at 300, 500, 1000, 2000 and 3000 Hz.
 - `SimulatedSpeaker`: not a test; the biquads, seeded noise and polynomial nonlinearity the tests share.
@@ -210,6 +246,9 @@ What the doc comments say the module cannot tell you.
 - **Deconvolution:** anything outside the sweep's range or outside `capturedBand`, the absolute sound pressure, or whether a feature belongs to the speaker, the room or the microphone. `capturedBand` rests on the linear peak's delay, which includes the speaker's group delay.
 - **`ImpulseResponse.delay`:** the arrival of the largest sample, not the first sound; the speaker's group delay is included.
 - **`frequencyResponse`:** nothing below about `1 / postWindow` hertz is resolved, and reflections inside the window are part of the result. The stated accuracy is for the default window. A reflection-free response needs a shorter window and gives up the bass.
+- **`roomPostWindow`:** about 8 dB more noise in every point than the default window, so smooth before reading; the late part of the window holds no treble unless the recording runs at least 0.5 s past the sweep. It cannot say which part of the curve is the room and which the speaker; `ResponseAverage.spread` over several spots is the clue.
+- **`Decay`:** one seat's decay, not the room's; not a decay faster than the band filter's own (`minimumBandwidthTimeProduct`); nothing outside `trustedBand`; not whether a long decay is the room, the speaker or the furniture. One reading of a narrow bass band scatters by 12–17 % because the decay of random sound is itself random. Without the sweep, a deconvolved response's upper bands are read into the stretch past the recording, where it is empty, so their noise reads low. A real decay just above `minimumBandwidthTimeProduct` can read under it and give nothing. `nonlinearity` is reported but not judged: ISO 3382-2's 10 ‰ suits broad bands, while an exact exponential reads 10–70 ‰ in the bass.
+- **`ResponseAverage`:** the levels must already mean the same thing (level-match first if they do not); the range is the one every response covers, so one narrow response narrows the result.
 - **`ResponseComparison.levelMatched`:** cannot tell a level difference from a broadband shape difference inside the match band. It and `difference` still trap when the two responses share no range; check that they do.
 - **`HarmonicDistortion`:** not the distortion of music (intermodulation); not which part of the chain distorted; not rattles. THD is gross: a clean system reads as its floor, so read it with `isMeasurable(at:)`. The floor needs `minimumTail` of recording after the sweep and counts a room's late reverberation as noise, so in a live room it errs towards "not measurable". Below the trusted band the harmonic chirp's abrupt start reads the harmonic low.
 - **`ToneDistortion`:** the residue cannot tell a rattle in the speaker from one in the furniture, a buzz from mains hum, or a defect from a door or a voice. Steady hiss is subtracted, so a defect that only adds hiss is invisible. The recording must be longer than `2 · lobeHalfWidth / frequency` seconds and hold only the settled tone; the tone must lie within `lobeHalfWidth` resolution bins of the nominal frequency.
@@ -228,3 +267,5 @@ What the doc comments say the module cannot tell you.
 - The broadband signal-to-noise minimum is dominated by low-frequency rumble. Should the verdict use a band-limited ratio?
 - `flatTopRun` misses mild limiting of a high tone and `fullScaleLevel` misreads a clean low sine at full scale; a real recording may show which matters.
 - Hysteresis, block counts and where to resume the sweep are left to the audio session ([ResoniqAudio](ResoniqAudio.md)).
+- The seat measurement needs a longer recording tail than Diagnose: at least `roomPostWindow` (0.5 s) for the response, and for the decay the decay itself plus a stretch of noise (`Decay.noiseTailFraction` of what is read). For a 1 s bass decay a tail of 2 s or more is safe. The audio session should set it.
+- Whether a phone in a real room reaches `Decay.minimumDynamicRangeT20` (35 dB) in the bass, where the microphone rolls off and rumble is loudest, is unknown. If it rarely does, T15 (−5 to −20 dB, 30 dB) is the next step down.

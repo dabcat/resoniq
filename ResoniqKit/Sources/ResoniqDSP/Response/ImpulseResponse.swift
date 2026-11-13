@@ -22,8 +22,22 @@ public struct ImpulseResponse: Sendable, Equatable {
     /// add ripple above a few hundred hertz. A reflection-free (gated) response needs a window shorter than the
     /// first reflection's delay, at the cost of everything below `1 / postWindow`.
     public static let defaultPostWindow: Double = 0.1
-    /// The fraction of the post window, at its end, over which it fades out (half a Hann window).
+    /// Seconds kept after the peak to read the response at a listening seat, where the room is the subject: 0.5.
+    /// Its flat 450 ms (the fade is `maximumPostTaper`) holds a room's reflections and most of a bass mode's ring: a
+    /// +12 dB mode at 45 Hz of Q 10, which takes 1 s to fall 60 dB, reads within 0.1 dB of its true level at each
+    /// point, where the default window reads it nearly 3 dB low. It resolves about 2 Hz (`1 / postWindow`), on a
+    /// 1.5 Hz grid at 48 kHz, which can itself miss a mode's summit by half a decibel. The cost is
+    /// noise: the window is six times the default's in energy, so about 8 dB more of the recording's noise in every
+    /// point. Smooth the result before reading it, and record at least this long after the sweep, or the late part
+    /// of the window holds no treble.
+    public static let roomPostWindow: Double = 0.5
+    /// The fraction of the post window, at its end, over which it fades out (half a Hann window), up to
+    /// `maximumPostTaper`.
     public static let postTaperFraction: Double = 0.5
+    /// The longest fade at the end of a post window, in seconds: 50 ms, the default window's own (half of 100 ms),
+    /// one period of 20 Hz. Enough to end without a step; a longer window keeps the rest of its length flat, so what
+    /// it was made longer to hold is not faded away. No window up to the default is changed by it.
+    public static let maximumPostTaper: Double = 0.05
     /// The smallest transform used to turn a windowed response into a spectrum, so short windows still give a
     /// finely sampled curve (2.9 Hz per point at 48 kHz).
     public static let minimumTransformSize = 16384
@@ -120,9 +134,11 @@ public struct ImpulseResponse: Sendable, Equatable {
     /// is trusted: an empty or corrupt recording, or one that missed the sweep.
     ///
     /// The window rises over `preWindow` seconds before the peak (half a Hann window) and stays flat after it,
-    /// fading over the last `postTaperFraction` of `postWindow`; on a response shorter than that it is cut to fit.
-    /// Nothing below about `1 / postWindow` hertz is resolved, and the accuracy `LogSweep.trustedBand` states is for
-    /// the default window; whatever arrives within the window (reflections included) is part of the result.
+    /// fading over the last `postTaperFraction` of `postWindow` (at most `maximumPostTaper`); on a response shorter
+    /// than that it is cut to fit. Nothing below about `1 / postWindow` hertz is resolved, and the accuracy
+    /// `LogSweep.trustedBand` states is for the default window (it holds for `roomPostWindow` too); whatever arrives
+    /// within the window (reflections included) is part of the result. Use the default for the speaker,
+    /// `roomPostWindow` for the seat, and a window shorter than the first reflection for a reflection-free reading.
     public func frequencyResponse(
         preWindow: Double = ImpulseResponse.defaultPreWindow,
         postWindow: Double = ImpulseResponse.defaultPostWindow
@@ -155,7 +171,7 @@ public struct ImpulseResponse: Sendable, Equatable {
     /// windowed as `frequencyResponse` describes.
     func windowedMagnitudes(around centre: Int, pre: Int, post: Int, plan: FFT.Plan) -> [Float] {
         precondition(pre >= 0 && post > 0 && pre + post <= min(count, plan.size), "window does not fit the response")
-        let taper = max(1, Int(Double(post) * Self.postTaperFraction))
+        let taper = max(1, min(Int(Double(post) * Self.postTaperFraction), seconds(Self.maximumPostTaper)))
         var segment = [Float](repeating: 0, count: pre + post)
         for offset in 0..<(pre + post) {
             let weight = offset < pre

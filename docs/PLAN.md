@@ -15,9 +15,9 @@ launch the app and test a speaker immediately.
 |---|---|---|---|---|
 | — | Repo foundation: spec, design, vault, agent rules, screen templates | done | — | #1 |
 | 0 | Setup: project, package, theme, fonts, icon, tab shell | done | [phase-0-setup](plans/phase-0-setup.md) | #2 |
-| 1 | DSP core: signals, FFT, response, THD, noise floor, clipping | active | [phase-1-dsp](plans/phase-1-dsp.md) | |
-| 2 | Diagnose flow | planned | | |
-| 3 | Measure flow | planned | | |
+| 1 | DSP core: signals, FFT, response, THD, noise floor, clipping | done | [phase-1-dsp](plans/phase-1-dsp.md) | #3 |
+| 2 | Diagnose flow | active | [phase-2-diagnose](plans/phase-2-diagnose.md) | |
+| 3 | Measure flow | planned | [phase-3-measure](plans/phase-3-measure.md) | |
 | 4 | Optimize: room scan and layout | planned | | |
 | 5 | Optimize: AR guidance and before/after | planned | | |
 | 6 | AI diagnostics and finish | planned | | |

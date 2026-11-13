@@ -1,7 +1,7 @@
 ---
 type: "plan"
 phase: 1
-status: "active"
+status: "done"
 tags:
   - "plan/phase-1"
 ---

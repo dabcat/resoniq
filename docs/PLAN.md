@@ -18,8 +18,8 @@ launch the app and test a speaker immediately.
 | 1 | DSP core: signals, FFT, response, THD, noise floor, clipping | done | [phase-1-dsp](plans/phase-1-dsp.md) | #3 |
 | 2 | Diagnose flow | active | [phase-2-diagnose](plans/phase-2-diagnose.md) | |
 | 3 | Measure flow | planned | [phase-3-measure](plans/phase-3-measure.md) | |
-| 4 | Optimize: room scan and layout | planned | | |
-| 5 | Optimize: AR guidance and before/after | planned | | |
+| 4 | Optimize: room scan and layout | planned | [phase-4-room](plans/phase-4-room.md) | |
+| 5 | Optimize: AR guidance and before/after | planned | [phase-5-ar](plans/phase-5-ar.md) | |
 | 6 | AI diagnostics and finish | planned | | |
 
 ## Phases

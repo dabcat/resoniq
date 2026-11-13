@@ -119,7 +119,7 @@ public enum ScanText {
     public static let processingBody = "I'm straightening the walls and placing the furniture. This takes a moment."
     public static let processingStatus = "Building the plan"
 
-    public static let preparing = "Starting the camera"
+    public static let preparing = "Starting the camera."
 
     public static let failedCaption = "Scan stopped"
 

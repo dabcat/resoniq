@@ -54,6 +54,18 @@ public struct InterferenceReport: Sendable, Codable, Equatable {
     }
 }
 
+/// The two lines the paused screen shows about the noise: "It sounds like someone talking." and
+/// "Inferred · sound classifier, 82 %".
+public struct InterferenceNote: Sendable, Equatable {
+    public let sentence: String
+    public let tagLine: String
+
+    public init(sentence: String, tagLine: String) {
+        self.sentence = sentence
+        self.tagLine = tagLine
+    }
+}
+
 /// Turns a sound classifier's labels into the interference the screens name. Pure, except for the one call that
 /// runs a classifier.
 ///
@@ -131,6 +143,23 @@ public enum InterferenceAdvisor {
               report.kind != .unknown
         else { return nil }
         return report
+    }
+
+    /// **The paused screen's line.** What to show under "It got noisy, so I stopped." for audio the session kept
+    /// (its paused audio, or a recording judged too noisy): the sentence and its tag line, or nil (see `noiseNote`).
+    ///
+    /// - Parameter sweepPlaying: Whether the sweep was playing in the audio (a recording judged too noisy); while it
+    ///   plays, kinds the sweep can pass for are not named.
+    public static func note(
+        heard samples: [Float],
+        sampleRate: Double,
+        sweepPlaying: Bool,
+        classifier: some SoundClassifying,
+        thresholds: InterferenceThresholds = .standard
+    ) async -> InterferenceNote? {
+        let context: InterferenceContext = sweepPlaying ? .sweepPlaying : .sweepSilent
+        let report = await noiseNote(heard: samples, sampleRate: sampleRate, context: context, classifier: classifier, thresholds: thresholds)
+        return report.map { InterferenceNote(sentence: $0.sentence, tagLine: $0.tagLine) }
     }
 
     /// `noiseNote`'s sentence alone: "It sounds like someone talking.", or nil.

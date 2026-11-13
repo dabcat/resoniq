@@ -3,11 +3,13 @@ import ResoniqStore
 import SwiftData
 import SwiftUI
 
-/// The store, the session memory and the Diagnose coordinator, made once at launch and put in the environment.
+/// The store, the session memory, the two coordinators and the lifecycle hook, made once at launch and put in the environment.
 struct AppComposition {
     let store: ResoniqStore
     let memory: ComparisonMemory
     let coordinator: DiagnoseCoordinator
+    let measure: MeasureCoordinator
+    let lifecycle: AppLifecycle
 
     /// Opens the store (on disk, or in memory when `inMemory`), makes sure "My room · My speakers" exists, and wires
     /// the coordinator. Nil when the store cannot be opened.
@@ -34,7 +36,16 @@ struct AppComposition {
         let memory = ComparisonMemory()
         let coordinator = DiagnoseCoordinator(store: store, memory: memory, audio: audio)
         if opensFlow { coordinator.startTest(.left) }
-        return AppComposition(store: store, memory: memory, coordinator: coordinator)
+        let measure = MeasureCoordinator(store: store, audio: audio)
+
+        // When the scene leaves the foreground, a running test or measurement is cancelled and the live stream
+        // stops. Diagnose's flow is cancelled in place (a result on screen stays); this does not touch its files.
+        let lifecycle = AppLifecycle()
+        lifecycle.onLeavingForeground { [coordinator] in
+            if case .test(let flow) = coordinator.content { flow.cancel() }
+        }
+        lifecycle.onLeavingForeground { [measure] in measure.suspend() }
+        return AppComposition(store: store, memory: memory, coordinator: coordinator, measure: measure, lifecycle: lifecycle)
     }
 }
 
@@ -51,6 +62,8 @@ extension View {
             .environment(\.resoniqStore, composition.store)
             .environment(composition.memory)
             .environment(composition.coordinator)
+            .environment(composition.measure)
+            .environment(\.appLifecycle, composition.lifecycle)
     }
 }
 

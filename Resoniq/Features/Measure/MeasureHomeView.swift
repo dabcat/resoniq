@@ -247,6 +247,9 @@ private struct FindingRow: View {
 /// The latest seat measurement comes from the model container in the environment, so the screen updates when one
 /// is kept. A stored measurement that cannot be read counts as none, and the screen says so.
 struct MeasureHomeContainer: View {
+    /// A measurement that finished without being kept (it could not conclude): shown in place of the stored one,
+    /// with what went wrong and "Measure again". Nil for the stored one.
+    var unsaved: MeasureSummary?
     /// Starts a seat measurement: the primary button, with or without a result.
     let onMeasure: () -> Void
     /// "Show the numbers", with the report and when it was measured.
@@ -271,12 +274,13 @@ struct MeasureHomeContainer: View {
         // `measurements` is newest first: the newest of this system, readable or not.
         let latest = system.flatMap { system in measurements.first { $0.system === system } }
         let report = latest?.report
-        let summary = latest.flatMap { measurement in report.map { MeasureSummary(report: $0, date: measurement.date) } }
+        let summary = unsaved
+            ?? latest.flatMap { measurement in report.map { MeasureSummary(report: $0, date: measurement.date) } }
 
         MeasureHomeView(
             context: context,
             measurement: summary,
-            couldNotOpenSaved: latest != nil && report == nil,
+            couldNotOpenSaved: unsaved == nil && latest != nil && report == nil,
             primaryTitle: summary == nil ? SeatWords.measureTitle : SeatWords.measureAgainTitle,
             onPrimary: onMeasure,
             onShowNumbers: { if let summary { onShowNumbers(summary.report, summary.date) } },

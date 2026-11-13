@@ -15,10 +15,28 @@ nonisolated enum AppTab: String, Hashable, CaseIterable {
     }
 }
 
+/// How a tab asks the shell to show another tab ("It's the room" leads to Optimize), without reaching into its state.
+/// `RootView` sets it; where nothing sets it, calling it does nothing.
+struct SwitchTabAction {
+    private let action: (AppTab) -> Void
+
+    init(_ action: @escaping (AppTab) -> Void) {
+        self.action = action
+    }
+
+    func callAsFunction(_ tab: AppTab) { action(tab) }
+}
+
+extension EnvironmentValues {
+    @Entry var switchTab = SwitchTabAction { _ in }
+}
+
 /// The tab shell. The system tab bar is hidden and replaced by the design system's, as in the mockups;
 /// `TabView` still keeps each tab's state while another is shown.
 struct RootView: View {
     @State private var selection: AppTab = launchTab
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.appLifecycle) private var lifecycle
 
     /// Debug builds open on the tab named by `-initialTab measure`, so `make run TAB=…` can show any tab.
     private static var launchTab: AppTab {
@@ -54,11 +72,7 @@ struct RootView: View {
                         .toolbarVisibility(.hidden, for: .tabBar)
                 }
                 Tab(value: AppTab.measure) {
-                    // The measuring flow, The numbers and the live view are wired by the next task; until then the
-                    // buttons do nothing.
-                    MeasureHomeContainer(
-                        onMeasure: {}, onShowNumbers: { _, _ in }, onWatchLive: {}, onOpenOptimize: {}
-                    )
+                    MeasureTab()
                         .toolbarVisibility(.hidden, for: .tabBar)
                 }
                 Tab(value: AppTab.optimize) {
@@ -69,6 +83,11 @@ struct RootView: View {
             ResoniqTabBar(AppTab.allCases.map(\.item), selection: $selection)
         }
         .background(ResoniqColor.ink)
+        .environment(\.switchTab, SwitchTabAction { selection = $0 })
+        // A call, the lock button or another app: stop whatever plays or listens.
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active { lifecycle?.sceneLeftForeground() }
+        }
     }
 }
 

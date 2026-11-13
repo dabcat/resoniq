@@ -26,7 +26,10 @@ public struct MagnitudeResponse: Sendable, Equatable {
             let middle = (low + high) / 2
             if frequencies[middle] <= frequency { low = middle } else { high = middle }
         }
-        let fraction = log(frequency / frequencies[low]) / log(frequencies[high] / frequencies[low])
+        // A point at 0 Hz has no logarithm; interpolate linearly up from it.
+        let fraction = frequencies[low] > 0
+            ? log(frequency / frequencies[low]) / log(frequencies[high] / frequencies[low])
+            : (frequency - frequencies[low]) / (frequencies[high] - frequencies[low])
         return decibels[low] + fraction * (decibels[high] - decibels[low])
     }
 }

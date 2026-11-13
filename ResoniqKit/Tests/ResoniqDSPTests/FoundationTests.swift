@@ -99,4 +99,9 @@ import Testing
         #expect(response.decibels(at: 50) == 0)
         #expect(response.decibels(at: 20000) == -20)
     }
+
+    @Test func `a point at zero hertz does not poison the interpolation`() {
+        let response = MagnitudeResponse(frequencies: [0, 100, 200], decibels: [-10, 0, 0])
+        #expect(response.decibels(at: 50) == -5)
+    }
 }

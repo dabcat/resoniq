@@ -10,16 +10,38 @@ enum PortraitGeometry {
         return clean.count == 1 ? [clean[0], clean[0]] : clean
     }
 
-    /// Half-width, as a fraction of the half-width available, at a fraction of the height. This follows the
-    /// same curve the shape is drawn with: between two samples it eases like a smoothstep.
+    /// The slope of the smooth curve at each sample, in width per sample step. Monotone (Fritsch-Carlson): the
+    /// curve passes through every sample and never overshoots between two of them, and a peak or a trough is
+    /// level. The two ends take the slope of their neighbouring step, so the shape runs into a point rather than
+    /// stopping flat.
+    static func slopes(_ values: [Double]) -> [Double] {
+        let count = values.count
+        guard count >= 2 else { return [Double](repeating: 0, count: count) }
+        let steps = (0..<count - 1).map { values[$0 + 1] - values[$0] }
+        var slopes = [Double](repeating: 0, count: count)
+        slopes[0] = steps[0]
+        slopes[count - 1] = steps[count - 2]
+        for index in 1..<count - 1 where steps[index - 1] * steps[index] > 0 {
+            // The harmonic mean of the neighbouring steps.
+            slopes[index] = 2 * steps[index - 1] * steps[index] / (steps[index - 1] + steps[index])
+        }
+        return slopes
+    }
+
+    /// Half-width, as a fraction of the half-width available, at a fraction of the height. This is the curve the
+    /// shape is drawn with: a cubic Hermite curve through the samples.
     static func halfWidth(at fraction: Double, widths: [Double]) -> Double {
         let values = samples(widths)
         guard values.count >= 2 else { return 0 }
+        let slopes = slopes(values)
         let position = min(max(fraction.isNaN ? 0 : fraction, 0), 1) * Double(values.count - 1)
         let index = min(Int(position), values.count - 2)
         let t = position - Double(index)
-        let eased = t * t * (3 - 2 * t)
-        return values[index] + (values[index + 1] - values[index]) * eased
+        let t2 = t * t
+        let t3 = t2 * t
+        let value = (2 * t3 - 3 * t2 + 1) * values[index] + (t3 - 2 * t2 + t) * slopes[index]
+            + (-2 * t3 + 3 * t2) * values[index + 1] + (t3 - t2) * slopes[index + 1]
+        return min(max(value, 0), 1)
     }
 
     /// The part of `range` inside `limits`, or nil when nothing of it is left.
@@ -59,31 +81,30 @@ struct SpeakerPortraitShape: Shape {
         func y(_ index: Int) -> CGFloat { rect.maxY - rect.height * CGFloat(index) / CGFloat(last) }
         func x(_ index: Int, side: CGFloat) -> CGFloat { rect.midX + side * half * CGFloat(values[index]) }
 
+        let slopes = PortraitGeometry.slopes(values)
+        let rise = -rect.height / CGFloat(last)
+
+        /// One piece of the edge from sample `from` to `to` (a neighbour): the Hermite curve as a Bezier. The
+        /// height moves evenly, so only the width needs a curve.
+        func piece(from: Int, to: Int, side: CGFloat, in path: inout Path) {
+            let direction: CGFloat = to > from ? 1 : -1
+            let start = CGPoint(x: x(from, side: side), y: y(from))
+            let end = CGPoint(x: x(to, side: side), y: y(to))
+            let leave = side * half * CGFloat(slopes[from]) / 3 * direction
+            let arrive = side * half * CGFloat(slopes[to]) / 3 * direction
+            path.addCurve(
+                to: end,
+                control1: CGPoint(x: start.x + leave, y: start.y + rise * direction / 3),
+                control2: CGPoint(x: end.x - arrive, y: end.y - rise * direction / 3)
+            )
+        }
+
         var path = Path()
-        // Up the left edge, then down the right. Each piece leaves and arrives vertically, so the edge is
-        // smooth and cannot overshoot the samples.
+        // Up the left edge, then down the right: one smooth curve through every sample.
         path.move(to: CGPoint(x: x(0, side: -1), y: y(0)))
-        for index in 0..<last {
-            let from = CGPoint(x: x(index, side: -1), y: y(index))
-            let to = CGPoint(x: x(index + 1, side: -1), y: y(index + 1))
-            let rise = to.y - from.y
-            path.addCurve(
-                to: to,
-                control1: CGPoint(x: from.x, y: from.y + rise / 3),
-                control2: CGPoint(x: to.x, y: from.y + rise * 2 / 3)
-            )
-        }
+        for index in 0..<last { piece(from: index, to: index + 1, side: -1, in: &path) }
         path.addLine(to: CGPoint(x: x(last, side: 1), y: y(last)))
-        for index in stride(from: last, to: 0, by: -1) {
-            let from = CGPoint(x: x(index, side: 1), y: y(index))
-            let to = CGPoint(x: x(index - 1, side: 1), y: y(index - 1))
-            let rise = to.y - from.y
-            path.addCurve(
-                to: to,
-                control1: CGPoint(x: from.x, y: from.y + rise / 3),
-                control2: CGPoint(x: to.x, y: from.y + rise * 2 / 3)
-            )
-        }
+        for index in stride(from: last, to: 0, by: -1) { piece(from: index, to: index - 1, side: 1, in: &path) }
         path.closeSubpath()
         return path
     }

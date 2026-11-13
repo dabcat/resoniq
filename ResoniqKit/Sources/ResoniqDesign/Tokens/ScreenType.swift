@@ -22,6 +22,8 @@ public extension ResoniqFont {
 
 /// The two title sizes the result screens set with the display tracking.
 public enum ResoniqTitleSize: Sendable {
+    /// 26 pt: V3Optimize sets its suggestion at 25 pt; this is the nearest role.
+    case small
     /// 34 pt: V3Finding.
     case large
     /// 30 pt: V3Result.
@@ -29,6 +31,7 @@ public enum ResoniqTitleSize: Sendable {
 
     var font: Font {
         switch self {
+        case .small: ResoniqFont.title3
         case .large: ResoniqFont.title1
         case .medium: ResoniqFont.title2
         }
@@ -36,6 +39,7 @@ public enum ResoniqTitleSize: Sendable {
 
     var points: CGFloat {
         switch self {
+        case .small: 26
         case .large: 34
         case .medium: 30
         }

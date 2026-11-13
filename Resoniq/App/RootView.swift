@@ -58,7 +58,12 @@ struct RootView: View {
                         .toolbarVisibility(.hidden, for: .tabBar)
                 }
                 Tab(value: AppTab.optimize) {
-                    SelectedListeningContext { OptimizeHomeView(context: $0) }
+                    // The Optimize flow (scan, confirm, measure, AR, verify) is wired by the next task; until then the
+                    // home shows the right state and its buttons do nothing.
+                    OptimizeHomeContainer(
+                        onScan: {}, onManualEntry: {}, onEditLayout: {}, onMeasure: {}, onGuideInAR: { _ in },
+                        onMoveMyself: { _ in }, onShowVerification: {}, onRescan: {}
+                    )
                         .toolbarVisibility(.hidden, for: .tabBar)
                 }
             }

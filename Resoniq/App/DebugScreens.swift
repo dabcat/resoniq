@@ -6,7 +6,7 @@ enum DebugScreens {
     @MainActor
     static func view(named name: String) -> AnyView? {
         FlowDebugScreens.view(named: name) ?? ResultsDebugScreens.view(named: name) ?? ScanDebugScreens.view(named: name)
-            ?? ARDebugScreens.view(named: name)
+            ?? ARDebugScreens.view(named: name) ?? OptimizeDebugScreens.view(named: name)
     }
 }
 #endif

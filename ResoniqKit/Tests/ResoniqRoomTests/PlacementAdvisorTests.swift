@@ -7,6 +7,8 @@ import Testing
 
     /// The rules every suggestion keeps, whatever it is for.
     func checkRules(_ suggestions: [PlacementSuggestion], in room: RoomModel, limits: PlacementLimits = .standard) {
+        // A check over nothing proves nothing.
+        #expect(!suggestions.isEmpty)
         for suggestion in suggestions {
             guard let speaker = room.speaker(suggestion.speakerID) else {
                 Issue.record("unknown speaker")
@@ -16,6 +18,7 @@ import Testing
                 centre: suggestion.to.position, width: speaker.size.width, depth: speaker.size.depth,
                 heading: suggestion.to.facing)
             #expect(RoomGeometry.contains(suggestion.to.position, in: room))
+            #expect(footprint.corners.allSatisfy { RoomGeometry.isProvablyInside($0, in: room) })
             #expect(PlacementRules.allows(speakerFootprint: footprint, ignoring: speaker.id, in: room))
             let limit = speaker.role == .subwoofer ? limits.maximumSubwooferMove : limits.maximumMove
             #expect(suggestion.distance <= limit + 1e-9)
@@ -82,7 +85,9 @@ import Testing
     @Test func turnsAimAtTheSeat() throws {
         let room = Fixtures.stereoRoom
         let seat = try #require(room.primarySeat).position
-        for suggestion in PlacementAdvisor.suggestions(room: room, problems: [dip61]) where suggestion.turn != nil {
+        let turned = PlacementAdvisor.suggestions(room: room, problems: [dip61]).filter { $0.turn != nil }
+        #expect(!turned.isEmpty)
+        for suggestion in turned {
             #expect(isClose(suggestion.to.facing, (seat - suggestion.to.position).angle, 1e-9))
         }
     }
@@ -163,6 +168,7 @@ import Testing
         let dip = AcousticProblem(frequency: 343 / (4 * 0.3), deviation: 10, kind: .dip)
         let suggestions = PlacementAdvisor.suggestions(room: room, problems: [dip])
         #expect(!suggestions.isEmpty)
+        // Whether a 5 cm push back scores at all depends on the constants; when it does, it is no more than 5 cm.
         for suggestion in suggestions where suggestion.slides.first?.direction == .back {
             #expect(suggestion.distance <= 0.05 + 1e-9)
         }
@@ -201,5 +207,44 @@ import Testing
         room.seats = []
         let advice = PlacementAdvisor.advice(room: room, problems: [dip61])
         #expect(advice.suggestions.isEmpty && advice.unexplained == [dip61])
+    }
+
+    // MARK: A room with walls missing
+
+    /// The stereo room with a subwoofer, as a scan that missed walls: no floor outline, only the walls given.
+    func openRoom(keeping wallIndices: [Int]) -> RoomModel {
+        var room = Fixtures.stereoRoom
+        room.walls = wallIndices.map { room.walls[$0] }
+        room.floorOutline = []
+        room.speakers.append(
+            PlacedSpeaker(id: Fixtures.subID, role: .subwoofer, position: PlanPoint(x: -1.8, z: -2.5), facing: .pi / 2,
+                          isConfirmed: true))
+        return room
+    }
+
+    @Test func aRoomWithAWallMissingGetsNoNewSpot() throws {
+        let closed = openRoom(keeping: [0, 1, 2, 3])
+        #expect(RoomGeometry.isClosed(closed))
+        let peak = AcousticProblem(frequency: 82, deviation: 9, kind: .peak)
+        // Closed, the same problems give subwoofer spots and slides.
+        let closedAdvice = PlacementAdvisor.suggestions(room: closed, problems: [dip61, peak])
+        #expect(closedAdvice.contains { $0.role == .subwoofer })
+        #expect(closedAdvice.contains { !$0.slides.isEmpty })
+
+        let open = openRoom(keeping: [0, 1, 2])
+        #expect(!RoomGeometry.isClosed(open))
+        #expect(RoomGeometry.outline(of: open).isEmpty)
+        let suggestions = PlacementAdvisor.suggestions(room: open, problems: [dip61, peak])
+        // Nothing that moves a speaker: no point of an open room can be shown to be inside it.
+        #expect(suggestions.allSatisfy { $0.to.position == $0.from.position })
+        #expect(!suggestions.contains { $0.role == .subwoofer })
+    }
+
+    @Test func aRoomWithOneWallGetsNoNewSpot() {
+        let single = openRoom(keeping: [0])
+        let peak = AcousticProblem(frequency: 82, deviation: 9, kind: .peak)
+        let suggestions = PlacementAdvisor.suggestions(room: single, problems: [dip61, peak])
+        #expect(suggestions.allSatisfy { $0.to.position == $0.from.position })
+        #expect(!RoomGeometry.isProvablyInside(PlanPoint(x: 0, z: 0), in: single))
     }
 }

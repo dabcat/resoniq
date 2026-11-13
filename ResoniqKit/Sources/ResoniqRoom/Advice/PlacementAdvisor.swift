@@ -9,7 +9,8 @@ import Foundation
 ///    a dip, the seat or a speaker near a null). No term within tolerance: the problem is unexplained and nothing
 ///    is invented for it.
 /// 2. **Search.** For each main speaker, slide it along each of the four `MoveDirection`s in `gridStep` steps up to
-///    `PlacementLimits.maximumMove`, keeping `PlacementRules`, and turn it toward the seat. Score each spot: for each
+///    `PlacementLimits.maximumMove`, keeping `PlacementRules` and inside the room's closed outline (a scan with walls
+///    missing gets no new spot, since nothing in it can be shown to be inside), and turn it toward the seat. Score each spot: for each
 ///    explained problem, the best-matching term for that speaker either moves its dip away from the problem
 ///    (credit grows to `targetShift` and stops) or changes its coupling to the mode the right way, weighted by how
 ///    far outside the band the problem is; minus `movePenaltyPerMetre` for the distance, minus
@@ -239,6 +240,13 @@ private struct Context {
         return ListeningGeometry(seat: seat, left: left, right: right).unevenness
     }
 
+    /// Whether every corner of a footprint is inside the room's closed outline (`RoomGeometry.isProvablyInside`). A
+    /// room with walls missing has no closed outline, so nothing new is suggested in it: the advisor never proposes a
+    /// spot it cannot show to be inside.
+    func isShownInside(_ footprint: OrientedRect) -> Bool {
+        footprint.corners.allSatisfy { RoomGeometry.isProvablyInside($0, in: room) }
+    }
+
     /// Every allowed slide of a main speaker on the grid, turned toward the seat.
     func slides(of speaker: PlacedSpeaker) -> [(Slide, PlanPoint, Double)] {
         let count = Int((limits.maximumMove / PlacementAdvisor.gridStep) + 1e-9)
@@ -252,7 +260,9 @@ private struct Context {
                 let facing = (seat - position).angle
                 let footprint = OrientedRect(
                     centre: position, width: speaker.size.width, depth: speaker.size.depth, heading: facing)
-                guard PlacementRules.allows(speakerFootprint: footprint, ignoring: speaker.id, in: room) else { break }
+                guard PlacementRules.allows(speakerFootprint: footprint, ignoring: speaker.id, in: room),
+                      isShownInside(footprint)
+                else { break }
                 result.append((Slide(direction: direction, distance: distance), position, facing))
             }
         }
@@ -420,7 +430,8 @@ private struct Context {
                     let position = along + normal * inset
                     let footprint = OrientedRect(
                         centre: position, width: sub.size.width, depth: sub.size.depth, heading: normal.angle)
-                    if PlacementRules.allows(speakerFootprint: footprint, ignoring: sub.id, in: room) {
+                    if PlacementRules.allows(speakerFootprint: footprint, ignoring: sub.id, in: room),
+                       isShownInside(footprint) {
                         spots.append((position, sub.facing))
                     }
                 }

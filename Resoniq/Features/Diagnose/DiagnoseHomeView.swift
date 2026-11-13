@@ -270,6 +270,7 @@ struct DiagnoseHomeContainer: View {
     }
 }
 
+#if DEBUG
 #Preview("Left heard, right not") {
     DiagnoseHomeView(
         left: SpeakerSummary(position: .left, name: "Left", report: DiagnoseFixtures.buzzing),
@@ -304,3 +305,4 @@ struct DiagnoseHomeContainer: View {
     .dynamicTypeSize(.accessibility2)
     .preferredColorScheme(.dark)
 }
+#endif

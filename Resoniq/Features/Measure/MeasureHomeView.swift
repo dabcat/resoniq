@@ -19,6 +19,7 @@ struct MeasureHomeView: View {
     private let onPrimary: () -> Void
     private let onShowNumbers: () -> Void
     private let onWatchLive: () -> Void
+    private let onCompare: (() -> Void)?
     private let onOpenOptimize: () -> Void
 
     /// - Parameters:
@@ -26,6 +27,8 @@ struct MeasureHomeView: View {
     ///   - couldNotOpenSaved: A stored measurement exists but cannot be read, so it is treated as none and the
     ///     screen says so.
     ///   - primaryTitle: "Measure again from my seat", or "Measure from my seat" with nothing measured.
+    ///   - onCompare: "Compare with an earlier one"; nil when the system has fewer than two kept measurements, and the
+    ///     link is not shown.
     ///   - onOpenOptimize: The inferred "It's the room, not the speakers" finding was tapped.
     init(
         context: ListeningContext = .placeholder,
@@ -35,6 +38,7 @@ struct MeasureHomeView: View {
         onPrimary: @escaping () -> Void,
         onShowNumbers: @escaping () -> Void,
         onWatchLive: @escaping () -> Void,
+        onCompare: (() -> Void)? = nil,
         onOpenOptimize: @escaping () -> Void
     ) {
         self.context = context
@@ -44,6 +48,7 @@ struct MeasureHomeView: View {
         self.onPrimary = onPrimary
         self.onShowNumbers = onShowNumbers
         self.onWatchLive = onWatchLive
+        self.onCompare = onCompare
         self.onOpenOptimize = onOpenOptimize
     }
 
@@ -174,6 +179,10 @@ struct MeasureHomeView: View {
             Button(SeatWords.showNumbers, action: onShowNumbers)
                 .buttonStyle(ResoniqTextLinkStyle())
         }
+        if let onCompare {
+            Button(CompareWords.link, action: onCompare)
+                .buttonStyle(ResoniqTextLinkStyle())
+        }
         Button(SeatWords.watchLive, action: onWatchLive)
             .buttonStyle(ResoniqTextLinkStyle())
     }
@@ -256,6 +265,8 @@ struct MeasureHomeContainer: View {
     let onShowNumbers: (SeatReport, Date) -> Void
     let onWatchLive: () -> Void
     /// The inferred room finding was tapped.
+    /// "Compare with an earlier one", with the latest kept measurement and the earlier ones, newest first.
+    let onCompare: (KeptSeat, [KeptSeat]) -> Void
     let onOpenOptimize: () -> Void
 
     @Query private var states: [StoreState]
@@ -276,6 +287,11 @@ struct MeasureHomeContainer: View {
         let report = latest?.report
         let summary = unsaved
             ?? latest.flatMap { measurement in report.map { MeasureSummary(report: $0, date: measurement.date) } }
+        // The kept, readable, conclusive measurements of this system, newest first: two or more can be compared.
+        let kept: [KeptSeat] = measurements.compactMap { measurement in
+            guard measurement.system === system, let report = measurement.report, report.isConclusive else { return nil }
+            return KeptSeat(report: report, date: measurement.date)
+        }
 
         MeasureHomeView(
             context: context,
@@ -285,6 +301,7 @@ struct MeasureHomeContainer: View {
             onPrimary: onMeasure,
             onShowNumbers: { if let summary { onShowNumbers(summary.report, summary.date) } },
             onWatchLive: onWatchLive,
+            onCompare: kept.count >= 2 ? { onCompare(kept[0], Array(kept.dropFirst())) } : nil,
             onOpenOptimize: onOpenOptimize
         )
     }
@@ -292,6 +309,7 @@ struct MeasureHomeContainer: View {
 
 // MARK: - Previews
 
+#if DEBUG
 #Preview("The mockup's room") {
     MeasureHomeView(
         measurement: MeasureSummary(report: MeasureFixtures.mockup, date: .now.addingTimeInterval(-3 * 86_400)),
@@ -337,3 +355,4 @@ struct MeasureHomeContainer: View {
     .dynamicTypeSize(.accessibility2)
     .preferredColorScheme(.dark)
 }
+#endif

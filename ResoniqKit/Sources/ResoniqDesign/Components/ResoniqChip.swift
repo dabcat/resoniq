@@ -30,8 +30,11 @@ public struct ResoniqChip: View {
                 Text(title)
                     .font(Metrics.actionFont)
                     .foregroundStyle(ResoniqColor.ivory)
-                    .lineLimit(1)
+                    // Wraps at large type sizes rather than losing its end.
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
                     .padding(.horizontal, Metrics.actionPadding)
+                    .padding(.vertical, ResoniqSpace.s1)
                     .frame(minHeight: ResoniqSize.touchMin)
                     .overlay(Capsule().strokeBorder(ResoniqColor.line, lineWidth: Metrics.actionOutline))
                     .contentShape(Capsule())

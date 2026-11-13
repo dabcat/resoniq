@@ -16,21 +16,17 @@ struct ThreeSpotsScreen: View {
 
     var body: some View {
         FlowScaffold {
-            HStack(spacing: ResoniqSpace.s2) {
-                HStack(spacing: Metrics.pillGap) {
-                    ForEach(Array(display.pills.enumerated()), id: \.offset) { _, pill in
-                        ResoniqStatusPill(pill.title, style: Self.style(of: pill.state))
-                            .accessibilityElement(children: .ignore)
-                            .accessibilityLabel(pill.spoken)
-                    }
+            // The pills and the stop button on one row; under large text the pills take a row of their own.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: ResoniqSpace.s2) {
+                    pills
+                    Spacer(minLength: ResoniqSpace.s2)
+                    stopButton
                 }
-                Spacer(minLength: ResoniqSpace.s2)
-                Button(action: onStop) {
-                    RoundedRectangle(cornerRadius: Metrics.stopRadius, style: .continuous)
-                        .frame(width: Metrics.stopSide, height: Metrics.stopSide)
+                VStack(alignment: .leading, spacing: ResoniqSpace.s1) {
+                    HStack { Spacer(minLength: 0); stopButton }
+                    pills
                 }
-                .buttonStyle(ResoniqIconButtonStyle())
-                .accessibilityLabel("Stop measuring")
             }
         } content: {
             VStack(alignment: .leading, spacing: ResoniqSpace.s4) {
@@ -79,7 +75,30 @@ struct ThreeSpotsScreen: View {
             guard !instruction.isEmpty else { return }
             AccessibilityNotification.Announcement(instruction).post()
         }
+        .onChange(of: display.level.hint) { _, hint in
+            if let hint { AccessibilityNotification.Announcement("\(display.level.value). \(hint)").post() }
+        }
+        // The haptic marks a spot captured; the headline changes to "Got the seat spot." and is announced above.
         .sensoryFeedback(.impact(flexibility: .rigid), trigger: display.capturedCount) { old, new in new > old }
+    }
+
+    private var pills: some View {
+        HStack(spacing: Metrics.pillGap) {
+            ForEach(Array(display.pills.enumerated()), id: \.offset) { _, pill in
+                ResoniqStatusPill(pill.title, style: Self.style(of: pill.state))
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(pill.spoken)
+            }
+        }
+    }
+
+    private var stopButton: some View {
+        Button(action: onStop) {
+            RoundedRectangle(cornerRadius: Metrics.stopRadius, style: .continuous)
+                .frame(width: Metrics.stopSide, height: Metrics.stopSide)
+        }
+        .buttonStyle(ResoniqIconButtonStyle())
+        .accessibilityLabel("Stop measuring")
     }
 
     private static func style(of state: SpotsDiagram.SpotState) -> ResoniqStatusPill.Style {
@@ -115,6 +134,12 @@ private struct ReadingTile: View {
                 .font(Metrics.valueFont)
                 .foregroundStyle(ResoniqColor.ivory)
                 .fixedSize(horizontal: false, vertical: true)
+            if let hint = reading.hint {
+                Text(hint)
+                    .font(ResoniqFont.caption)
+                    .foregroundStyle(ResoniqColor.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .padding(.vertical, Metrics.vertical)
         .padding(.horizontal, ResoniqSpace.panelPadding)

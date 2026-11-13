@@ -167,6 +167,7 @@ private struct GuidingView: View {
 /// where the speaker has got to. A hold, not a toggle, so it cannot be left on while the phone looks elsewhere;
 /// it sits over the camera where a thumb rests, so it works one-handed. VoiceOver toggles it instead.
 private struct FollowControl: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let isOn: Bool
     let set: (Bool) -> Void
 
@@ -179,8 +180,8 @@ private struct FollowControl: View {
             .frame(minHeight: ResoniqSize.buttonHeight)
             .background(isOn ? ResoniqColor.guide : ResoniqColor.ink, in: Capsule())
             .contentShape(Capsule())
-            .scaleEffect(isOn ? ResoniqMotion.pressedScale : 1)
-            .animation(ResoniqMotion.press, value: isOn)
+            .scaleEffect(isOn && !reduceMotion ? ResoniqMotion.pressedScale : 1)
+            .animation(reduceMotion ? nil : ResoniqMotion.press, value: isOn)
             .onLongPressGesture(minimumDuration: 0, maximumDistance: Metrics.slop, perform: {}, onPressingChanged: set)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(ARGuidanceText.followLabel)

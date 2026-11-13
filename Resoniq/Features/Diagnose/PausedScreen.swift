@@ -31,6 +31,21 @@ struct PausedScreen: View {
                             .foregroundStyle(ResoniqColor.ivory)
                             .fixedSize(horizontal: false, vertical: true)
                             .accessibilityAddTraits(.isHeader)
+                        if let note = display.interference {
+                            // What the Kit's sound classifier heard in the pause, and how it knows.
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(note.sentence)
+                                    .font(Metrics.noiseFont)
+                                    .foregroundStyle(ResoniqColor.ivory)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                Text(note.tagLine)
+                                    .font(ResoniqFont.caption)
+                                    .foregroundStyle(ResoniqColor.muted)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityLabel("\(note.sentence) \(note.tagLine).")
+                        }
                         Text(resumeSentence)
                             .font(Metrics.sentenceFont)
                             .foregroundStyle(ResoniqColor.muted)
@@ -55,26 +70,20 @@ struct PausedScreen: View {
             }
         } footer: {
             VStack(spacing: ResoniqSpace.s1) {
-                // Not a control: it states what the app is waiting for.
-                Button {} label: {
-                    HStack(spacing: Metrics.waitingGap) {
-                        Circle()
-                            .fill(ResoniqColor.ivory)
-                            .frame(width: Metrics.dot, height: Metrics.dot)
-                            .resoniqWaitingPulse(low: Metrics.dotLow)
-                            .accessibilityHidden(true)
-                        Text("Waiting for quiet, then I continue")
-                    }
-                }
-                .buttonStyle(ResoniqSecondaryButtonStyle(.outlined))
-                .allowsHitTesting(false)
-                .accessibilityRemoveTraits(.isButton)
-
+                WaitingForQuietLine()
                 Button("Stop and start over", action: onStop)
                     .buttonStyle(ResoniqTextLinkStyle())
             }
         }
+        // The pause is a change VoiceOver must hear: the run stopped, and why.
+        .onAppear { AccessibilityNotification.Announcement(Self.pausedAnnouncement).post() }
+        .onChange(of: display.interference) { _, note in
+            guard let note else { return }
+            AccessibilityNotification.Announcement(note.sentence).post()
+        }
     }
+
+    static let pausedAnnouncement = "It got noisy, so I stopped."
 
     private var resumeSentence: String {
         let frequency = display.resumeFrequency ?? "where I stopped"
@@ -88,9 +97,36 @@ struct PausedScreen: View {
         static let headlineSize: CGFloat = 27
         static let headlineFont = ResoniqFont.font(.sansSemibold, size: headlineSize, relativeTo: .title)
         static let sentenceFont = ResoniqFont.font(.sansRegular, size: 14, relativeTo: .callout)
-        static let dot: CGFloat = 8
+        static let noiseFont = ResoniqFont.font(.sansMedium, size: 15, relativeTo: .body)
+    }
+}
+
+/// "Waiting for quiet, then I continue": the passive line of both Paused screens. Not a control, so it is not a
+/// button: it has the outlined pill's shape and says what the app is waiting for.
+struct WaitingForQuietLine: View {
+    @ScaledMetric(relativeTo: .body) private var dot: CGFloat = 8
+
+    var body: some View {
+        HStack(spacing: Metrics.gap) {
+            Circle()
+                .fill(ResoniqColor.ivory)
+                .frame(width: dot, height: dot)
+                .resoniqWaitingPulse(low: Metrics.dotLow)
+                .accessibilityHidden(true)
+            Text("Waiting for quiet, then I continue")
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .font(ResoniqFont.button)
+        .foregroundStyle(ResoniqColor.ivory)
+        .padding(.vertical, ResoniqSpace.s2)
+        .frame(maxWidth: .infinity, minHeight: ResoniqSize.buttonHeight)
+        .background(Capsule().strokeBorder(ResoniqColor.line, lineWidth: ResoniqSize.strokeHairline))
+        .accessibilityElement(children: .combine)
+    }
+
+    private enum Metrics {
+        static let gap: CGFloat = 10
         static let dotLow = 0.35
-        static let waitingGap: CGFloat = 10
     }
 }
 

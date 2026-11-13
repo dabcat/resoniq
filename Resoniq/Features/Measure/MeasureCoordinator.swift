@@ -4,6 +4,7 @@ import ResoniqDiagnostics
 import ResoniqRoom
 import ResoniqStore
 import SwiftData
+import SwiftUI
 
 /// Everything the Measure tab does besides drawing: which flow or live view is on screen, what was kept, whether The
 /// numbers are pushed. It decides navigation and what to save; every judgement about the seat comes from the Kit.
@@ -21,6 +22,19 @@ final class MeasureCoordinator {
     /// Pushed on the tab's navigation stack.
     nonisolated enum Route: Hashable {
         case numbers
+        /// The list of earlier measurements to compare the latest with.
+        case earlier
+        /// Two measurements over each other.
+        case comparison
+    }
+
+    /// Two kept measurements being compared: the latest, the earlier ones to pick from, the one picked and the Kit's
+    /// comparison of the two (`SeatComparison.compare`).
+    struct Comparing {
+        var latest: KeptSeat
+        var earlier: [KeptSeat]
+        var picked: KeptSeat?
+        var comparison: ComparisonReport?
     }
 
     /// The report The numbers is showing, and when it was measured.
@@ -34,6 +48,7 @@ final class MeasureCoordinator {
     private(set) var contentID = UUID()
     var path: [Route] = []
     private(set) var numbers: Numbers?
+    private(set) var comparing: Comparing?
     /// A measurement that finished but is not kept: one that could not conclude. Measure home shows it with what went
     /// wrong, until the next measurement.
     private(set) var unsaved: MeasureSummary?
@@ -60,6 +75,7 @@ final class MeasureCoordinator {
         let current = system?.persistentModelID
         guard current != shownSystem else { return }
         shownSystem = current
+        comparing = nil
         unsaved = nil
         numbers = nil
         path = []
@@ -107,6 +123,30 @@ final class MeasureCoordinator {
         path = []
     }
 
+    /// "Compare with an earlier one": the list of earlier measurements, with `latest` to compare them with.
+    func showEarlier(latest: KeptSeat, earlier: [KeptSeat]) {
+        guard !earlier.isEmpty else { return }
+        comparing = Comparing(latest: latest, earlier: earlier)
+        path = [.earlier]
+    }
+
+    /// An earlier measurement was picked: the Kit compares it with the latest. With no problem named as a target, the
+    /// earlier report's own extremes are the targets, so every one of its problems is looked for in the latest.
+    func pickEarlier(_ picked: KeptSeat) {
+        guard var comparing else { return }
+        comparing.picked = picked
+        comparing.comparison = SeatComparison.compare(
+            before: picked.report, after: comparing.latest.report, targeting: picked.report.extremes
+        )
+        self.comparing = comparing
+        path = [.earlier, .comparison]
+    }
+
+    /// Back from the comparison to the list, or from the list to home.
+    func closeComparison() {
+        if !path.isEmpty { path.removeLast() }
+    }
+
     private func show(_ content: Content) {
         contentID = UUID()
         self.content = content
@@ -126,6 +166,12 @@ final class MeasureCoordinator {
         unsaved = kept == nil ? MeasureSummary(report: report, date: .now) : nil
         close()
         if let kept { onSeatKept?(kept) }
+        // The cover closes onto Measure home; say what was found, since nothing on screen moves VoiceOver there.
+        let verdict = report.verdict
+        Task {
+            try? await Task.sleep(for: .seconds(1))
+            AccessibilityNotification.Announcement(verdict).post()
+        }
     }
 
     // MARK: Leaving

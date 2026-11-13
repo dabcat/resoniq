@@ -6,6 +6,10 @@ import SwiftUI
 /// test and every later one are this same screen.
 struct AimScreen: View {
     @Binding var position: SpeakerPosition
+    /// The speakers to choose from: left and right for a pair; one alone (a soundbar or a single speaker) has nothing
+    /// to choose, so the control gives way to its name.
+    var choices: [SpeakerPosition] = [.left, .right]
+    var singleName = "Speaker"
     var onStart: () -> Void
     var onClose: () -> Void
 
@@ -38,15 +42,22 @@ struct AimScreen: View {
 
                 AimIllustration()
 
-                ResoniqSegmentedControl(
-                    [
-                        ResoniqSegment(SpeakerPosition.left, title: "Left"),
-                        ResoniqSegment(SpeakerPosition.right, title: "Right"),
-                        ResoniqSegment(SpeakerPosition.single, title: "Only one"),
-                    ],
-                    selection: $position,
-                    label: "Which speaker"
-                )
+                if choices.count > 1 {
+                    ResoniqSegmentedControl(
+                        choices.map { ResoniqSegment($0, title: $0 == .right ? "Right" : "Left") },
+                        selection: $position,
+                        label: "Which speaker"
+                    )
+                } else {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Speaker").resoniqCapsLabel()
+                        Text(singleName)
+                            .font(ResoniqFont.bodyMedium)
+                            .foregroundStyle(ResoniqColor.ivory)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: ResoniqSize.segmentHeight, alignment: .leading)
+                    .accessibilityElement(children: .combine)
+                }
             }
             // Pinned to the top, under the header, as on the other flow screens: left to itself the scaffold
             // centres content that is shorter than the space it is given, which left a band under the status bar.

@@ -14,6 +14,7 @@ struct RoomsSheet: View {
     var onClose: () -> Void
 
     @Environment(\.resoniqStore) private var store
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Query(sort: \Room.createdAt) private var rooms: [Room]
     @Query private var states: [StoreState]
 
@@ -91,7 +92,7 @@ struct RoomsSheet: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Button(isEditing ? RoomsText.stopEditing : RoomsText.edit) {
-                    withAnimation(ResoniqMotion.sheet) { isEditing.toggle() }
+                    withAnimation(reduceMotion ? nil : ResoniqMotion.sheet) { isEditing.toggle() }
                 }
                 .buttonStyle(ResoniqTextLinkStyle())
                 Spacer(minLength: ResoniqSpace.s3)

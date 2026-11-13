@@ -39,7 +39,9 @@ struct DiagnoseFlowView<Result: View>: View {
     private func screen(for step: DiagnoseFlow.Step) -> some View {
         switch step {
         case .aim:
-            AimScreen(position: $flow.position, onStart: flow.start, onClose: onClose)
+            AimScreen(
+                position: $flow.position, choices: flow.choices, singleName: flow.singleName, onStart: flow.start, onClose: onClose
+            )
         case .listening:
             ListeningScreen(display: flow.runDisplay, onStop: flow.stop)
         case .paused:

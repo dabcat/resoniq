@@ -22,8 +22,8 @@ struct AppComposition {
     ) -> AppComposition? {
         var inMemory = inMemory
         var audio = audio
-        var opensFlow = false
         #if DEBUG
+        var opensFlow = false
         let defaults = UserDefaults.standard
         if defaults.bool(forKey: "inMemoryStore") { inMemory = true }
         if defaults.string(forKey: "screen") == "app-flow" {
@@ -40,7 +40,9 @@ struct AppComposition {
         }
         let memory = ComparisonMemory()
         let coordinator = DiagnoseCoordinator(store: store, memory: memory, audio: audio)
+        #if DEBUG
         if opensFlow { coordinator.startTest(.left) }
+        #endif
         let measure = MeasureCoordinator(store: store, audio: audio)
         let optimize = OptimizeCoordinator(store: store, measure: measure, sources: optimizeSources)
 

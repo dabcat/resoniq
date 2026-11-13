@@ -1,3 +1,4 @@
+import ResoniqAudio
 import ResoniqDesign
 import ResoniqDiagnostics
 import ResoniqStore
@@ -20,6 +21,9 @@ struct ResultScreen: View {
     let speaker: SpeakerPosition
     /// Nil is a quick check that was not saved: the screen says so instead of showing where it is kept.
     let keptIn: KeptIn?
+    /// The Kit's sentence when the phone moved while a run played (`ReadingText.phoneMovedNote`); nil when it did not, and
+    /// for a result opened from the store, which does not carry it.
+    var phoneMovedNote: String? = nil
     let primaryTitle: String
     let onPrimary: () -> Void
     let onOpenFinding: (Finding) -> Void
@@ -27,12 +31,16 @@ struct ResultScreen: View {
     let onDontKeep: () -> Void
     let onClose: () -> Void
 
+    /// VoiceOver lands on the verdict when the screen appears, not on the line above it.
+    @AccessibilityFocusState private var verdictFocused: Bool
+
     var body: some View {
         VStack(spacing: ResoniqSpace.s4) {
             ScrollView {
                 VStack(alignment: .leading, spacing: ResoniqSpace.s4) {
                     header
                     portraitPanel
+                    movedNote
                     keptRow
                 }
                 .padding(.horizontal, ResoniqSpace.screenInset)
@@ -48,6 +56,7 @@ struct ResultScreen: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(ResoniqColor.ink)
         .accessibilityAction(.escape, onClose)
+        .onAppear { verdictFocused = true }
     }
 
     // MARK: Header
@@ -59,6 +68,7 @@ struct ResultScreen: View {
             Text(report.verdict)
                 .resoniqTitle(.medium)
                 .accessibilityAddTraits(.isHeader)
+                .accessibilityFocused($verdictFocused)
         }
     }
 
@@ -89,6 +99,24 @@ struct ResultScreen: View {
             }
         }
         .resoniqPanel()
+    }
+
+    /// "The phone moved while run 2 played. I kept that run, so read its details with a little care." with how it is
+    /// known. Said plainly, not as a finding: the run is kept and the result stands.
+    @ViewBuilder
+    private var movedNote: some View {
+        if let phoneMovedNote {
+            VStack(alignment: .leading, spacing: 3) {
+                ResoniqEvidenceTag(.measured, basis: ReadingText.phoneMovedBasis)
+                Text(phoneMovedNote)
+                    .font(ResoniqFont.body)
+                    .foregroundStyle(ResoniqColor.ivory)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(phoneMovedNote) Measured, from \(ReadingText.phoneMovedBasis).")
+        }
     }
 
     // MARK: Where it is kept
@@ -288,6 +316,7 @@ private struct PortraitNotesLayout: Layout {
     }
 }
 
+#if DEBUG
 #Preview("Buzz, dip, even") {
     ResultScreen(
         report: DiagnoseFixtures.buzzing, speaker: .left, keptIn: KeptIn(room: "My room", system: "My speakers"),
@@ -324,3 +353,4 @@ private struct PortraitNotesLayout: Layout {
     .dynamicTypeSize(.accessibility2)
     .preferredColorScheme(.dark)
 }
+#endif

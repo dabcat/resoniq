@@ -71,6 +71,12 @@ func bell(_ frequency: Float, centre: Float, gain: Float, width: Float = 0.12) -
     /// The repeatability at 61 Hz for two reports with no spot-to-spot spread: the floor.
     static let floor = SeatThresholds.standard.repeatabilityDecibels
 
+    @Test func `two measurements from different days are not called a move`() {
+        #expect(SeatComparison.occasionsNote.hasPrefix("These are two measurements, not a before and after of a move."))
+        // `ComparisonReport.note` is about a move measured straight after: it must not stand under a dated pair.
+        #expect(!SeatComparison.occasionsNote.contains("just now"))
+    }
+
     @Test func `a change inside the repeatability is unchanged, just outside it is not`() throws {
         let before = SeatDiagnosis.diagnose(spots: Self.dipBefore, room: nil)
         let target = try #require(before.extremes.first)

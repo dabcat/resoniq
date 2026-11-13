@@ -36,6 +36,16 @@ public enum SeatText {
         return "\(tenths / 10).\(tenths % 10) dB"
     }
 
+    /// The smallest difference the seat result writes, dB: one tenth, the resolution of its figures.
+    public static let displayResolutionDecibels: Float = 0.1
+
+    /// A difference as "within" or "±" figures write it: "1.2 dB". **Rule**: a difference that would round under the
+    /// display resolution is written as the resolution, "0.1 dB", never "0.0 dB": two measured curves are never
+    /// known to be identical, only closer than the figure can show, and "within 0.1 dB" stays true.
+    static func differenceTenths(_ value: Float) -> String {
+        decibelsTenths(max(abs(value), displayResolutionDecibels))
+    }
+
     /// "9 dB".
     static func decibels(_ value: Float) -> String { "\(Int(abs(value).rounded())) dB" }
 
@@ -52,7 +62,27 @@ public enum SeatText {
     // MARK: Progress and notes
 
     /// "1 of 3 in".
-    static func progress(valid: Int, required: Int) -> String { "\(min(valid, required)) of \(required) in" }
+    public static func progress(valid: Int, required: Int) -> String { "\(min(valid, required)) of \(required) in" }
+
+    private static func number(_ value: Int) -> String {
+        let words = ["No", "One", "Two", "Three"]
+        return words.indices.contains(value) ? words[value] : String(value)
+    }
+
+    /// The sentence VoiceOver reads for the "Building the average" panel: how many spots are in and what is drawn.
+    /// `drawn` is how many spot curves are drawn so far.
+    public static func buildingLabel(captured: Int, drawn: Int, of total: Int) -> String {
+        guard captured > 0 else { return "The average of the three spots will build here. No spot is in yet." }
+        let inCount = "\(number(captured)) of \(number(total).lowercased()) spots \(captured == 1 ? "is" : "are") in."
+        guard drawn > 0 else { return "\(inCount) Their curves are drawn once I've read the recordings." }
+        return "\(inCount) Each spot's line is drawn faintly and their average is drawn over them."
+    }
+
+    /// While the spots are put together into the result.
+    public static let analysingHeadline = "Putting the three spots together."
+    public static let analysingBody = "I average them so one odd spot can't fool us. This takes a moment."
+    public static let analysingKicker = "Almost there"
+    public static let analysingWaiting = "Reading your seat"
 
     static let footnote =
         "Taken with the iPhone's own microphone, which isn't calibrated. Trust the shapes and the differences more than the absolute decibels."
@@ -157,12 +187,12 @@ public enum SeatText {
     }
 
     /// "Measured · within 1.2 dB".
-    static func matchTagLine(_ difference: Float) -> String { "\(measuredTag) · within \(decibelsTenths(difference))" }
+    static func matchTagLine(_ difference: Float) -> String { "\(measuredTag) · within \(differenceTenths(difference))" }
 
     static let leftMatches = "Left matches right"
 
     static func leftMatchesDetail(_ difference: Float) -> String {
-        "Above the bass, the two speakers stay within \(decibelsTenths(difference)) of each other."
+        "Above the bass, the two speakers stay within \(differenceTenths(difference)) of each other."
     }
 
     /// "Left and right differ in the treble".
@@ -236,7 +266,7 @@ public enum SeatText {
     static let leftRightLabel = "L / R"
 
     /// "±1.2 dB".
-    static func plusMinus(_ value: Float) -> String { "±\(decibelsTenths(value))" }
+    static func plusMinus(_ value: Float) -> String { "±\(differenceTenths(value))" }
 
     /// "< 80 Hz".
     static func below(_ frequency: Float) -> String { "< \(self.frequency(frequency))" }

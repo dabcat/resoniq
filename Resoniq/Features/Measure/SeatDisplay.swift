@@ -109,17 +109,18 @@ nonisolated enum NumbersSegment: String, CaseIterable, Hashable {
 }
 
 extension SeatReport {
-    /// The seat curve for `ResponseCurve`; nil before any spot is valid.
-    var curveLevels: [Double]? { curve.map(Self.levels) }
+    /// The seat curve for `ResponseCurve`; nil before any spot is valid. Only what the Kit says may be drawn
+    /// (`drawableCurve`); the component draws every grid point, so the Kit's held edges fill the rest.
+    var curveLevels: [Double]? { drawableCurve.map(Self.levels) }
 
     /// The left trace for `ChannelComparisonChart` (the one speaker's trace for a single speaker); nil before any
     /// spot is valid.
-    var leftLevels: [Double]? { leftCurve.map(Self.levels) }
+    var leftLevels: [Double]? { drawableLeftCurve.map(Self.levels) }
 
     /// The right trace; nil for a single speaker.
-    var rightLevels: [Double]? { rightCurve.map(Self.levels) }
+    var rightLevels: [Double]? { drawableRightCurve.map(Self.levels) }
 
-    private static func levels(_ curve: [Float]) -> [Double] { curve.map(Double.init) }
+    private static func levels(_ curve: [Float?]) -> [Double] { SeatReport.heldAtEdges(curve).map(Double.init) }
 
     /// Whether the system has one speaker, so there is no left and right to compare.
     var isSingleSpeaker: Bool { rightCurve == nil }

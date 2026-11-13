@@ -37,6 +37,7 @@ public struct SpectrumBars: View {
     private let range: ClosedRange<Double>
     private let title: String?
     private let detail: String?
+    private let fillsHeight: Bool
     private let accessibilityText: String
 
     /// - Parameters:
@@ -44,14 +45,18 @@ public struct SpectrumBars: View {
     ///   - range: The decibels from the bottom to the top of the plot.
     ///   - title: The caps label above the bars on the left ("Live").
     ///   - detail: The caps text on the right ("dB per third octave").
+    ///   - fillsHeight: The bars take all the height they are offered (the live screen), at least their usual
+    ///     height, instead of the fixed one.
     ///   - accessibilityLabel: One sentence that states what is heard.
     public init(
         levels: [Double],
         range: ClosedRange<Double> = -90...(-10),
         title: String? = nil,
         detail: String? = nil,
+        fillsHeight: Bool = false,
         accessibilityLabel: String
     ) {
+        self.fillsHeight = fillsHeight
         self.levels = levels
         self.range = range
         self.title = title
@@ -84,9 +89,11 @@ public struct SpectrumBars: View {
                     )
                 )
             }
-            .frame(height: Metrics.plotHeight)
+            .frame(minHeight: fillsHeight ? Metrics.plotHeight : nil, maxHeight: fillsHeight ? .infinity : nil)
+            .frame(height: fillsHeight ? nil : Metrics.plotHeight)
             FrequencyAxisLabels()
         }
+        .frame(maxHeight: fillsHeight ? .infinity : nil)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityText)
         .accessibilityAddTraits([.isImage, .updatesFrequently])

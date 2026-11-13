@@ -1,0 +1,29 @@
+.DS_Store
+build/
+.build/
+DerivedData/
+xcuserdata/
+*.xcuserdatad/
+.swiftpm/
+
+# The Xcode project is generated from project.yml (`make project`).
+*.xcodeproj
+
+# Core ML models are built or downloaded, never committed.
+*.mlpackage
+*.mlmodelc
+
+# Per-developer signing
+Config/Signing.local.xcconfig
+
+# Agent worktrees (CLAUDE.md "Workflow")
+.claude/worktrees/
+.superpowers/
+
+# Obsidian vault at docs/: only the shared settings are committed.
+docs/.obsidian/workspace*.json
+docs/.obsidian/cache
+docs/.obsidian/plugins/
+docs/.obsidian/themes/
+docs/.obsidian/appearance.json
+docs/.obsidian/hotkeys.json

@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Finding: hear it yourself</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#F0EBE1;text-decoration:underline;text-underline-offset:3px}a:hover{color:#A9A398}
+@keyframes jitter{0%,100%{transform:translateY(-1.2px)}50%{transform:translateY(1.2px)}}
+@keyframes ring{0%{transform:scale(1);opacity:.6}100%{transform:scale(1.5);opacity:0}}
+.press{transition:transform .14s cubic-bezier(.3,1.4,.5,1)}.press:active{transform:scale(.94)}
+@media (prefers-reduced-motion:reduce){*{animation:none!important}}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #151412; color: #F0EBE1; font-family: 'Instrument Sans', system-ui, sans-serif; display: flex; flex-direction: column; padding: 60px 24px 34px; gap: 16px; overflow: hidden">
+
+<div style="display: flex; align-items: center; gap: 12px; height: 44px">
+<a href="V3Result.dc.html" aria-label="Back to the portrait" style="width: 44px; height: 44px; border-radius: 22px; background: #1F1D1A; display: flex; align-items: center; justify-content: center; color: #F0EBE1">
+<svg aria-hidden="true" width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 3.5L5.500 9l5.500 5.500"/></svg>
+</a>
+<div style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: #A9A398">Left speaker · woofer</div>
+</div>
+
+<h1 style="margin: 0; font-size: 34px; line-height: 1.05; font-weight: 600; letter-spacing: -0.03em">A buzz around 90 Hz.</h1>
+
+<div style="background: #1F1D1A; border: 1px solid #3B3731; border-radius: 18px; padding: 14px 14px 12px; display: flex; flex-direction: column; gap: 8px">
+<div style="display: flex; justify-content: space-between; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #A9A398">
+<div>3 runs compared</div>
+<div style="color: #FF8157">Same place every time</div>
+</div>
+<svg role="img" aria-label="Three test runs one above the other. All three turn rough in the same place, between 70 and 110 hertz" width="312" height="104" viewBox="0 0 312 104" fill="none" stroke-linecap="round" stroke-linejoin="round">
+<rect x="120" y="0" width="72" height="104" fill="#3D2218"/>
+<path d="M0 18h120M192 18h120M0 52h120M192 52h120M0 86h120M192 86h120" stroke="#F0EBE1" stroke-width="2"/>
+<g stroke="#FF5B2E" stroke-width="2.5" style="animation: jitter .09s linear infinite">
+<path d="M120 18l6-8 6 16 6-16 6 16 6-16 6 16 6-16 6 16 6-16 6 16 6-16 6 8"/>
+<path d="M120 52l6-7 6 14 6-15 6 16 6-14 6 13 6-15 6 16 6-14 6 14 6-15 6 7"/>
+<path d="M120 86l6-8 6 15 6-14 6 15 6-16 6 16 6-15 6 14 6-15 6 16 6-16 6 8"/>
+</g>
+</svg>
+<div style="display: flex; justify-content: space-between; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; color: #A9A398">
+<div>40 Hz</div>
+<div style="color: #FF8157">70–110 Hz</div>
+<div>200 Hz</div>
+</div>
+</div>
+
+<div style="display: flex; align-items: center; gap: 20px; padding: 4px 0">
+<div style="position: relative; width: 92px; height: 92px; flex-shrink: 0">
+<div aria-hidden="true" style="position: absolute; left: 0; top: 0; width: 92px; height: 92px; border-radius: 46px; border: 2px solid #FF5B2E; box-sizing: border-box; animation: ring 1.8s ease-out infinite"></div>
+<button type="button" class="press" aria-label="Hold to play 90 hertz through the left speaker" style="position: absolute; left: 0; top: 0; width: 92px; height: 92px; border: 0; border-radius: 46px; background: #FF5B2E; color: #151412; display: flex; align-items: center; justify-content: center">
+<svg aria-hidden="true" width="34" height="34" viewBox="0 0 34 34" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13v8h6l8 7V6l-8 7z"/><path d="M24 12c2 3 2 7 0 10M28 8c4 5 4 13 0 18"/></svg>
+</button>
+</div>
+<div style="display: flex; flex-direction: column; gap: 4px">
+<div style="font-size: 21px; font-weight: 600; letter-spacing: -0.01em">Hold to hear it</div>
+<div style="font-size: 14px; line-height: 1.4; color: #A9A398">I play a steady 90 Hz through the left speaker. Put your ear near the woofer.</div>
+</div>
+</div>
+
+<div style="display: flex; flex-direction: column; flex-grow: 1">
+<div style="display: flex; gap: 12px; padding: 12px 0; border-top: 1px solid #3B3731">
+<svg aria-hidden="true" width="10" height="10" viewBox="0 0 10 10" style="margin-top: 5px; flex-shrink: 0"><circle cx="5" cy="5" r="4" fill="none" stroke="#FF8157" stroke-width="1.5"/><path d="M5 1a4 4 0 010 8z" fill="#FF8157"/></svg>
+<div style="font-size: 14px; line-height: 1.4">Inferred, medium confidence. It repeats every run, but from one microphone position I can't rule out something near the speaker vibrating.</div>
+</div>
+<a href="V3Start.dc.html" style="display: flex; align-items: center; gap: 12px; min-height: 60px; border-top: 1px solid #3B3731; text-decoration: none">
+<div style="display: flex; flex-direction: column; gap: 2px; flex-grow: 1">
+<div style="font-size: 16px; font-weight: 600">Speaker or room? Swap test</div>
+<div style="font-size: 13px; color: #A9A398">Swap left and right. If the buzz moves, it's the speaker.</div>
+</div>
+<svg aria-hidden="true" width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="#F0EBE1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3.500L12.500 9 7 14.500"/></svg>
+</a>
+<a href="V3Start.dc.html" style="display: flex; align-items: center; gap: 12px; min-height: 60px; border-top: 1px solid #3B3731; border-bottom: 1px solid #3B3731; text-decoration: none">
+<div style="display: flex; flex-direction: column; gap: 2px; flex-grow: 1">
+<div style="font-size: 16px; font-weight: 600">Listen from a second spot</div>
+<div style="font-size: 13px; color: #A9A398">A closer run at the woofer raises confidence.</div>
+</div>
+<svg aria-hidden="true" width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="#F0EBE1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3.500L12.500 9 7 14.500"/></svg>
+</a>
+</div>
+
+<a href="V3Measure.dc.html" style="min-height: 44px; display: flex; align-items: center; justify-content: center; font-size: 15px; color: #A9A398">Show the distortion numbers</a>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

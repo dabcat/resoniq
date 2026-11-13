@@ -1,0 +1,29 @@
+filters:
+  and:
+    - 'file.ext == "md"'
+    - 'type == "module" || type == "plan"'
+
+properties:
+  status:
+    displayName: "Status"
+  phase:
+    displayName: "Phase"
+  spec_module:
+    displayName: "Spec module"
+
+views:
+  - type: table
+    name: "Modules"
+    filters: 'type == "module"'
+    order:
+      - file.name
+      - spec_module
+      - phase
+      - status
+  - type: table
+    name: "Plans"
+    filters: 'type == "plan"'
+    order:
+      - file.name
+      - phase
+      - status

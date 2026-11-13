@@ -129,7 +129,8 @@ public final class SeatMeasurementSession {
     }
 
     /// Stops the measurement: playback stops at once, the audio is released, and the state becomes
-    /// `failed(.cancelled)`. Safe in any state.
+    /// `failed(.cancelled)`. Safe in any state and more than once (after the end it does nothing), so the app calls
+    /// it when the scene leaves the foreground.
     public func cancel() {
         if let task {
             task.cancel()

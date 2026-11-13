@@ -11,6 +11,8 @@ final class ToneAudioIO: AudioIO {
         var stops = 0
         var schedules = 0
         var blocksDelivered = 0
+        /// Blocks asked for after `stop()`: none, if the microphone is really let go.
+        var blocksAfterStop = 0
     }
 
     let sampleRate: Double
@@ -39,6 +41,7 @@ final class ToneAudioIO: AudioIO {
             if Task.isCancelled { return nil }
             let index = self.calls.withLock { calls in
                 defer { calls.blocksDelivered += 1 }
+                if calls.stops > 0 { calls.blocksAfterStop += 1 }
                 return calls.blocksDelivered
             }
             let start = index * blockSize
@@ -92,22 +95,29 @@ final class ToneAudioIO: AudioIO {
 
     @Test func `the stream ends and the microphone stops when its task is cancelled`() async throws {
         let io = ToneAudioIO()
+        // Each update the listener receives is signalled, so the test waits on updates, not on a clock or a spin.
+        let (received, signal) = AsyncStream<Void>.makeStream()
         let listener = Task {
             var count = 0
-            for await _ in LiveSpectrum(io: io).bands() { count += 1 }
+            for await _ in LiveSpectrum(io: io).bands() {
+                count += 1
+                signal.yield()
+            }
+            signal.finish()
             return count
         }
-        // Let it run a little, counted in blocks rather than time.
-        while io.recorded.blocksDelivered < 8 { await Task.yield() }
+        var updates = 0
+        for await _ in received {
+            updates += 1
+            if updates == 5 { break }
+        }
         listener.cancel()
         let count = await listener.value
-        #expect(count > 0)
+        #expect(count >= 5)
         for await _ in io.stops { break }
         #expect(io.recorded.starts == 1 && io.recorded.stops == 1 && io.recorded.schedules == 0)
-        // Nothing reads the microphone any more.
-        let delivered = io.recorded.blocksDelivered
-        for _ in 0..<1000 { await Task.yield() }
-        #expect(io.recorded.blocksDelivered == delivered)
+        // Nothing asked the microphone for a block once it was stopped.
+        #expect(io.recorded.blocksAfterStop == 0)
     }
 
     @Test func `the microphone stops when the consumer stops iterating`() async {

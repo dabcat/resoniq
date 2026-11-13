@@ -58,12 +58,8 @@ import Testing
         let player = TonePlayer(io: io)
         try await player.start(frequency: 1000, on: .left)
         #expect(player.isPlaying)
-        // Immediate pacing: the 20 s pass as fast as the blocks can be made.
-        var spins = 0
-        while player.isPlaying, spins < 1_000_000 {
-            await Task.yield()
-            spins += 1
-        }
+        // Immediate pacing: the 20 s pass as fast as the blocks can be made; the capture timeline is the only clock.
+        await player.waitUntilSilent()
         #expect(!player.isPlaying && !io.isRunning)
         // Fade in, loop, and the fade out that ended it.
         #expect(io.scheduledBufferCount == 3)

@@ -447,6 +447,8 @@ struct SimulationState: Sendable {
 
     mutating func schedule(_ samples: [Float], on channel: SpeakerChannel, mode: PlaybackMode) throws(AudioIOError) -> Int64 {
         guard running else { throw .notRunning }
+        // As `EngineAudioIO`: positions are only known once the microphone has delivered a block.
+        guard deliveredBlocks > 0 else { throw .unavailable("no microphone block yet") }
         guard !samples.isEmpty else { throw .unavailable("an empty buffer") }
         let loopIndex = items.lastIndex { $0.loops && $0.end == .max }
         switch mode {

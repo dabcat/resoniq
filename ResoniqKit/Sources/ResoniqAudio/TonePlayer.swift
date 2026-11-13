@@ -1,6 +1,12 @@
 import Foundation
 import ResoniqDSP
 
+/// Why the "hold to hear" tone could not play.
+public enum TonePlayerError: Error, Sendable, Equatable {
+    /// The audio could not start, or stopped before the tone could be scheduled: "I couldn't start the sound."
+    case audioUnavailable
+}
+
 /// "Hold to hear": a steady sine on one channel at the safe level, faded in and out so it never clicks.
 ///
 /// The tone is a loop of a whole number of periods (`TestSignal.sine`), so it repeats seamlessly for as long as it is
@@ -17,6 +23,9 @@ public final class TonePlayer {
     /// Shortest and longest loop, seconds. Longer loops fit a whole number of periods closer to the frequency asked;
     /// shorter ones stop sooner after `stop()`.
     nonisolated public static let loopDurations: ClosedRange<Double> = 0.1...0.25
+    /// The longest a tone plays before it fades out by itself, seconds. *First guess*: 20 s, far longer than anyone
+    /// holds a button to listen.
+    nonisolated public static let maximumDuration: Double = 20
 
     /// The frequency actually playing, hertz; nil when silent.
     public private(set) var frequency: Double?
@@ -29,35 +38,58 @@ public final class TonePlayer {
     @ObservationIgnored private var fadeOutEnd: Int64?
     @ObservationIgnored private var channel: SpeakerChannel = .both
     @ObservationIgnored private var sampleRate = 48000.0
+    /// The capture position the tone was scheduled at.
+    @ObservationIgnored private var startPosition: Int64 = 0
 
     public init(io: any AudioIO) {
         self.io = io
     }
 
-    /// Starts the tone, or moves it to a new frequency or channel if one is playing.
+    /// Starts the tone, or moves it to a new frequency or channel if one is playing. Throws
+    /// `TonePlayerError.audioUnavailable` when the audio cannot start.
+    ///
+    /// The IO places a buffer on the capture timeline, which it only knows once the microphone has delivered a block
+    /// (`EngineAudioIO` refuses to schedule before, about 100 ms after starting), so the tone is scheduled when the
+    /// first block arrives. It fades out by itself after `maximumDuration`.
     public func start(frequency requested: Double, on channel: SpeakerChannel) async throws {
         if isPlaying { await stopAndWait() }
-        let stream = try await io.start()
+        let stream: CaptureStream
+        do {
+            stream = try await io.start()
+        } catch {
+            throw TonePlayerError.audioUnavailable
+        }
         let sampleRate = stream.sampleRate
         self.sampleRate = sampleRate
         self.channel = channel
         let tone = Self.segments(frequency: requested, sampleRate: sampleRate)
         loop = tone.loop
         fadeOut = tone.fadeOut
+
+        // The first block, through an iterator of its own; the drain below takes the rest (one consumer at a time).
+        var firstBlocks = stream.blocks.makeAsyncIterator()
+        let first: CapturedBlock?
         do {
+            first = try await firstBlocks.next()
+            guard let first, !Task.isCancelled else { throw TonePlayerError.audioUnavailable }
             _ = try io.schedule(tone.fadeIn, on: channel, mode: .once)
             _ = try io.schedule(tone.loop, on: channel, mode: .loop)
+            startPosition = first.position
         } catch {
+            io.stopPlayback()
             await io.stop()
-            throw error
+            throw TonePlayerError.audioUnavailable
         }
         frequency = tone.frequency
         isPlaying = true
         fadeOutEnd = nil
+        let longest = Int64(Self.maximumDuration * sampleRate)
         drain = Task { [weak self] in
             do {
                 for try await block in stream.blocks {
                     guard let self else { return }
+                    // A tone nobody stopped (a stuck gesture, a VoiceOver toggle) fades out by itself.
+                    if self.fadeOutEnd == nil, block.position >= self.startPosition + longest { self.stop() }
                     // A little past the fade's last sample, so the output's own buffer has played it.
                     if let end = self.fadeOutEnd, block.position >= end + Int64(0.1 * sampleRate) { break }
                 }
@@ -66,7 +98,8 @@ public final class TonePlayer {
         }
     }
 
-    /// Fades the tone out at the loop's next point; the audio is released once the fade has played.
+    /// Fades the tone out at the loop's next point; the audio is released once the fade has played. Safe in any
+    /// state (it does nothing when no tone plays), so the app can call it when the scene leaves the foreground.
     public func stop() {
         guard isPlaying, fadeOutEnd == nil, !fadeOut.isEmpty else { return }
         if let start = try? io.schedule(fadeOut, on: channel, mode: .afterLoop) {

@@ -43,6 +43,55 @@ import Testing
         #expect(recorded.suffix(4800).allSatisfy { $0 == 0 })
     }
 
+    @Test func `like the engine, the simulated IO cannot schedule before the first microphone block`() async throws {
+        let io = Fixture.io()
+        let stream = try await io.start()
+        #expect(throws: AudioIOError.self) { try io.schedule([0.1], on: .left, mode: .once) }
+        for try await _ in stream.blocks { break }
+        #expect(throws: Never.self) { try io.schedule([0.1], on: .left, mode: .once) }
+        await io.stop()
+    }
+
+    @MainActor
+    @Test func `a tone left playing fades out by itself after the longest it may play`() async throws {
+        let io = Fixture.io()
+        let player = TonePlayer(io: io)
+        try await player.start(frequency: 1000, on: .left)
+        #expect(player.isPlaying)
+        // Immediate pacing: the 20 s pass as fast as the blocks can be made.
+        var spins = 0
+        while player.isPlaying, spins < 1_000_000 {
+            await Task.yield()
+            spins += 1
+        }
+        #expect(!player.isPlaying && !io.isRunning)
+        // Fade in, loop, and the fade out that ended it.
+        #expect(io.scheduledBufferCount == 3)
+    }
+
+    @MainActor
+    @Test func `a tone that cannot start says so`() async {
+        let player = TonePlayer(io: FailingAudioIO())
+        await #expect(throws: TonePlayerError.audioUnavailable) {
+            try await player.start(frequency: 440, on: .left)
+        }
+        #expect(!player.isPlaying)
+    }
+
+    @MainActor
+    @Test func `stop is safe in any state, so the app can call it when it leaves the foreground`() async throws {
+        let io = Fixture.io()
+        let player = TonePlayer(io: io)
+        player.stop()
+        await player.stopAndWait()
+        try await player.start(frequency: 440, on: .left)
+        player.stop()
+        player.stop()
+        await player.stopAndWait()
+        player.stop()
+        #expect(!player.isPlaying && !io.isRunning)
+    }
+
     @MainActor
     @Test func `stopping releases the audio`() async throws {
         let io = Fixture.io()
@@ -56,4 +105,12 @@ import Testing
         #expect(!io.isRunning)
         #expect(io.scheduledBufferCount == 3)
     }
+}
+
+/// An IO whose audio never starts.
+final class FailingAudioIO: AudioIO {
+    func start() async throws -> CaptureStream { throw AudioIOError.unavailable("no audio here") }
+    func schedule(_ samples: [Float], on channel: SpeakerChannel, mode: PlaybackMode) throws -> Int64 { throw AudioIOError.notRunning }
+    func stopPlayback() {}
+    func stop() async {}
 }

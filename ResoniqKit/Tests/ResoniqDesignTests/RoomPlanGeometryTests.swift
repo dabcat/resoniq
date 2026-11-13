@@ -232,6 +232,43 @@ import Testing
         #expect(!placed[0].intersects(other))
     }
 
+    @Test func `a label boxed in on every side moves further out and is marked as moved`() {
+        let frame = CGRect(x: 0, y: 0, width: 300, height: 300)
+        // Walls on all four sides of the anchor: nothing beside it is clear.
+        let ring = [
+            (CGPoint(x: 60, y: 80), CGPoint(x: 140, y: 80)), (CGPoint(x: 60, y: 120), CGPoint(x: 140, y: 120)),
+            (CGPoint(x: 60, y: 80), CGPoint(x: 60, y: 120)), (CGPoint(x: 140, y: 80), CGPoint(x: 140, y: 120)),
+        ]
+        let request = RoomPlanGeometry.LabelRequest(
+            size: CGSize(width: 40, height: 16), anchor: CGPoint(x: 100, y: 100), sides: [.right, .left, .above, .below], offset: 6, ownObstacle: nil
+        )
+        let placement = RoomPlanGeometry.placeLabels([request], in: frame, segments: ring)[0]
+        #expect(placement.isMoved)
+        #expect(ring.allSatisfy { !RoomPlanGeometry.segmentIntersects($0, placement.rect) })
+        #expect(frame.contains(placement.rect))
+    }
+
+    @Test func `a label with a clear side stays beside its anchor`() {
+        let frame = CGRect(x: 0, y: 0, width: 300, height: 300)
+        let request = RoomPlanGeometry.LabelRequest(
+            size: CGSize(width: 40, height: 16), anchor: CGPoint(x: 100, y: 100), sides: [.right], offset: 6, ownObstacle: nil
+        )
+        let placement = RoomPlanGeometry.placeLabels([request], in: frame)[0]
+        #expect(!placement.isMoved)
+        #expect(placement.rect == CGRect(x: 106, y: 92, width: 40, height: 16))
+    }
+
+    @Test func `labels never overlap each other even when crowded`() {
+        let frame = CGRect(x: 0, y: 0, width: 200, height: 120)
+        let requests = (0..<4).map { _ in
+            RoomPlanGeometry.LabelRequest(
+                size: CGSize(width: 50, height: 14), anchor: CGPoint(x: 100, y: 60), sides: [.right, .left, .above, .below], offset: 8, ownObstacle: nil
+            )
+        }
+        let rects = RoomPlanGeometry.place(requests, in: frame)
+        for i in rects.indices { for j in rects.indices where j > i { #expect(!rects[i].intersects(rects[j])) } }
+    }
+
     @Test func `label placement survives degenerate input`() {
         let frame = CGRect(x: 0, y: 0, width: 50, height: 20)
         let big = RoomPlanGeometry.LabelRequest(size: CGSize(width: 400, height: 90), anchor: CGPoint(x: 25, y: 10), sides: [], offset: 5, ownObstacle: nil)

@@ -157,7 +157,7 @@ struct OptimizeHomeView: View {
                         }
                         if let plan = page.plan {
                             planPanel(plan, animates: page.animatesSuggestion)
-                            legend(page.legend)
+                            legendRow(page.legend)
                         }
                         ForEach(page.notes, id: \.self) { note in
                             Text(note)
@@ -183,16 +183,29 @@ struct OptimizeHomeView: View {
         }
     }
 
-    /// The plan with "Edit layout" inside it at the bottom right, as in the mockup.
+    /// The plan on its own: "Edit layout" sits outside the drawing (see `legendRow`), so nothing is drawn over it.
     private func planPanel(_ plan: OptimizePlan, animates: Bool) -> some View {
         RoomPlanView(
             plan.content, isSuggestionAnimating: animates, showsLegend: false, height: Metrics.planHeight,
             accessibilityLabel: plan.summary
         )
-        .overlay(alignment: .bottomTrailing) {
-            Button(OptimizeText.editLayout, action: onEditLayout)
-                .buttonStyle(ResoniqInlineLinkStyle(.quiet))
-                .padding(.trailing, ResoniqSpace.s3)
+    }
+
+    /// The legend with "Edit layout" at the right of the same row; when the two do not fit side by side (a long
+    /// legend, a large type size) the link goes on its own row below, still at the right.
+    private func legendRow(_ legend: Legend) -> some View {
+        let edit = Button(OptimizeText.editLayout, action: onEditLayout)
+            .buttonStyle(ResoniqInlineLinkStyle(.quiet))
+        return ViewThatFits(in: .horizontal) {
+            HStack(alignment: .center, spacing: ResoniqSpace.s2) {
+                self.legend(legend)
+                Spacer(minLength: 0)
+                edit
+            }
+            VStack(alignment: .leading, spacing: ResoniqSpace.s1) {
+                self.legend(legend)
+                edit.frame(maxWidth: .infinity, alignment: .trailing)
+            }
         }
     }
 

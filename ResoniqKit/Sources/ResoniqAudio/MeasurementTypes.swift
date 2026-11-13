@@ -79,6 +79,17 @@ public struct RunRecording: Sendable, Equatable {
     /// Seconds from the recording's first sample to the deconvolved response's peak: the route's delay plus
     /// `leadIn`, exact where `arrivalDelay` is a live estimate. Nil when it was not measured.
     public var measuredDelay: Double? = nil
+    /// When the sound was played by another device: its clock against the phone's (above 1: it ran fast), which
+    /// `samples` have already been corrected for (`SweepFinder.corrected(_:ratio:)`). Nil when the phone played it.
+    public var clockRatio: Double? = nil
+}
+
+/// What played the test sound.
+public enum PlaybackSource: Sendable, Hashable {
+    /// The phone, through the user's speakers: the normal test.
+    case thisPhone
+    /// Another device playing a `TestSoundFile` while the phone listened (`ExternalMeasurementSession`).
+    case anotherDevice
 }
 
 /// The outcome of a finished test: every run's recording, and what they were measured against.
@@ -87,6 +98,8 @@ public struct MeasurementResult: Sendable, Equatable {
     public var sweep: LogSweep
     public var noiseFloor: NoiseFloorReport
     public var runs: [RunRecording]
+    /// What played the sound; the runs' `clockRatio` says how far another device's clock was off.
+    public var source: PlaybackSource = .thisPhone
 }
 
 /// What the Listening and Paused screens show while a test runs.

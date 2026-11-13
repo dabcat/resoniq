@@ -248,6 +248,20 @@ public final class SimulatedAudioIO: AudioIO {
         state.withLock { $0.spot = max(0, min(index, (configuration.room?.spotCount ?? 1) - 1)) }
     }
 
+    // MARK: Another device playing
+
+    /// Starts `play`: another device plays a test sound file through the simulated speakers (and room), as if the
+    /// user had pressed play on it. Call it while the stream runs; call it again to play the file (or another) again:
+    /// the play under way stops when the new one starts, as on a real player. A session listening for it
+    /// cannot tell it from a real player: it is not scheduled through `schedule`, and nothing about it is reported.
+    public func playExternally(_ play: SimulatedExternalPlay) {
+        let rendered = SimulatedExternalPlay.Rendered(play, sampleRate: configuration.sampleRate)
+        state.withLock { $0.playExternally(rendered, play: play) }
+    }
+
+    /// Times `playExternally(_:)` was called since the IO was made.
+    public var externalPlayCount: Int { state.withLock { $0.externalPlayCount } }
+
     // MARK: AudioIO
 
     public func start() async throws -> CaptureStream {
@@ -404,6 +418,8 @@ struct SimulationState: Sendable {
         var loops: Bool
         /// Nothing at or after this position is sent.
         var cutoff: Int64?
+        /// Played by another device (`SimulatedAudioIO.playExternally(_:)`), not scheduled.
+        var external = false
 
         var end: Int64 {
             let natural = loops ? Int64.max : start + Int64(samples.count)
@@ -432,6 +448,7 @@ struct SimulationState: Sendable {
     var items: [Item] = []
     var queueEnd: Int64 = 0
     var scheduledCount = 0
+    var externalPlayCount = 0
     var startCount = 0
     var bursts: [ResolvedBurst] = []
     var pendingError: AudioIOError?
@@ -516,6 +533,24 @@ struct SimulationState: Sendable {
         // Forget what has finished.
         items.removeAll { $0.end <= position - delay }
         return start
+    }
+
+    /// Adds the rendered pieces of an external play, `play.delay` after the current position, with its bursts.
+    mutating func playExternally(_ rendered: SimulatedExternalPlay.Rendered, play: SimulatedExternalPlay) {
+        externalPlayCount += 1
+        guard running else { return }
+        let start = position + Int64((play.delay * configuration.sampleRate).rounded())
+        // A new play stops the one before, as pressing play on another file does.
+        for index in items.indices where items[index].external {
+            items[index].cutoff = min(items[index].cutoff ?? .max, start)
+        }
+        for piece in rendered.pieces {
+            items.append(Item(start: start + piece.offset, samples: piece.samples, channel: piece.channel, loops: false, cutoff: nil, external: true))
+        }
+        for burst in play.bursts {
+            guard case .at(let seconds) = burst.start else { continue }
+            bursts.append(resolve(burst, from: start + delay + Int64((seconds * configuration.sampleRate).rounded())))
+        }
     }
 
     mutating func stopPlayback() {

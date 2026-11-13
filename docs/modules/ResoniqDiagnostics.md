@@ -53,7 +53,7 @@ Paths below are relative to `ResoniqKit/Sources/ResoniqDiagnostics/`.
 | `Finding.Confidence`, `Finding.Basis`, `Finding.Numbers` | `Finding.swift:60`, `:65`, `:79` | Low/medium/high (never high from one position); "3 of 3 runs"; the numbers behind a finding, per run |
 | `EvidenceTag` | `Vocabulary.swift:4` | `measured`, `inferred`, `inconclusive`, `estimate`; `displayName` (:15) |
 | `FrequencyRange` | `Vocabulary.swift:25` | `init(lower:upper:)` (:23), `centre`, `octaves`, `contains`, `overlaps(_:toleranceOctaves:)` (:44), `widened(octaves:)` (:50) |
-| `DriverBand` | `Vocabulary.swift:65` | `woofer`, `middle`, `tweeter`; `wooferUpperFrequency` 300 Hz (:71), `tweeterLowerFrequency` 3 kHz (:73), `init(frequency:)` (:75), `range` (:86), `displayName` (:89) |
+| `DriverBand` | `Vocabulary.swift:65` | `woofer`, `middle`, `tweeter`; `wooferUpperFrequency` 300 Hz (:71), `tweeterLowerFrequency` 3 kHz (:73), `init(frequency:)` (:75), `range` (:86), `displayName` (:95) |
 | `ResponseGrid` | `Vocabulary.swift:102` | `lowerFrequency`, `upperFrequency`, `count`, `frequencies` (:108), `pointsPerOctave` (:113), `nearestIndex(to:)` (:116) |
 | `DiagnosisText` | `DiagnosisText.swift:8` | Every user-facing string; public: `rounded(_:)` (:50), `frequency(_:)` (:56), `range(_:)` (:62) |
 | `DiagnosisThresholds` | `DiagnosisThresholds.swift:8` | Every number that turns measurements into findings, 17 fields (:14–90), `init` (:105), `standard` (:148) |

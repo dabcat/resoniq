@@ -216,6 +216,7 @@ struct RunPerformer {
         _ recording: RunRecorder.Recording,
         verdict: RecordingVerdict,
         problem: RunProblem?,
+        measuredDelay: Double? = nil,
         run: Int,
         delay: Int?,
         sampleRate: Double,
@@ -234,7 +235,9 @@ struct RunPerformer {
             spliceCount: recording.spliceCount,
             phoneMoved: phoneMoved,
             attempt: attempt,
-            sweepTiedSound: recording.sweepTiedSound
+            sweepTiedSound: recording.sweepTiedSound,
+            takeOffsets: recording.takeOffsets,
+            measuredDelay: measuredDelay
         ))
     }
 
@@ -274,10 +277,21 @@ struct RunPerformer {
         floor: NoiseFloorReport,
         thresholds: QualityThresholds
     ) async -> (verdict: RecordingVerdict, problem: RunProblem?) {
+        let inspection = await inspect(samples, sweep: sweep, floor: floor, thresholds: thresholds)
+        return (inspection.verdict, inspection.problem)
+    }
+
+    /// `check`, and the deconvolved response's delay in seconds when it got that far (`RunRecording.measuredDelay`).
+    @concurrent nonisolated static func inspect(
+        _ samples: [Float],
+        sweep: LogSweep,
+        floor: NoiseFloorReport,
+        thresholds: QualityThresholds
+    ) async -> (verdict: RecordingVerdict, problem: RunProblem?, delay: Double?) {
         let verdict = RecordingQuality.assess(recording: samples, noiseFloor: floor, thresholds: thresholds)
-        guard case .valid = verdict else { return (verdict, .unusable(verdict)) }
+        guard case .valid = verdict else { return (verdict, .unusable(verdict), nil) }
         let response = Deconvolution.impulseResponse(recording: samples, sweep: sweep)
-        return (verdict, response.capturesWholeSweep ? nil : .didNotArrive)
+        return (verdict, response.capturesWholeSweep ? nil : .didNotArrive, response.delay)
     }
 }
 

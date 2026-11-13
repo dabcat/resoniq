@@ -217,6 +217,12 @@ public final class SimulatedAudioIO: AudioIO {
         state.withLock { $0.pendingError = error }
     }
 
+    /// Changes the route delay from the next sample on: a route that drifts (Bluetooth, AirPlay). For tests; change
+    /// it while nothing plays, or the sound in flight jumps.
+    public func setRouteDelay(_ seconds: Double) {
+        state.withLock { $0.delay = Int64((seconds * configuration.sampleRate).rounded()) }
+    }
+
     /// The spot of `configuration.room` the microphone is at, 0-based; 0 when the stream starts.
     public var currentSpot: Int { state.withLock { $0.spot } }
 
@@ -390,7 +396,7 @@ struct SimulationState: Sendable {
     }
 
     let configuration: Configuration
-    let delay: Int64
+    var delay: Int64
     let lead: Int64
     var running = false
     var position: Int64 = 0

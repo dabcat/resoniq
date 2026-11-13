@@ -32,6 +32,8 @@ struct RunRecorder {
         var spliceCount: Int
         /// Where in the sweep, hertz, noise tied to the sweep was heard (`RunRecording.sweepTiedSound`).
         var sweepTiedSound: ClosedRange<Double>? = nil
+        /// Each spliced take's misalignment against the one before, samples.
+        var takeOffsets: [Double] = []
     }
 
     private enum Phase: Equatable {
@@ -239,9 +241,15 @@ struct RunRecorder {
         phase = .done
         guard let first = takes.first, let last = takes.last else { return .spliceFailed }
         var composite = first.take
+        var offsets: [Double] = []
         do {
             for index in takes.indices.dropFirst() {
                 guard let crossfadeAt = takes[index - 1].crossfadeOut else { return .spliceFailed }
+                // The route's delay must not have changed between the takes: compare them where they overlap.
+                if let offset = misalignment(of: takes[index].take, after: takes[index - 1].take, crossfadeAt: crossfadeAt) {
+                    guard abs(offset) <= configuration.maximumSpliceMisalignment * sampleRate else { return .spliceFailed }
+                    offsets.append(offset)
+                }
                 // The handover position on the composite's (the first take's) timeline.
                 let shift = takes[index - 1].take.sweepOrigin - first.take.sweepOrigin
                 composite = try SweepSplicer.splice(
@@ -262,8 +270,55 @@ struct RunRecorder {
             samples: Array(composite.samples[from..<to]),
             leadIn: leadIn,
             spliceCount: takes.count - 1,
-            sweepTiedSound: tiedFrequencies
+            sweepTiedSound: tiedFrequencies,
+            takeOffsets: offsets
         ))
+    }
+}
+
+extension RunRecorder {
+    /// The widest misalignment searched for between two takes, samples: 0.5 ms. A peak at the edge of the search
+    /// counts as misaligned.
+    static let misalignmentSearch = 24
+
+    /// How far `next` lies from `previous` (samples, positive when later) over the stretch both hold of the same
+    /// sound, the `resumeOverlap` before the crossfade less the guard, the crossfade, the fade in and the delay
+    /// margin; nil when the takes do not hold enough of it to compare. Infinity when the best match is at the edge
+    /// of the search.
+    func misalignment(of next: SweepSplicer.Take, after previous: SweepSplicer.Take, crossfadeAt: Int64) -> Double? {
+        let length = count(configuration.resumeOverlap - configuration.noiseGuard - configuration.crossfade
+            - configuration.fadeIn - configuration.delayMargin)
+        guard length >= count(0.05) else { return nil }
+        let from = Int(crossfadeAt - previous.start) - length
+        guard from >= 0, from + length <= previous.samples.count else { return nil }
+        let shift = next.sweepOrigin - previous.sweepOrigin
+        let nextFrom = Int(crossfadeAt + shift - next.start) - length
+        let lag = Self.misalignment(previous.samples[from..<(from + length)], against: next.samples, at: nextFrom,
+                                    searching: Self.misalignmentSearch)
+        return lag
+    }
+
+    /// The lag `L`, to a fraction of a sample, at which `window[window.startIndex + j]` best matches
+    /// `other[start + j + L]`, searched over ±`search` samples (cross-correlation with a parabola through the peak).
+    /// Nil when `other` does not cover the search; infinity when the peak is at its edge.
+    static func misalignment(_ window: ArraySlice<Float>, against other: [Float], at start: Int, searching search: Int) -> Double? {
+        guard start - search >= 0, start + window.count + search <= other.count, !window.isEmpty else { return nil }
+        let a = Array(window)
+        var scores = [Double](repeating: 0, count: 2 * search + 1)
+        other.withUnsafeBufferPointer { b in
+            for lag in -search...search {
+                var sum = 0.0
+                let base = start + lag
+                for j in a.indices { sum += Double(a[j]) * Double(b[base + j]) }
+                scores[lag + search] = sum
+            }
+        }
+        guard let best = scores.indices.max(by: { scores[$0] < scores[$1] }) else { return nil }
+        guard best > 0, best < scores.count - 1 else { return .infinity }
+        let (before, centre, after) = (scores[best - 1], scores[best], scores[best + 1])
+        let curvature = before - 2 * centre + after
+        let fraction = curvature < 0 ? min(max(0.5 * (before - after) / curvature, -0.5), 0.5) : 0
+        return Double(best - search) + fraction
     }
 }
 

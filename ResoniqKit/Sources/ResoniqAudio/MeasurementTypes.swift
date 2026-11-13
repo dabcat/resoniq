@@ -68,6 +68,12 @@ public struct RunRecording: Sendable, Equatable {
     /// after the run paused for it and resumed, so a rattle or the room's reverberation rather than the room's
     /// background. The run did not pause for it again. Nil when there was none.
     public var sweepTiedSound: ClosedRange<Double>? = nil
+    /// For each spliced take, how far its sound lay from the take before it where they overlap, samples (positive:
+    /// later). Under `MeasurementConfiguration.maximumSpliceMisalignment` by construction; empty when not spliced.
+    public var takeOffsets: [Double] = []
+    /// Seconds from the recording's first sample to the deconvolved response's peak: the route's delay plus
+    /// `leadIn`, exact where `arrivalDelay` is a live estimate. Nil when it was not measured.
+    public var measuredDelay: Double? = nil
 }
 
 /// The outcome of a finished test: every run's recording, and what they were measured against.

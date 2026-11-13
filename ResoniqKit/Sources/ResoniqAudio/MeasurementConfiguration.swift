@@ -76,6 +76,11 @@ public struct MeasurementConfiguration: Sendable, Equatable {
     /// same sound found a block early or late still counts while speech that happens to start again soon after a
     /// resume rarely does.
     public var sweepTiedTolerance: Double
+    /// The most two takes of a run may be out of line where they overlap, seconds, for them to be spliced. A splice
+    /// assumes the route's delay did not change between them; a Bluetooth or AirPlay route can drift, and 5 samples at
+    /// 48 kHz (0.1 ms) cost 2 dB at 3.2 kHz (1 dB after third-octave smoothing). Takes further apart start the run
+    /// over instead. *First guess*: 30 µs, about 1.5 samples at 48 kHz.
+    public var maximumSpliceMisalignment: Double
 
     public init(
         runCount: Int = 3,
@@ -96,7 +101,8 @@ public struct MeasurementConfiguration: Sendable, Equatable {
         maximumRestarts: Int = 3,
         maximumPauses: Int = 6,
         maximumPauseWait: Double = 30,
-        sweepTiedTolerance: Double = 0.15
+        sweepTiedTolerance: Double = 0.15,
+        maximumSpliceMisalignment: Double = 0.00003
     ) {
         precondition(runCount > 0, "a test needs at least one run")
         precondition(
@@ -122,6 +128,7 @@ public struct MeasurementConfiguration: Sendable, Equatable {
         self.maximumPauses = maximumPauses
         self.maximumPauseWait = maximumPauseWait
         self.sweepTiedTolerance = sweepTiedTolerance
+        self.maximumSpliceMisalignment = maximumSpliceMisalignment
     }
 
     /// The defaults the app uses.

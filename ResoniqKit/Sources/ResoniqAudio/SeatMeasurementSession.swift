@@ -416,12 +416,13 @@ public final class SeatMeasurementSession {
         guard let floor = seat.floor, var performer = seat.performer else { return nil }
         let channel = performer.channel
         state = .checking(spot: seat.spot, channel: channel)
-        let (verdict, problem) = await RunPerformer.check(recording.samples, sweep: seat.sweep, floor: floor, thresholds: thresholds)
+        let (verdict, problem, measuredDelay) = await RunPerformer.inspect(recording.samples, sweep: seat.sweep, floor: floor, thresholds: thresholds)
         guard !Task.isCancelled else { return nil }
         let conclusion = performer.conclude(
             recording,
             verdict: verdict,
             problem: problem,
+            measuredDelay: measuredDelay,
             run: seat.channelIndex + 1,
             delay: seat.tracker.delay,
             sampleRate: seat.sampleRate,

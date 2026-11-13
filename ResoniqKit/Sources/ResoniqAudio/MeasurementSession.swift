@@ -338,12 +338,13 @@ public final class MeasurementSession {
     private func check(_ recording: RunRecorder.Recording, in test: inout TestRun) async -> State? {
         guard let floor = test.floor else { return nil }
         state = .checking(run: test.run)
-        let (verdict, problem) = await Self.check(recording.samples, sweep: test.sweep, floor: floor, thresholds: thresholds)
+        let (verdict, problem, measuredDelay) = await RunPerformer.inspect(recording.samples, sweep: test.sweep, floor: floor, thresholds: thresholds)
         guard !Task.isCancelled else { return nil }
         let conclusion = test.performer.conclude(
             recording,
             verdict: verdict,
             problem: problem,
+            measuredDelay: measuredDelay,
             run: test.run,
             delay: test.tracker.delay,
             sampleRate: test.sampleRate,

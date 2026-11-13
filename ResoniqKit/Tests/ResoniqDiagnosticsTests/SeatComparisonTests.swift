@@ -5,7 +5,7 @@ import Testing
 
 /// Spots built by hand, for comparisons that need no recording: each spot's two recordings read `curve(f) +
 /// offsets[spot](f)` dB, measured over the whole grid with plenty of signal over the noise.
-func handSpots(_ curve: (Float) -> Float, offsets: [(Float) -> Float] = [{ _ in 0 }, { _ in 0 }, { _ in 0 }]) -> [SpotAnalysis] {
+func handSpots(_ curve: (Float) -> Float, offsets: [(Float) -> Float] = [{ _ in 0 }, { _ in 0 }, { _ in 0 }], signalToNoise: (Float) -> Float = { _ in 40 }) -> [SpotAnalysis] {
     offsets.map { offset in
         let response = ResponseGrid.frequencies.map { curve($0) + offset($0) }
         let recording = SpotRecording(
@@ -14,7 +14,7 @@ func handSpots(_ curve: (Float) -> Float, offsets: [(Float) -> Float] = [{ _ in 
                 response: response,
                 responseBand: FrequencyRange(lower: 20, upper: 20000),
                 bandCentres: [31.62, 63.1, 125.9, 251.2, 501.2, 1000, 1995, 3981, 7943, 15850],
-                bandSignalToNoise: [Float](repeating: 40, count: 10),
+                bandSignalToNoise: [31.62, 63.1, 125.9, 251.2, 501.2, 1000, 1995, 3981, 7943, 15850].map(signalToNoise),
                 distortionPercent: nil,
                 bassDecay: nil
             )

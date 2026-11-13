@@ -72,23 +72,39 @@ public enum SeatText {
         }
     }
 
-    static func verdict(bassUneven: Bool, voices: Bool, treble: Bool, leftRightDiffer: Bool) -> String {
+    static let notAssessedVerdict = "The room was too loud against the speakers for me to judge your seat."
+
+    /// The verdict. "Even", "balanced" and "the bass is even" are said only of a range that was assessed throughout
+    /// (`bassChecked`, `restChecked`); otherwise the verdict says the room was too noisy to check it.
+    static func verdict(
+        bassUneven: Bool, voices: Bool, treble: Bool, leftRightDiffer: Bool,
+        bassChecked: Bool = true, restChecked: Bool = true
+    ) -> String {
         let restUneven = voices || treble
         let rest = restSubject(voices: voices, treble: treble)
-        var first: String
+        let differ = leftRightDiffer ? " Left and right don't sound the same." : ""
         switch (bassUneven, restUneven) {
         case (false, false):
-            return leftRightDiffer ? leftRightVerdict : evenVerdict
+            if bassChecked && restChecked { return leftRightDiffer ? leftRightVerdict : evenVerdict }
+            let missing = !bassChecked && !restChecked ? "all of it" : (!bassChecked ? "the bass" : "the voices and treble")
+            return "From your seat, what I could hear sounds even. The room was too noisy to check \(missing)." + differ
         case (true, false):
-            first = "From your seat, the bass is uneven."
-            if !leftRightDiffer { return first + " The rest is balanced." }
+            let tail = restChecked ? (leftRightDiffer ? "" : " The rest is balanced.") : " The room was too noisy to check the voices and treble."
+            return "From your seat, the bass is uneven." + tail + differ
         case (false, true):
-            first = "From your seat, \(rest.noun) \(rest.verb) uneven."
-            if !leftRightDiffer { return first + " The bass is even." }
+            let tail = bassChecked ? (leftRightDiffer ? "" : " The bass is even.") : " The room was too noisy to check the bass."
+            return "From your seat, \(rest.noun) \(rest.verb) uneven." + tail + differ
         case (true, true):
-            first = "From your seat, the bass and \(voices && treble ? "the rest" : rest.noun) are uneven."
+            return "From your seat, the bass and \(voices && treble ? "the rest" : rest.noun) are uneven." + differ
         }
-        return leftRightDiffer ? first + " Left and right don't sound the same." : first
+    }
+
+    static let bassUnchecked = "I couldn't check the bass over the room's noise"
+    static let restUnchecked = "I couldn't check the voices and treble over the room's noise"
+
+    /// "Around 30–180 Hz the room's noise was too close to the speakers' level."
+    static func uncheckedDetail(_ range: FrequencyRange) -> String {
+        "Around \(DiagnosisText.range(range)) the room's noise was too close to the speakers' level, so I can't say how it sounds there."
     }
 
     // MARK: Findings

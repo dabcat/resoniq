@@ -272,3 +272,28 @@ let dipTolerance = 2.0
         #expect(!report.numbers.contains { $0.word == "decay" })
     }
 }
+
+// MARK: - Only what was assessed
+
+@Suite struct SeatAssessedTests {
+    @Test func `bass drowned by the room's noise is not called even`() throws {
+        // The 31.5, 63 and 125 Hz octave bands 5 dB over the noise: the bass from 30 to about 180 Hz is unassessed.
+        let spots = handSpots({ _ in 0 }, signalToNoise: { $0 < 200 ? 5 : 40 })
+        let report = SeatDiagnosis.diagnose(spots: spots, room: nil)
+        print("drowned bass: \(report.verdict) | \(report.findings.map { "\($0.headline) [\($0.tagLine)]" })")
+        #expect(report.isConclusive)
+        #expect(report.verdict == "From your seat, what I could hear sounds even. The room was too noisy to check the bass.")
+        let bass = try #require(report.findings.first { $0.kind == .bass })
+        #expect(bass.tag == .inconclusive)
+        #expect(bass.headline == "I couldn't check the bass over the room's noise")
+        #expect(!bass.isDeviation)
+    }
+
+    @Test func `nothing assessed at the seat is not conclusive`() {
+        let report = SeatDiagnosis.diagnose(spots: handSpots({ _ in 0 }, signalToNoise: { _ in 5 }), room: nil)
+        print("nothing assessed: \(report.verdict) conclusive \(report.isConclusive)")
+        #expect(!report.isConclusive)
+        #expect(report.verdict == "The room was too loud against the speakers for me to judge your seat.")
+        #expect(report.extremes.isEmpty && report.numbers.isEmpty)
+    }
+}

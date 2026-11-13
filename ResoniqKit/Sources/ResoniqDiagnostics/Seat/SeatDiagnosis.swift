@@ -65,9 +65,9 @@ public enum SeatDiagnosis {
             )
         }
         func inconclusive(curve: [Float]? = nil, left: [Float]? = nil, right: [Float]? = nil, spotCurves: [[Float]?]? = nil,
-                          spread: [Float]? = nil, assessed: [Bool]? = nil) -> SeatReport {
+                          spread: [Float]? = nil, assessed: [Bool]? = nil, verdict: String = SeatText.inconclusiveVerdict) -> SeatReport {
             SeatReport(
-                verdict: SeatText.inconclusiveVerdict, isConclusive: false, validSpotCount: valid.count,
+                verdict: verdict, isConclusive: false, validSpotCount: valid.count,
                 requiredSpotCount: t.requiredSpots, spots: checks, curve: curve, leftCurve: left, rightCurve: right,
                 spotCurves: spotCurves ?? spots.map { _ in nil }, spread: spread, assessed: assessed,
                 evenBandDecibels: t.evenBandDecibels, extremes: [], leftRightDifference: nil, findings: invalid,
@@ -99,6 +99,20 @@ public enum SeatDiagnosis {
         }
         let spreadCurve = spread ?? [Float](repeating: 0, count: grid.count)
 
+        // What was assessed. Nothing at all: nothing is concluded. Part of the bass or the rest: nothing is called
+        // even there.
+        func unassessed(from lower: Float, to upper: Float) -> FrequencyRange? {
+            let missing = grid.indices.filter { grid[$0] >= lower && grid[$0] <= upper && !assessed[$0] }
+            guard let first = missing.first, let last = missing.last else { return nil }
+            return FrequencyRange(lower: grid[first], upper: grid[last])
+        }
+        guard grid.indices.contains(where: { assessed[$0] && grid[$0] >= t.lowerFrequency && grid[$0] <= t.upperFrequency }) else {
+            return inconclusive(curve: curve, left: left, right: right, spotCurves: spotCurves, spread: spread, assessed: assessed,
+                                verdict: SeatText.notAssessedVerdict)
+        }
+        let bassMissing = unassessed(from: t.lowerFrequency, to: t.bassUpperFrequency)
+        let restMissing = unassessed(from: t.bassUpperFrequency, to: t.upperFrequency)
+
         // Extremes and the left/right match.
         let extremes = findExtremes(curve, assessed: assessed, spread: spreadCurve, thresholds: t)
         let leftRight = right.flatMap { leftRightDifference(left: left, right: $0, assessed: assessed, thresholds: t) }
@@ -120,8 +134,20 @@ public enum SeatDiagnosis {
                 tagLine: SeatText.measuredTag, detail: SeatText.extremesDetail(bass),
                 strength: bass.map { abs($0.deviation) }.max()!
             ))
+        } else if let bassMissing {
+            statements.append(SeatFinding(
+                kind: .bass, tag: .inconclusive, basis: nil, isDeviation: false,
+                headline: SeatText.bassUnchecked, tagLine: SeatText.inconclusiveTag,
+                detail: SeatText.uncheckedDetail(bassMissing), strength: 0
+            ))
         }
-        if rest.isEmpty {
+        if rest.isEmpty, let restMissing {
+            statements.append(SeatFinding(
+                kind: .rest, tag: .inconclusive, basis: nil, isDeviation: false,
+                headline: SeatText.restUnchecked, tagLine: SeatText.inconclusiveTag,
+                detail: SeatText.uncheckedDetail(restMissing), strength: 0
+            ))
+        } else if rest.isEmpty {
             let merged = leftRight != nil && !differ
             statements.append(SeatFinding(
                 kind: .rest, tag: .measured, basis: nil, isDeviation: false,
@@ -145,7 +171,7 @@ public enum SeatDiagnosis {
                 detail: SeatText.leftRightDetail(rightLouder: leftRight.rightLouder, at: leftRight.frequency),
                 strength: leftRight.difference
             ))
-        } else if let leftRight, !rest.isEmpty {
+        } else if let leftRight, !rest.isEmpty || restMissing != nil {
             statements.append(SeatFinding(
                 kind: .leftRight, tag: .measured, basis: nil, isDeviation: false,
                 headline: SeatText.leftMatches, tagLine: SeatText.matchTagLine(leftRight.difference),
@@ -194,7 +220,10 @@ public enum SeatDiagnosis {
         }
 
         return SeatReport(
-            verdict: SeatText.verdict(bassUneven: !bass.isEmpty, voices: voices, treble: treble, leftRightDiffer: differ),
+            verdict: SeatText.verdict(
+                bassUneven: !bass.isEmpty, voices: voices, treble: treble, leftRightDiffer: differ,
+                bassChecked: bassMissing == nil, restChecked: restMissing == nil
+            ),
             isConclusive: true, validSpotCount: valid.count, requiredSpotCount: t.requiredSpots, spots: checks,
             curve: curve, leftCurve: left, rightCurve: right, spotCurves: spotCurves, spread: spread, assessed: assessed,
             evenBandDecibels: t.evenBandDecibels, extremes: extremes, leftRightDifference: leftRight?.difference,

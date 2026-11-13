@@ -113,9 +113,11 @@ struct MicrophoneDeniedScreen: View {
 
 // MARK: - Test failed
 
-/// A test that ended without a result: a run failed twice, or the audio was interrupted, switched route or could
-/// not start. Says why in a sentence and offers another try. A run that failed twice is "Inconclusive", as the
-/// design system names a test that could not decide.
+/// A test that ended without a result: a run failed twice, the room never got quiet enough, the sound would have come
+/// from the phone itself, or the audio was interrupted, switched route or could not start. Says why in a sentence and
+/// offers another try. A run that failed twice, and a room that stayed too loud, are "Inconclusive", as the design
+/// system names a test that could not decide. A test with the speakers not connected is not inconclusive: nothing
+/// was played, so there was nothing to decide.
 struct DiagnoseFailedScreen: View {
     var failure: DiagnoseFlow.Failure
     var onTryAgain: () -> Void
@@ -131,8 +133,8 @@ struct DiagnoseFailedScreen: View {
                 headline: DiagnoseText.failureHeadline(failure),
                 message: DiagnoseText.failureBody(failure)
             ) {
-                if case .unusable = failure {
-                    ResoniqEvidenceTag(.inconclusive, basis: DiagnoseText.inconclusiveBasis)
+                if let basis = DiagnoseText.failureBasis(failure) {
+                    ResoniqEvidenceTag(.inconclusive, basis: basis)
                 }
             }
             .padding(.top, ResoniqSpace.s6)
@@ -144,6 +146,8 @@ struct DiagnoseFailedScreen: View {
                     .buttonStyle(ResoniqTextLinkStyle())
             }
         }
+        // The screen takes over from the listening screen: VoiceOver reads what happened, not just "screen changed".
+        .onAppear { AccessibilityNotification.Announcement(DiagnoseText.failureAnnouncement(failure)).post() }
     }
 }
 
@@ -227,6 +231,28 @@ struct RunNoticePanel: View {
 #Preview("Route changed") {
     DiagnoseFailedScreen(failure: .routeChanged, onTryAgain: {}, onClose: {})
         .preferredColorScheme(.dark)
+}
+
+#Preview("Too noisy") {
+    DiagnoseFailedScreen(failure: .tooNoisy, onTryAgain: {}, onClose: {})
+        .preferredColorScheme(.dark)
+}
+
+#Preview("Speakers not connected") {
+    DiagnoseFailedScreen(
+        failure: .speakersNotConnected(AudioOutputRoute(kind: .builtInSpeaker, name: "iPhone Speaker")),
+        onTryAgain: {}, onClose: {}
+    )
+    .preferredColorScheme(.dark)
+}
+
+#Preview("Speakers not connected, largest text") {
+    DiagnoseFailedScreen(
+        failure: .speakersNotConnected(AudioOutputRoute(kind: .builtInReceiver, name: "iPhone Receiver")),
+        onTryAgain: {}, onClose: {}
+    )
+    .dynamicTypeSize(.accessibility3)
+    .preferredColorScheme(.dark)
 }
 
 #Preview("Analysing") {

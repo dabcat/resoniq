@@ -140,6 +140,8 @@ enum DiagnoseText {
         case .routeChanged: "The speakers changed while I was listening."
         case .unusable: "I couldn't get a clean recording."
         case .audioUnavailable: "I couldn't start the sound."
+        case .tooNoisy: "The room never got quiet enough."
+        case .speakersNotConnected: "The sound would come from this iPhone."
         }
     }
 
@@ -156,11 +158,35 @@ enum DiagnoseText {
             "This iPhone wouldn't let me use the speaker and microphone just now. Close anything else that plays or records sound, then try again."
         case .unusable(let problem):
             "I tried that run twice. " + unusableReason(problem)
+        case .tooNoisy:
+            "Noise kept stopping the test and the room didn't settle for long enough for me to carry on. "
+                + "Nothing from this test was kept. Try again when it is quieter."
+        case .speakersNotConnected(let route):
+            "I would play it through \u{201C}\(route.name)\u{201D}, which is part of this iPhone, not your speakers, "
+                + "so I'd be measuring the phone. I haven't played anything. "
+                + "Connect your speakers with a cable, Bluetooth or AirPlay, then try again."
         }
     }
 
     /// What the evidence tag on a failed test rests on.
     static let inconclusiveBasis = "a run failed twice"
+
+    /// What the evidence tag on a test the room's noise ended rests on.
+    static let noisyBasis = "the room stayed too loud"
+
+    /// The tag a failed test carries, when it carries one: a test that could not decide is "Inconclusive".
+    static func failureBasis(_ failure: DiagnoseFlow.Failure) -> String? {
+        switch failure {
+        case .unusable: inconclusiveBasis
+        case .tooNoisy: noisyBasis
+        case .permissionDenied, .interrupted, .routeChanged, .audioUnavailable, .speakersNotConnected: nil
+        }
+    }
+
+    /// What VoiceOver reads when a failure takes the screen: the headline and the sentence under it.
+    static func failureAnnouncement(_ failure: DiagnoseFlow.Failure) -> String {
+        "\(failureHeadline(failure)) \(failureBody(failure))"
+    }
 
     private static func unusableReason(_ problem: RunProblem) -> String {
         switch problem {

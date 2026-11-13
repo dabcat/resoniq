@@ -9,7 +9,9 @@ import SwiftUI
 /// looking at in the simulator. `-screen <name>` is routed here by the app's debug entry; `flow` is the live flow
 /// on simulated audio (add `-simulatedNoise YES` to see Paused). Debug builds only.
 enum FlowDebugScreens {
-    static let names = ["aim", "listening", "paused", "denied", "repeating", "failed", "flow"]
+    static let names = [
+        "aim", "listening", "paused", "denied", "repeating", "failed", "failed-noisy", "failed-not-connected", "flow",
+    ]
 
     @MainActor
     static func view(named name: String) -> AnyView? {
@@ -28,6 +30,19 @@ enum FlowDebugScreens {
             AnyView(
                 DiagnoseFailedScreen(failure: .unusable(.didNotArrive), onTryAgain: {}, onClose: {})
                     .preferredColorScheme(.dark)
+            )
+        case "failed-noisy":
+            AnyView(
+                DiagnoseFailedScreen(failure: .tooNoisy, onTryAgain: {}, onClose: {})
+                    .preferredColorScheme(.dark)
+            )
+        case "failed-not-connected":
+            AnyView(
+                DiagnoseFailedScreen(
+                    failure: .speakersNotConnected(AudioOutputRoute(kind: .builtInSpeaker, name: "iPhone Speaker")),
+                    onTryAgain: {}, onClose: {}
+                )
+                .preferredColorScheme(.dark)
             )
         case "flow":
             AnyView(LiveFlowHost())

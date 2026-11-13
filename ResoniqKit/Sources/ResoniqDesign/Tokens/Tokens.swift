@@ -90,6 +90,15 @@ public enum ResoniqMotion {
     public static let traceDraw = Animation.easeOut(duration: 1.6)
     public static let waiting = Animation.easeInOut(duration: 0.6).repeatForever(autoreverses: true)
     public static let pulseRing = Animation.easeOut(duration: 1.8).repeatForever(autoreverses: false)
+    /// Sweep line hovering at the current frequency: loop.scan, a 1.2 s period, so 0.6 s each way.
+    public static let scan = Animation.easeInOut(duration: 0.6).repeatForever(autoreverses: true)
+    /// A deviating zone trembling: loop.buzz, a 0.09 s period.
+    public static let buzz = Animation.linear(duration: 0.045).repeatForever(autoreverses: true)
+
+    /// Distance of the sweep line's hover, in points, each way.
+    public static let scanDistance: CGFloat = 4
+    /// Distance of the tremble, in points, each way.
+    public static let buzzDistance: CGFloat = 1.4
 
     /// Scale of a pressed button or row.
     public static let pressedScale: CGFloat = 0.97

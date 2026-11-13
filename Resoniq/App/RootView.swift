@@ -31,6 +31,19 @@ struct RootView: View {
     }
 
     var body: some View {
+        #if DEBUG
+        // `-gallery YES` shows every design component instead of the tabs.
+        if UserDefaults.standard.bool(forKey: "gallery") {
+            ComponentGallery()
+        } else {
+            shell
+        }
+        #else
+        shell
+        #endif
+    }
+
+    private var shell: some View {
         VStack(spacing: 0) {
             TabView(selection: $selection) {
                 Tab(value: AppTab.diagnose) {

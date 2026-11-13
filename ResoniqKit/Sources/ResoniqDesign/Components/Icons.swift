@@ -7,6 +7,8 @@ public enum ResoniqIcon: CaseIterable, Sendable {
     case optimize
     case settings
     case chevronDown
+    case check
+    case speaker
 
     struct Layer {
         enum Paint {
@@ -24,6 +26,8 @@ public enum ResoniqIcon: CaseIterable, Sendable {
         case .diagnose, .measure, .optimize: 22
         case .settings: 18
         case .chevronDown: 14
+        case .check: 12
+        case .speaker: 34
         }
     }
 
@@ -76,6 +80,28 @@ public enum ResoniqIcon: CaseIterable, Sendable {
                 p.move(to: CGPoint(x: 3, y: 5))
                 p.addLine(to: CGPoint(x: 7, y: 9))
                 p.addLine(to: CGPoint(x: 11, y: 5))
+            })]
+        case .check:
+            // V3MRunning, the done status pill.
+            [Layer(paint: .stroke(width: 2.2), path: Path { p in
+                p.move(to: CGPoint(x: 2, y: 6.5))
+                p.addLine(to: CGPoint(x: 4.5, y: 9))
+                p.addLine(to: CGPoint(x: 10, y: 3.5))
+            })]
+        case .speaker:
+            // V3Finding, the hold-to-hear button: a speaker cone and two sound arcs.
+            [Layer(paint: .stroke(width: 2.6), path: Path { p in
+                p.move(to: CGPoint(x: 5, y: 13))
+                p.addLine(to: CGPoint(x: 5, y: 21))
+                p.addLine(to: CGPoint(x: 11, y: 21))
+                p.addLine(to: CGPoint(x: 19, y: 28))
+                p.addLine(to: CGPoint(x: 19, y: 6))
+                p.addLine(to: CGPoint(x: 11, y: 13))
+                p.closeSubpath()
+                p.move(to: CGPoint(x: 24, y: 12))
+                p.addCurve(to: CGPoint(x: 24, y: 22), control1: CGPoint(x: 26, y: 15), control2: CGPoint(x: 26, y: 19))
+                p.move(to: CGPoint(x: 28, y: 8))
+                p.addCurve(to: CGPoint(x: 28, y: 26), control1: CGPoint(x: 32, y: 13), control2: CGPoint(x: 32, y: 21))
             })]
         }
     }

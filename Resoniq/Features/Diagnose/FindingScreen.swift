@@ -310,7 +310,8 @@ struct FindingScreen: View {
             case .responseDip, .topEndDip: "dip"
             case .responsePeak: "peak"
             case .leftRightDifference: "difference"
-            case .even, .invalidRecording, .distortionUnclear: "problem"
+            case .quietBand: "quiet band"
+            case .even, .invalidRecording, .distortionUnclear, .notAssessed: "problem"
             }
         }
     }

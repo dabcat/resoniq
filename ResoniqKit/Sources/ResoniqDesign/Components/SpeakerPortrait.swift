@@ -44,6 +44,32 @@ enum PortraitGeometry {
         return min(max(value, 0), 1)
     }
 
+    /// The span at each end, as a fraction of the height, over which the shape closes to a point.
+    static let tipSpan = 0.05
+
+    /// 1 in the body, falling to 0 at the very first and last sample: a quarter sine, so the edge meets the body
+    /// without a corner and ends in a point.
+    static func taper(at fraction: Double) -> Double {
+        let f = min(max(fraction.isNaN ? 0 : fraction, 0), 1)
+        let distance = min(f, 1 - f)
+        guard distance < tipSpan else { return 1 }
+        return sin(distance / tipSpan * .pi / 2)
+    }
+
+    /// `halfWidth(at:widths:)` closed to a point at both ends: what is drawn.
+    static func drawnHalfWidth(at fraction: Double, widths: [Double]) -> Double {
+        halfWidth(at: fraction, widths: widths) * taper(at: fraction)
+    }
+
+    /// The samples the outline is drawn through: the curve of `widths` resampled finely enough to show the tapered
+    /// ends (index 0 at the bottom). Empty when there is nothing to draw.
+    static func drawnSamples(_ widths: [Double]) -> [Double] {
+        let values = samples(widths)
+        guard values.count >= 2 else { return [] }
+        let steps = max((values.count - 1) * 8, 200)
+        return (0...steps).map { drawnHalfWidth(at: Double($0) / Double(steps), widths: widths) }
+    }
+
     /// The part of `range` inside `limits`, or nil when nothing of it is left.
     static func clipped(_ range: ClosedRange<Double>, to limits: ClosedRange<Double>) -> ClosedRange<Double>? {
         let low = max(range.lowerBound, limits.lowerBound)
@@ -69,12 +95,13 @@ enum PortraitGeometry {
 }
 
 /// A symmetric, smooth shape whose half-width follows `widths`: index 0 at the bottom, the last at the top,
-/// 1 being the full half-width of the rectangle it is drawn in. It never leaves that rectangle.
+/// 1 being the full half-width of the rectangle it is drawn in. It never leaves that rectangle, and it closes to a
+/// point at both ends (over `PortraitGeometry.tipSpan` of the height) whatever the first and last widths are.
 struct SpeakerPortraitShape: Shape {
     var widths: [Double]
 
     func path(in rect: CGRect) -> Path {
-        let values = PortraitGeometry.samples(widths)
+        let values = PortraitGeometry.drawnSamples(widths)
         guard values.count >= 2, rect.width > 0, rect.height > 0 else { return Path() }
         let half = rect.width / 2
         let last = values.count - 1
@@ -132,7 +159,7 @@ struct DeviationBandShape: Shape {
 
         func point(_ step: Int, side: CGFloat) -> CGPoint {
             let fraction = low + (high - low) * Double(step) / Double(steps)
-            let reach = half * CGFloat(PortraitGeometry.halfWidth(at: fraction, widths: widths))
+            let reach = half * CGFloat(PortraitGeometry.drawnHalfWidth(at: fraction, widths: widths))
             let bite = step.isMultiple(of: 2) ? 0 : min(tooth, reach)
             return CGPoint(x: rect.midX + side * (reach - bite), y: rect.maxY - rect.height * CGFloat(fraction))
         }

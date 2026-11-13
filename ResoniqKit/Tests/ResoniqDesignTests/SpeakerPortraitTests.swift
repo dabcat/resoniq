@@ -142,12 +142,53 @@ import Testing
 
     @Test func `a steady rise is drawn as a straight edge, not as steps`() throws {
         let points = leftEdge([0, 0.2, 0.4, 0.6, 0.8])
-        let first = try #require(points.first)
-        let last = try #require(points.last)
+        let bottom = Self.frame.maxY
+        let height = Self.frame.height
+        let half = Self.frame.width / 2
+        var checked = 0
         for point in points {
-            let along = (first.y - point.y) / (first.y - last.y)
-            let expected = first.x + (last.x - first.x) * along
+            let along = (bottom - point.y) / height
+            // The ends close to a point; between them the edge is the straight rise of 0.2 a quarter.
+            guard along > PortraitGeometry.tipSpan * 2, along < 1 - PortraitGeometry.tipSpan * 2 else { continue }
+            let expected = Self.frame.midX - half * 0.8 * along
             #expect(abs(point.x - expected) < 0.5, "x \(point.x) should be near \(expected)")
+            checked += 1
+        }
+        #expect(checked > 100)
+    }
+
+    @Test(arguments: profiles.map(\.widths).filter { !$0.isEmpty })
+    func `the portrait closes to a point at both ends`(widths: [Double]) {
+        let path = SpeakerPortraitShape(widths: widths).path(in: Self.frame)
+        let tip = Self.frame.height * PortraitGeometry.tipSpan
+        // The first and last samples are the points of the outline, on the centre line.
+        #expect(abs(PortraitGeometry.drawnHalfWidth(at: 0, widths: widths)) < 1e-12)
+        #expect(abs(PortraitGeometry.drawnHalfWidth(at: 1, widths: widths)) < 1e-12)
+        // A hair above the bottom point and below the top point the shape is narrow, not the flat end of a rectangle.
+        let nearBottom = CGRect(x: Self.frame.minX, y: Self.frame.maxY - 1, width: Self.frame.width, height: 1)
+        let nearTop = CGRect(x: Self.frame.minX, y: Self.frame.minY, width: Self.frame.width, height: 1)
+        for strip in [nearBottom, nearTop] {
+            let corners = [CGPoint(x: strip.minX + 1, y: strip.midY), CGPoint(x: strip.maxX - 1, y: strip.midY)]
+            #expect(corners.allSatisfy { !path.contains($0) }, "the corners of the end are empty (tip \(tip) pt)")
+        }
+    }
+
+    @Test func `the taper leaves the body of the curve alone`() {
+        let widths = [0.4, 0.8, 0.6, 0.3, 0.5]
+        #expect(PortraitGeometry.taper(at: 0.5) == 1)
+        #expect(PortraitGeometry.taper(at: PortraitGeometry.tipSpan) == 1)
+        #expect(PortraitGeometry.taper(at: 0) == 0)
+        #expect(PortraitGeometry.taper(at: 1) == 0)
+        #expect(PortraitGeometry.taper(at: .nan) == 0)
+        for fraction in stride(from: 0.1, through: 0.9, by: 0.1) {
+            #expect(PortraitGeometry.drawnHalfWidth(at: fraction, widths: widths) == PortraitGeometry.halfWidth(at: fraction, widths: widths))
+        }
+        // Rising monotonically from the point to the body.
+        var previous = 0.0
+        for step in 0...20 {
+            let value = PortraitGeometry.taper(at: Double(step) / 20 * PortraitGeometry.tipSpan)
+            #expect(value >= previous)
+            previous = value
         }
     }
 

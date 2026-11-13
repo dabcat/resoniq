@@ -108,11 +108,18 @@ enum RoomPlanDrawing {
         // Suggestions: outline, dimension, turn.
         var labels: [LabelItem] = []
         var obstacles: [CGRect] = []
+        // Lines the labels keep off: the dimension lines and the turn arcs.
+        var lines: [(CGPoint, CGPoint)] = []
+        var haloed: Set<String> = []
         let centre = pt(CGPoint(x: (RoomPlanGeometry.bounds(of: content) ?? .zero).midX, y: (RoomPlanGeometry.bounds(of: content) ?? .zero).midY))
         for suggestion in content.suggestions {
             guard let speaker = content.speakers.first(where: { $0.id == suggestion.speakerID }),
                   RoomPlanGeometry.isFinite(suggestion.target) else { continue }
-            drawSuggestion(suggestion, speaker: speaker, scene: scene, fit: fit, planCentre: centre, labels: &labels, in: &context)
+            drawSuggestion(
+                suggestion, speaker: speaker, scene: scene, fit: fit, planCentre: centre,
+                labels: &labels, obstacles: &obstacles, lines: &lines, in: &context
+            )
+            haloed.insert(speaker.id)
         }
 
         // Measured spots.
@@ -132,7 +139,12 @@ enum RoomPlanDrawing {
             let facing = scene.facing(of: speaker)
             obstacles.append(CGRect(x: at.x - side / 2, y: at.y - side / 2, width: side, height: side))
             if scene.hiddenSpeakerID != speaker.id {
-                drawSpeaker(speaker.kind, at: at, side: side, facing: facing, selected: selected, in: &context)
+                // A speaker with a suggestion gets a halo in the panel's colour, so the dashed outline next to it
+                // (or half under it) stays a separate shape.
+                drawSpeaker(
+                    speaker.kind, at: at, side: side, facing: facing, selected: selected,
+                    halo: haloed.contains(speaker.id) ? scene.background : nil, in: &context
+                )
             }
             if selected && scene.showsHandle { drawHandle(at: at, side: side, facing: facing, in: &context) }
             labels.append(LabelItem(
@@ -166,6 +178,7 @@ enum RoomPlanDrawing {
             let direction = unit(from: from, to: wall)
             let start = CGPoint(x: from.x + direction.dx * (ringRadius(side: side) + Metrics.dimensionGap), y: from.y + direction.dy * (ringRadius(side: side) + Metrics.dimensionGap))
             drawDimension(from: start, to: wall, in: &context)
+            lines.append((start, wall))
             labels.append(LabelItem(
                 text: distance.label, font: ResoniqFont.axis, color: ResoniqColor.guide,
                 anchor: CGPoint(x: (start.x + wall.x) / 2, y: (start.y + wall.y) / 2), offset: Metrics.labelGap,
@@ -190,8 +203,8 @@ enum RoomPlanDrawing {
             ))
         }
 
-        drawLabels(labels, obstacles: obstacles, walls: content.walls.filter(RoomPlanGeometry.isFinite).map { (pt($0.a), pt($0.b)) },
-                   frame: frame, background: scene.background, in: &context)
+        let walls = content.walls.filter(RoomPlanGeometry.isFinite).map { (pt($0.a), pt($0.b)) }
+        drawLabels(labels, obstacles: obstacles, segments: walls + lines, frame: frame, background: scene.background, in: &context)
     }
 
     // MARK: Pieces
@@ -263,7 +276,7 @@ enum RoomPlanDrawing {
 
     static func drawSpeaker(
         _ kind: RoomPlanContent.Speaker.Kind, at centre: CGPoint, side: CGFloat, facing: Double, selected: Bool,
-        in context: inout GraphicsContext
+        halo: Color? = nil, in context: inout GraphicsContext
     ) {
         let colour = selected ? ResoniqColor.lime : ResoniqColor.ivory
         if selected {
@@ -275,6 +288,9 @@ enum RoomPlanDrawing {
         }
         let (body, mark) = glyph(kind: kind, side: side)
         let placed = transform(at: centre, facing: facing)
+        if let halo {
+            context.stroke(body.applying(placed), with: .color(halo), style: StrokeStyle(lineWidth: Metrics.haloStroke, lineJoin: .round))
+        }
         context.fill(body.applying(placed), with: .color(colour))
         switch kind {
         case .speaker:
@@ -318,7 +334,8 @@ enum RoomPlanDrawing {
 
     private static func drawSuggestion(
         _ suggestion: RoomPlanContent.Suggestion, speaker: RoomPlanContent.Speaker, scene: RoomPlanScene, fit: PlanFit,
-        planCentre: CGPoint, labels: inout [LabelItem], in context: inout GraphicsContext
+        planCentre: CGPoint, labels: inout [LabelItem], obstacles: inout [CGRect], lines: inout [(CGPoint, CGPoint)],
+        in context: inout GraphicsContext
     ) {
         let side = glyphSide(of: speaker, fit: fit)
         let current = fit.point(scene.position(of: speaker))
@@ -327,7 +344,11 @@ enum RoomPlanDrawing {
         let targetFacing = suggestion.targetFacing ?? currentFacing
 
         // The dashed target outline; it marches while the app is guiding.
-        let (body, _) = glyph(kind: speaker.kind, side: side)
+        // Drawn a little larger than the speaker, so that where the two overlap the outline still reads as a frame
+        // around the place, not as a second speaker.
+        let (body, _) = glyph(kind: speaker.kind, side: side + 2 * Metrics.outlineOutset)
+        let outlineBox = side + 2 * (Metrics.outlineOutset + Metrics.outlineStroke)
+        obstacles.append(CGRect(x: target.x - outlineBox / 2, y: target.y - outlineBox / 2, width: outlineBox, height: outlineBox))
         context.stroke(
             body.applying(transform(at: target, facing: targetFacing)), with: .color(ResoniqColor.guide),
             style: StrokeStyle(lineWidth: Metrics.outlineStroke, lineCap: .round, lineJoin: .round, dash: Metrics.outlineDash, dashPhase: scene.dashPhase)
@@ -343,6 +364,7 @@ enum RoomPlanDrawing {
             }
             if distance(other) < distance(best) { best = other }
             drawDimension(from: best.0, to: best.1, in: &context)
+            lines.append(best)
             if let label = suggestion.distanceLabel {
                 labels.append(LabelItem(
                     text: label, font: ResoniqFont.axis, color: ResoniqColor.guide,
@@ -360,6 +382,7 @@ enum RoomPlanDrawing {
                 var arc = Path()
                 arc.move(to: first)
                 for point in points.dropFirst() { arc.addLine(to: point) }
+                for pair in zip(points, points.dropFirst()) { lines.append((pair.0, pair.1)) }
                 context.stroke(arc, with: .color(ResoniqColor.guide), style: StrokeStyle(lineWidth: Metrics.arcStroke, lineCap: .round))
                 if let label = suggestion.turnLabel {
                     labels.append(LabelItem(
@@ -386,7 +409,7 @@ enum RoomPlanDrawing {
     }
 
     private static func drawLabels(
-        _ items: [LabelItem], obstacles: [CGRect], walls: [(CGPoint, CGPoint)], frame: CGRect, background: Color,
+        _ items: [LabelItem], obstacles: [CGRect], segments: [(CGPoint, CGPoint)], frame: CGRect, background: Color,
         in context: inout GraphicsContext
     ) {
         let ordered = items.enumerated().sorted { ($0.element.priority, $0.offset) < ($1.element.priority, $1.offset) }.map(\.element)
@@ -397,14 +420,36 @@ enum RoomPlanDrawing {
                 anchor: item.anchor, sides: item.sides, offset: item.offset, ownObstacle: item.ownObstacle
             )
         }
-        let rects = RoomPlanGeometry.place(requests, in: frame.insetBy(dx: Metrics.labelPlate.width, dy: Metrics.labelPlate.height), obstacles: obstacles, segments: walls)
-        for (rect, text) in zip(rects, resolved) {
+        let placements = RoomPlanGeometry.placeLabels(
+            requests, in: frame.insetBy(dx: Metrics.labelPlate.width, dy: Metrics.labelPlate.height),
+            obstacles: obstacles, segments: segments
+        )
+        // A label that had to move away from what it names is joined to it by a thin leader line, under the labels.
+        for (item, placement) in zip(ordered, placements) where placement.isMoved {
+            if let leader = leader(from: item.anchor, gap: item.offset, to: placement.rect) {
+                context.stroke(leader, with: .color(item.color.opacity(Metrics.leaderOpacity)), style: StrokeStyle(lineWidth: ResoniqSize.strokeHairline, lineCap: .round))
+            }
+        }
+        for (placement, text) in zip(placements, resolved) {
+            let rect = placement.rect
             context.fill(
                 Path(roundedRect: rect.insetBy(dx: -Metrics.labelPlate.width, dy: -Metrics.labelPlate.height), cornerRadius: Metrics.labelRadius),
                 with: .color(background.opacity(Metrics.labelPlateOpacity))
             )
             context.draw(text, at: CGPoint(x: rect.midX, y: rect.midY), anchor: .center)
         }
+    }
+
+    /// The line from just outside the thing a label names (`gap` from its anchor) to the nearest point of the label.
+    static func leader(from anchor: CGPoint, gap: CGFloat, to rect: CGRect) -> Path? {
+        guard RoomPlanGeometry.isFinite(anchor), rect.width.isFinite, rect.height.isFinite else { return nil }
+        let end = CGPoint(x: min(max(anchor.x, rect.minX), rect.maxX), y: min(max(anchor.y, rect.minY), rect.maxY))
+        let distance = hypot(end.x - anchor.x, end.y - anchor.y)
+        let start = max(gap.isFinite ? gap : 0, 0)
+        // Too close for a line to be worth drawing.
+        guard distance - start > Metrics.minimumLeader else { return nil }
+        let direction = unit(from: anchor, to: end)
+        return line(CGPoint(x: anchor.x + direction.dx * start, y: anchor.y + direction.dy * start), end)
     }
 
     // MARK: Metrics
@@ -435,6 +480,11 @@ enum RoomPlanDrawing {
         static let hatchOpacity: Double = 0.7
         static let problemStroke: CGFloat = 1.5
         static let outlineStroke: CGFloat = 2
+        /// The suggested outline is drawn this much larger than the speaker on every side.
+        static let outlineOutset: CGFloat = 3
+        static let haloStroke: CGFloat = 5
+        static let leaderOpacity: Double = 0.6
+        static let minimumLeader: CGFloat = 4
         static let outlineDash: [CGFloat] = [4, 4]
         static let dimensionStroke: CGFloat = 1.5
         static let dimensionGap: CGFloat = 8

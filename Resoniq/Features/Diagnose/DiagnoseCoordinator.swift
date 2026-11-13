@@ -231,6 +231,19 @@ final class DiagnoseCoordinator {
         show(.test(makeFlow(position, isQuickCheck: isQuickCheck)))
     }
 
+    /// The first test of the first launch ("Try it on a speaker"): the speaker the home's primary button offers on a
+    /// system with no results.
+    func startFirstTest() {
+        let kind = system?.kind ?? .stereoPair
+        startTest(HomePlan.make(kind: kind, latest: [:]).next)
+    }
+
+    /// The rooms sheet or Settings closed: reading the selected system tells the comparison memory which one it is,
+    /// so a change drops the runs kept for the system before.
+    func selectionMayHaveChanged() {
+        _ = system
+    }
+
     /// The quick check: the same flow, on the first speaker of the system, kept nowhere.
     func startQuickCheck() {
         guard content == nil else { return }

@@ -48,7 +48,9 @@ struct AimScreen: View {
                     label: "Which speaker"
                 )
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            // Pinned to the top, under the header, as on the other flow screens: left to itself the scaffold
+            // centres content that is shorter than the space it is given, which left a band under the status bar.
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         } footer: {
             VStack(spacing: ResoniqSpace.s3) {
                 Button("Start listening", action: onStart)

@@ -31,6 +31,35 @@ struct SelectedListeningContext<Content: View>: View {
     }
 }
 
+/// How a tab's switcher opens the rooms and systems sheet. `RootView` sets it once; where nothing sets it, calling it
+/// does nothing.
+struct OpenRoomsAction {
+    private let action: () -> Void
+
+    init(_ action: @escaping () -> Void) {
+        self.action = action
+    }
+
+    func callAsFunction() { action() }
+}
+
+/// Tells the shell that the selected system may have changed (the rooms sheet or Settings closed), so state that
+/// belongs to the system before it is dropped.
+struct SystemsChangedAction {
+    private let action: () -> Void
+
+    init(_ action: @escaping () -> Void) {
+        self.action = action
+    }
+
+    func callAsFunction() { action() }
+}
+
+extension EnvironmentValues {
+    @Entry var openRooms = OpenRoomsAction {}
+    @Entry var systemsChanged = SystemsChangedAction {}
+}
+
 /// The frame every tab's home screen shares: the switcher at the top left, an optional control at the
 /// top right, and the tab's content below.
 struct TabHome<Trailing: View, Content: View>: View {
@@ -39,11 +68,12 @@ struct TabHome<Trailing: View, Content: View>: View {
     @ViewBuilder var trailing: Trailing
     @ViewBuilder var content: Content
 
+    @Environment(\.openRooms) private var openRooms
+
     var body: some View {
         VStack(spacing: ResoniqSpace.panelPadding) {
             HStack {
-                // No target yet: the room and system list is designed in phase 2.
-                ResoniqContextSwitcher(room: context.room, system: context.system, order: switcherOrder) {}
+                ResoniqContextSwitcher(room: context.room, system: context.system, order: switcherOrder) { openRooms() }
                 Spacer()
                 trailing
             }

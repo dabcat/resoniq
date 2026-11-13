@@ -287,8 +287,9 @@ enum RoomPlanGeometry {
 
     // MARK: Labels
 
-    enum LabelSide: Sendable {
+    enum LabelSide: Sendable, CaseIterable {
         case right, left, above, below, centre
+        case aboveRight, aboveLeft, belowRight, belowLeft
     }
 
     struct LabelRequest {
@@ -304,13 +305,38 @@ enum RoomPlanGeometry {
         var ownObstacle: Int?
     }
 
+    /// Where a label went. `isMoved` is true when none of its own sides was clear and it was moved further away: the
+    /// caller then draws a leader line from the anchor to the label.
+    struct Placement: Equatable {
+        var rect: CGRect
+        var isMoved: Bool
+    }
+
+    /// How much further from the anchor a label that cannot stay beside it is tried.
+    static let leaderDistances: [CGFloat] = [14, 28, 44]
+
     /// Places each label at the first of its sides where it stays inside `frame` and clear of the earlier labels,
     /// the obstacle rectangles and the obstacle segments (walls); if no side is clear, the least bad one.
     /// Labels are placed in order, so the first has the pick.
     static func place(
         _ requests: [LabelRequest], in frame: CGRect, obstacles: [CGRect] = [], segments: [(CGPoint, CGPoint)] = []
     ) -> [CGRect] {
-        var placed: [CGRect] = []
+        placeLabels(requests, in: frame, obstacles: obstacles, segments: segments).map(\.rect)
+    }
+
+    /// `place`, and when a label's own sides all collide with something, the same eight directions further out
+    /// (`leaderDistances`): the clearest spot wins, nearer ones preferred, and the label is marked as moved.
+    static func placeLabels(
+        _ requests: [LabelRequest], in frame: CGRect, obstacles: [CGRect] = [], segments: [(CGPoint, CGPoint)] = []
+    ) -> [Placement] {
+        /// What a candidate collides with: a label (100), an obstacle or a segment (10 each).
+        func collisions(_ rect: CGRect, placed: [Placement], own: Int?) -> CGFloat {
+            var cost = CGFloat(placed.filter { $0.rect.intersects(rect) }.count) * 100
+            for (index, obstacle) in obstacles.enumerated() where index != own && obstacle.intersects(rect) { cost += 10 }
+            cost += CGFloat(segments.filter { segmentIntersects($0, rect) }.count) * 10
+            return cost
+        }
+        var placed: [Placement] = []
         for request in requests {
             let size = CGSize(
                 width: request.size.width.isFinite ? max(request.size.width, 0) : 0,
@@ -318,30 +344,43 @@ enum RoomPlanGeometry {
             )
             let anchor = isFinite(request.anchor) ? request.anchor : CGPoint(x: frame.midX, y: frame.midY)
             let sides = request.sides.isEmpty ? [.centre] : request.sides
-            var best: (rect: CGRect, cost: CGFloat)?
+            var best: (rect: CGRect, cost: CGFloat, moved: Bool)?
             for (order, side) in sides.enumerated() {
                 let raw = candidate(side, size: size, anchor: anchor, offset: request.offset)
                 let rect = clamp(raw, into: frame)
-                var cost = hypot(rect.minX - raw.minX, rect.minY - raw.minY) * 0.1 + CGFloat(order) * 0.01
-                cost += CGFloat(placed.filter { $0.intersects(rect) }.count) * 100
-                for (index, obstacle) in obstacles.enumerated() where index != request.ownObstacle && obstacle.intersects(rect) {
-                    cost += 10
-                }
-                cost += CGFloat(segments.filter { segmentIntersects($0, rect) }.count) * 10
-                if best == nil || cost < best!.cost { best = (rect, cost) }
+                let cost = hypot(rect.minX - raw.minX, rect.minY - raw.minY) * 0.1 + CGFloat(order) * 0.01
+                    + collisions(rect, placed: placed, own: request.ownObstacle)
+                if best == nil || cost < best!.cost { best = (rect, cost, false) }
             }
-            placed.append(best?.rect ?? .zero)
+            // Nothing beside the anchor is clear: look further out, in every direction.
+            if let current = best, current.cost >= 10, !sides.contains(.centre) {
+                for extra in leaderDistances {
+                    for side in LabelSide.allCases where side != .centre {
+                        let raw = candidate(side, size: size, anchor: anchor, offset: request.offset + extra)
+                        let rect = clamp(raw, into: frame)
+                        let cost = hypot(rect.minX - raw.minX, rect.minY - raw.minY) * 0.1 + extra * 0.05 + 1
+                            + collisions(rect, placed: placed, own: request.ownObstacle)
+                        if cost < best!.cost { best = (rect, cost, true) }
+                    }
+                }
+            }
+            placed.append(Placement(rect: best?.rect ?? .zero, isMoved: best?.moved ?? false))
         }
         return placed
     }
 
     private static func candidate(_ side: LabelSide, size: CGSize, anchor: CGPoint, offset: CGFloat) -> CGRect {
+        let diagonal = offset / 2.0.squareRoot()
         switch side {
-        case .right: CGRect(x: anchor.x + offset, y: anchor.y - size.height / 2, width: size.width, height: size.height)
-        case .left: CGRect(x: anchor.x - offset - size.width, y: anchor.y - size.height / 2, width: size.width, height: size.height)
-        case .above: CGRect(x: anchor.x - size.width / 2, y: anchor.y - offset - size.height, width: size.width, height: size.height)
-        case .below: CGRect(x: anchor.x - size.width / 2, y: anchor.y + offset, width: size.width, height: size.height)
-        case .centre: CGRect(x: anchor.x - size.width / 2, y: anchor.y - size.height / 2, width: size.width, height: size.height)
+        case .right: return CGRect(x: anchor.x + offset, y: anchor.y - size.height / 2, width: size.width, height: size.height)
+        case .left: return CGRect(x: anchor.x - offset - size.width, y: anchor.y - size.height / 2, width: size.width, height: size.height)
+        case .above: return CGRect(x: anchor.x - size.width / 2, y: anchor.y - offset - size.height, width: size.width, height: size.height)
+        case .below: return CGRect(x: anchor.x - size.width / 2, y: anchor.y + offset, width: size.width, height: size.height)
+        case .centre: return CGRect(x: anchor.x - size.width / 2, y: anchor.y - size.height / 2, width: size.width, height: size.height)
+        case .aboveRight: return CGRect(x: anchor.x + diagonal, y: anchor.y - diagonal - size.height, width: size.width, height: size.height)
+        case .aboveLeft: return CGRect(x: anchor.x - diagonal - size.width, y: anchor.y - diagonal - size.height, width: size.width, height: size.height)
+        case .belowRight: return CGRect(x: anchor.x + diagonal, y: anchor.y + diagonal, width: size.width, height: size.height)
+        case .belowLeft: return CGRect(x: anchor.x - diagonal - size.width, y: anchor.y + diagonal, width: size.width, height: size.height)
         }
     }
 

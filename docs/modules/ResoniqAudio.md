@@ -72,6 +72,20 @@ Paths below are relative to `ResoniqKit/Sources/ResoniqAudio/`.
 | `SimulatedStillnessMonitor` | `SimulatedStillnessMonitor.swift:14` | Acts out "moved, then still" before every spot after the first, immediate (`movingReads`) or real-time (`moveDuration`) pacing; `detectsMovement` (:27), `onMove` (:29, wire to `SimulatedAudioIO.moveToSpot`), `moves` |
 | `LiveSpectrum` | `LiveSpectrum.swift:19` | `init(io:)` (:36), `bands()` (:42): an `AsyncStream<MagnitudeResponse>` of third-octave levels (dBFS RMS, 20 Hz–20 kHz, 31 bands); `smoothingCoefficient(time:)` (:73), `smoothed(previous:current:)` (:78) |
 
+| `SeatMeasurementSession.captured`, `capturedSpots` | `SeatMeasurementSession.swift:85`, `:88` | The spots captured so far with the floor and sweep, updated at each `spotCaptured` (nil before the floor, then empty spots), so the app analyses a spot while the next is measured; at the end it equals the result |
+| `SeatWaitPhase`, `SeatMeasurementProgress.wait` | `SeatMeasurementTypes.swift:102`, `:90` | While a spot is waited for: `waitingForMove` (not yet seen moving; never at the first spot), `settling`, `still`; once moved it never returns to `waitingForMove` |
+| `SeatSpot.spacing` | `SeatMeasurementTypes.swift:16` | 0.30 m, the one spacing the instruction and the plan's spot markers read |
+
+### Naming the noise and the session's words
+
+| Symbol | Where | Holds |
+|---|---|---|
+| `CapturedAudio` | `CapturedAudio.swift:3` | `samples`, `sampleRate`, `sweepPlaying`, `duration`; `pausedDuration` (:23) |
+| `pausedAudio()` | `MeasurementSession.swift:70`, `SeatMeasurementSession.swift:96` | While `paused` for noise: the latest audio of the pause (a ring of `CapturedAudio.pausedDuration`, emptied at each new pause), `sweepPlaying` false; nil otherwise |
+| `noisyRecording` | `MeasurementSession.swift:66`, `SeatMeasurementSession.swift:92` | What to classify when noise ended or spoiled a run: the paused audio at `failed(.tooNoisy)`, or the recording whose check said too noisy (`sweepPlaying` true); the latest wins. The app hands it to `InterferenceAdvisor` (diagnostics) |
+| `SeatSessionText` | `SessionText.swift:48` | Three spots' sentences from the session's state: `instruction(for:wait:channels:)` (:83; one sentence per wait phase), `moveInstruction(to:)`, `waitingLine`, `playingLine`, `pausedHeadline`, `pausedSentence`, `noticeTitle`/`noticeText` (`RunNote`), `failureHeadline`/`failureBody`/`inconclusiveBasis` (`MeasurementFailure`), `spotName`, `speakerWord` |
+| `ReadingText` | `SessionText.swift:9` | The live readings: `frequencyReading` ("1.02" "kHz"), `room` ("Quiet · 34 dB"), `decibels`, `spokenRoom`, `phone`, `barFraction` over `roomNoiseScaleDecibels` (70 dB) |
+
 **Between spots** the phone must first be seen moving, then be still for `stillnessHold`; the first spot only needs it still. If no movement is reported within `movementTimeout`, the spot is captured once the phone is still and `movementDetected` is false. A spot whose recording is bad twice fails the measurement (`recordingUnusable`), as in Diagnose. `skipToResult()` finishes with the spots already captured (a spot in progress is dropped); before the floor is known it is `failed(.cancelled)`.
 
 ### Around the test
@@ -132,26 +146,31 @@ Paths below are relative to `ResoniqKit/Sources/ResoniqAudio/`.
 | `LiveSpectrum.updateRate` | 15 a second of audio | One update per `sampleRate / 15` captured samples |
 | `LiveSpectrum.attackTime`, `releaseTime` | 0.05 s, 0.4 s | First guesses; steps of 0.74 and 0.15 of the way per update |
 | `LiveSpectrum.analysisLength` | 16 384 samples | 0.34 s at 48 kHz; every band down to 20 Hz holds a bin |
+| `CapturedAudio.pausedDuration` | 4 s | First guess: four 1.5 s classifier windows at half overlap |
+| `SeatSpot.spacing` | 0.30 m | First guess; the instruction and the plan's markers read it |
+| `ReadingText.roomNoiseScaleDecibels` | 70 dB | The room-noise bar's right end; the mockup's 52 dB at 78 %, its mark at 55 % |
 | `SimulatedRoom.livingRoom` | Modes 38, 57, 85 Hz (levels per spot [12, 9, 14], [−5, 2, −3], [5, 7, 2] dB), Q for 0.5 s, right +1 dB, tail 0.5 s at −26 dB | A test fixture, not a claim about rooms |
 
 `SweepNoiseDetector` and the live gate are unaffected by the DSP's move to dBFS RMS: the detector compares a block's bins with the floor's same bins (a ratio), and adds that rise to the floor's broadband `LevelMeter` RMS, which was RMS before and after.
 
 ## Tests
 
-`ResoniqKit/Tests/ResoniqAudioTests/`, run on the Mac by `make test`, all on `SimulatedAudioIO` with the app's own configuration (4 s sweeps).
+`ResoniqKit/Tests/ResoniqAudioTests/`, run on the Mac by `make test`, all on `SimulatedAudioIO` with the app's own configuration (4 s sweeps), each test as short as its rule allows (two runs where the second only needs the delay known, one where it only needs to have finished, a 6 s longest wait where the rule is the configured wait, a seat run skipped after the spot that shows the rule). One clean seat run (`CleanSeatRun`) is made once and read by every test that only looks at a clean run.
+
+- `SessionAdditionsTests`: each spot's recordings are in `capturedSpots` at its `spotCaptured` ([seat], [seat, left], [seat, left, right]) and `captured` equals the result; the wait's phases never return to `waitingForMove` once the phone moved and follow steadiness; one instruction per phase and every other moment's sentence; the readings; a paused speaker test offers at most 4 s of the pause's audio (−34 dBFS for 0.02 RMS noise), growing block by block, and keeps it as `noisyRecording` when it ends too noisy; a paused seat measurement offers its audio; the ring.
 
 - `MeasurementSessionTests`: a clean test deconvolves to the speaker within 0.5 dB; a 1.5 s route delay is waited for and measured; a noise burst pauses, resumes earlier in the sweep and splices cleanly; noise early restarts the run; endless noise stays paused until cancelled; a clipped run is repeated once, then fails; denied permission plays nothing; an interruption ends the test; a moving phone is noted; cancelling in every state releases everything; progress rises run by run; any block size; a stream under 44.1 kHz fails before any sound.
 - `RecordingCheckTests`: a whole recording passes, a non-finite sample is `.unusable(.corrupt)`, a recording cut 0.3 s before the sweep's end is `.didNotArrive`.
 - `SeatMeasurementSessionTests` (in `SimulatedRoom.livingRoom`, immediate pacing): a pair gives three spots × two channels, each deconvolving (room window, sixth-octave, 30 Hz–16 kHz) to its own spot's simulated response within 0.006 dB and 2.9 dB or more from the other spots'; one speaker gives three × one; movement then stillness between spots, `spotCaptured` three times in order, the microphone at the right spot for each sweep; noise pauses and splices (within 0.005 dB); the 2.25 s tail lets `Decay.bass` read the room's 0.5 s within 7.2 % (0.464–0.494 s, T30, 98 dB of range); a spot that clips twice fails; skipping after one spot and in the middle of a spot; cancelling in every state; denied permission; undetected movement waits `movementTimeout` and is marked; an interruption.
 - `LiveSpectrumTests` (on a sine `AudioIO` double): a 1 kHz tone at 0.1 reads −23.01 dBFS in its band (expected −23.01) with its neighbours under −120; the stream ends and the IO stops on cancellation and when the consumer stops; 15 updates a second for blocks of 4800, 1031 and 48 000; the smoothing steps; the release after the tone stops.
 - `SweepNoiseDetectorTests`: a quiet room is never too noisy while the sweep plays (three speakers, one with a buzz), the tone found follows the sweep, a burst is too noisy in exactly its blocks, without a sweep it is the plain gate.
-- `SweepTiedSoundTests`: a rattle 40 dB under the sweep at 180–320 Hz pauses 5 times in three runs and finishes, each run marked tied at about 92–433 Hz (the band-pass skirt); a tail as loud as the direct sound with a 0.5 or 0.8 s decay finishes with no pause and nothing marked; a 1.5 s decay pauses up to the cap (12 in three runs) and finishes; noise that never stops ends as `tooNoisy` after 30 s. Before the fix all four ran past a minute.
+- `SweepTiedSoundTests`: a rattle 40 dB under the sweep at 180–320 Hz pauses 5 times in three runs and finishes, each run marked tied at about 92–433 Hz (the band-pass skirt); a tail as loud as the direct sound with a 0.5 or 0.8 s decay finishes with no pause and nothing marked; a 1.5 s decay pauses up to the cap (12 in three runs) and finishes; noise that never stops ends as `tooNoisy` after the configured longest wait (6 s in the test, 30 s in the app). Before the fix all four ran past a minute.
 - `SpliceAlignmentTests`: takes that line up are spliced with an offset under 0.2 samples and a deconvolved delay within 1 ms; a 5-sample drift during a pause restarts the run (0.0006 dB from the speaker, where splicing it gave 0.56 dB); the misalignment of a shifted signal is measured within 0.1 sample.
 - `OutputRouteTests`: a speaker test, a seat measurement and the tone through the receiver or the phone's speaker fail before any sound; the user's own outputs are measured.
 - `LifecycleTests`: both sessions' `cancel()` before, during, after and twice.
 - `SweepSplicerTests`, `SimulatedAudioIOTests` (real-time pacing against an injected clock), `TonePlayerTests` (no scheduling before the first block, the tone fades out by itself after 20 s, a clear error when the audio cannot start, `stop()` in any state).
 
-The suite takes about 40 to 50 s, most of it the seat measurements.
+The suite takes about 18 s on a loaded Mac (it took 74–86 s): the simulator's, the noise detector's and the splice alignment's per-sample and per-bin loops are plain `while` loops with plain assignments (same arithmetic and noise order, so every figure above is unchanged), because range iterators, tuple swaps and a configuration copy per sample dominated the debug build; the detector zero-pads before the transform; and the tests above are shorter. What is left is mostly the per-block work of every session on the one main actor and the DSP's transforms in a debug build. No test is skipped by default.
 
 ## Limits
 

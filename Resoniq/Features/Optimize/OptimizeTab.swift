@@ -28,7 +28,10 @@ struct OptimizeTab: View {
         ) {
             OptimizeCover()
         }
-        // An alert with no cover up is shown here; with a cover up, on the cover.
+        // A cover asked for but never presented must not block the home (`OptimizeCoordinator.tabAppeared`).
+        .onAppear { coordinator.tabAppeared() }
+        .onDisappear { coordinator.tabDisappeared() }
+        // An alert with no cover on screen is shown here; with one on screen, on the cover.
         .optimizeAlert(coordinator, whenCoverIsUp: false)
     }
 }
@@ -62,11 +65,11 @@ private struct OptimizeCover: View {
                     suggestion: request.suggestion, room: request.room, readiness: coordinator.sources.arReadiness(),
                     source: coordinator.sources.makeARSource(), haptics: coordinator.sources.makeARHaptics(),
                     onPlaced: { coordinator.placed($0, in: request) }, onDeclined: { coordinator.declined(request) },
-                    onClose: { coordinator.closeCover() })
+                    onFixLayout: { coordinator.fixLayout(from: request) }, onClose: { coordinator.closeCover() })
             case .verification(let verification):
                 VerifyScreen(
                     comparison: verification.comparison, before: verification.before, after: verification.after,
-                    onKeep: { coordinator.keep(verification) }, onNextSuggestion: { coordinator.keep(verification) },
+                    placementNote: verification.placementNote, onKeep: { coordinator.keep(verification) }, onNextSuggestion: { coordinator.keep(verification) },
                     onPutBack: { coordinator.putBack(verification) }, onClose: { coordinator.closeCover() })
             case nil:
                 // The cover is on its way out.
@@ -76,6 +79,7 @@ private struct OptimizeCover: View {
         .id(coordinator.coverID)
         .background(ResoniqColor.ink)
         .preferredColorScheme(.dark)
+        .onAppear { coordinator.coverAppeared() }
         // VoiceOver starts at the top of each new screen.
         .onChange(of: coordinator.coverID) {
             UIAccessibility.post(notification: .screenChanged, argument: nil)
@@ -90,10 +94,16 @@ private struct OptimizeCover: View {
 // MARK: - Alerts
 
 private extension View {
-    /// The coordinator's alert, shown by whichever of the tab and its cover is on top.
+    /// The coordinator's alert, shown by whichever of the tab and its cover is on top: the cover while it is on screen
+    /// and staying, the tab once no cover is on screen. An alert set as the cover leaves waits for the dismissal to
+    /// finish and then shows on the tab, with no timer.
     func optimizeAlert(_ coordinator: OptimizeCoordinator, whenCoverIsUp: Bool) -> some View {
         let shown = Binding(
-            get: { coordinator.alert != nil && (coordinator.cover != nil) == whenCoverIsUp },
+            get: {
+                guard coordinator.alert != nil else { return false }
+                return whenCoverIsUp
+                    ? coordinator.isCoverShowing && coordinator.cover != nil : !coordinator.isCoverShowing
+            },
             set: { if !$0 { coordinator.alert = nil } }
         )
         return alert(coordinator.alert?.title ?? "", isPresented: shown) {

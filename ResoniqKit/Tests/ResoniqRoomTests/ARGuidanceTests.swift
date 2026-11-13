@@ -29,6 +29,12 @@ private enum Move {
         return world.apply(model)
     }
 
+    /// The left speaker, the second mark: the middle of its front edge in the world.
+    static var leftFront: PlanPoint {
+        let left = sample.room.speaker(ARGuidanceSample.leftID)!
+        return world.apply(ARGuidanceGeometry.frontEdgeCentre(of: left.pose, size: left.size))
+    }
+
     /// Floor found, tracking normal, the reticle on the front edge, the camera in front.
     static func readyToMark() -> ARGuidanceState {
         var state = ARGuidanceState(suggestion: suggestion, room: sample.room)
@@ -36,6 +42,20 @@ private enum Move {
         _ = state.apply(.floorFound)
         _ = state.apply(.cameraMoved(camera))
         _ = state.apply(.reticleMoved(frontEdge(ofCentre: start.position, facing: start.facing)))
+        return state
+    }
+
+    /// Both marks: the speaker's front edge (where the reticle is), then the left speaker's front.
+    static func markBoth(_ state: inout ARGuidanceState, secondAt second: PlanPoint? = nil) {
+        _ = state.apply(.marked)
+        _ = state.apply(.reticleMoved(FloorHit(point: second ?? leftFront, height: -1.2)))
+        _ = state.apply(.marked)
+    }
+
+    /// Ready to mark, then both marks: the target is drawn.
+    static func marked() -> ARGuidanceState {
+        var state = readyToMark()
+        markBoth(&state)
         return state
     }
 
@@ -49,6 +69,8 @@ private enum Move {
         var state = ARGuidanceState(suggestion: Move.suggestion, room: Move.sample.room)
         #expect(state.phase == .findingFloor)
         #expect(!state.canMark)
+        // The second mark is the other speaker of the pair.
+        #expect(state.reference?.kind == .speaker(.left))
         _ = state.apply(.trackingRecovered)
         _ = state.apply(.floorFound)
         #expect(state.phase == .markingSpeaker)
@@ -56,6 +78,12 @@ private enum Move {
         #expect(!state.canMark)
         _ = state.apply(.cameraMoved(Move.camera))
         _ = state.apply(.reticleMoved(Move.frontEdge(ofCentre: Move.start.position, facing: Move.start.facing)))
+        #expect(state.canMark)
+        _ = state.apply(.marked)
+        // One mark draws nothing: the second point comes first.
+        #expect(state.phase == .markingReference)
+        #expect(state.target == nil && state.progress == nil && !state.canFollow)
+        _ = state.apply(.reticleMoved(FloorHit(point: Move.leftFront, height: -1.2)))
         #expect(state.canMark)
         _ = state.apply(.marked)
         #expect(state.phase == .sliding)
@@ -80,15 +108,46 @@ private enum Move {
         #expect(state.hapticInterval == nil)
 
         let placed = state.apply(.confirm)
-        let pose = try #require(state.placedPose)
-        #expect(placed == [.placed(pose)])
-        #expect(state.phase == .placed(pose))
-        // Back in room coordinates: within a centimetre of the target, facing as suggested (confirmed by eye).
-        #expect(pose.position.distance(to: Move.suggestion.to.position) < 0.011)
-        #expect(isClose(pose.facing, Move.suggestion.to.facing, 1e-12))
+        let placement = try #require(state.placement)
+        #expect(placed == [.placed(placement)])
+        #expect(state.phase == .placed(placement))
+        // Where the speaker was last pointed at (1 cm short), not the plan's target; within the tolerance.
+        #expect(isClose(placement.distanceFromTarget, 0.01, 1e-9))
+        #expect(!placement.isApproximate)
+        #expect(isClose(placement.pose.facing, Move.suggestion.to.facing, 1e-12))
         // Finished: nothing more happens.
         #expect(state.apply(.decline).isEmpty)
-        #expect(state.phase == .placed(pose))
+        #expect(state.phase == .placed(placement))
+    }
+
+    @Test func stoppingShortIsRecordedAsApproximate() throws {
+        var state = Move.marked()
+        _ = state.apply(.follow(true))
+        _ = Move.follow(&state, to: 0.33)
+        // 2 cm short is in position; "It's in place" hands back that spot, 2 cm from the target.
+        #expect(state.canConfirm)
+        _ = state.apply(.confirm)
+        let close = try #require(state.placement)
+        #expect(isClose(close.distanceFromTarget, 0.02, 1e-9) && !close.isApproximate)
+
+        // The plan's speaker 6 cm off where it really stands: the marks still agree (the residual is small), the
+        // target follows the marked speaker, and the stored spot is where the person marked it, recorded as
+        // approximate because it is not the suggested one.
+        var shifted = Move.readyToMark()
+        let edge = Move.frontEdge(ofCentre: Move.start.position, facing: Move.start.facing).point
+        // 12 cm along the baseline, away from the other speaker: the fit's residual is 6 cm (under the limit), and
+        // the fit puts the marked speaker 6 cm from the plan's.
+        let offset = (Move.leftFront - edge).normalized * -0.12
+        _ = shifted.apply(.reticleMoved(Move.frontEdge(ofCentre: Move.start.position + offset, facing: Move.start.facing)))
+        Move.markBoth(&shifted)
+        #expect(shifted.phase == .sliding)
+        _ = shifted.apply(.follow(true))
+        let target = try #require(shifted.target)
+        _ = shifted.apply(.reticleMoved(Move.frontEdge(ofCentre: target.position, facing: Move.start.facing)))
+        _ = shifted.apply(.confirm)
+        let placement = try #require(shifted.placement)
+        #expect(placement.isApproximate)
+        #expect(placement.distanceFromTarget > MoveGuidance.positionTolerance)
     }
 
     @Test func aMoveWithoutATurnArrives() throws {
@@ -96,9 +155,13 @@ private enum Move {
         var state = ARGuidanceState(suggestion: sample.suggestion, room: sample.room)
         _ = state.apply(.trackingRecovered)
         _ = state.apply(.floorFound)
-        let start = WorldAlignment.identity.apply(sample.suggestion.from)
+        let start = sample.suggestion.from
         _ = state.apply(.cameraMoved(Viewer(position: .zero, heading: start.facing + .pi)))
         _ = state.apply(.reticleMoved(Move.frontEdge(ofCentre: start.position, facing: start.facing)))
+        _ = state.apply(.marked)
+        let left = try #require(sample.room.speaker(ARGuidanceSample.leftID))
+        let leftFront = ARGuidanceGeometry.frontEdgeCentre(of: left.pose, size: left.size)
+        _ = state.apply(.reticleMoved(FloorHit(point: leftFront, height: 0)))
         _ = state.apply(.marked)
         _ = state.apply(.follow(true))
         let end = sample.suggestion.to.position
@@ -112,16 +175,14 @@ private enum Move {
         #expect(finding.apply(.decline) == [.declined])
         #expect(finding.phase == .declined)
 
-        var sliding = Move.readyToMark()
-        _ = sliding.apply(.marked)
+        var sliding = Move.marked()
         #expect(sliding.apply(.decline) == [.declined])
         #expect(sliding.phase == .declined)
         #expect(sliding.placedPose == nil)
     }
 
     @Test func trackingLostAndRecoveredMidSlide() throws {
-        var state = Move.readyToMark()
-        _ = state.apply(.marked)
+        var state = Move.marked()
         _ = state.apply(.follow(true))
         _ = Move.follow(&state, to: 0.10)
         _ = state.apply(.trackingDegraded(.excessiveMotion))
@@ -145,27 +206,29 @@ private enum Move {
         #expect(state.hapticInterval != nil)
     }
 
-    @Test func remarkingStartsTheAlignmentAgain() throws {
+    @Test func marksThatDisagreeStopTheGuideAndMarkingAgainStartsOver() throws {
         var state = Move.readyToMark()
-        // A mark 20 cm off to the side, then thought better of.
-        let wrong = Move.start.position + PlanPoint(angle: Move.start.facing).rightHand * 0.2
-        _ = state.apply(.reticleMoved(Move.frontEdge(ofCentre: wrong, facing: Move.start.facing)))
-        _ = state.apply(.marked)
-        let wrongTarget = try #require(state.target)
-        _ = state.apply(.follow(true))
+        // The second mark 60 cm beyond where the plan has the left speaker: the marks do not agree, no target.
+        let first = Move.frontEdge(ofCentre: Move.start.position, facing: Move.start.facing).point
+        let outward = (Move.leftFront - first).normalized
+        Move.markBoth(&state, secondAt: Move.leftFront + outward * 0.6)
+        guard case .cannotAlign(.marksDisagree(let residual)) = state.phase else {
+            Issue.record("marks 60 cm off the plan should not align, got \(state.phase)")
+            return
+        }
+        #expect(residual > WorldAlignment.maximumResidual)
+        #expect(state.target == nil && !state.canFollow && !state.canConfirm && !state.canMark)
         _ = state.apply(.remark)
         #expect(state.phase == .markingSpeaker)
-        #expect(state.alignment == nil && state.speaker == nil && !state.isFollowing)
+        #expect(state.alignment == nil && state.speaker == nil && state.speakerMark == nil && state.referenceMark == nil)
         _ = state.apply(.reticleMoved(Move.frontEdge(ofCentre: Move.start.position, facing: Move.start.facing)))
-        _ = state.apply(.marked)
+        Move.markBoth(&state)
         let target = try #require(state.target)
         #expect(target.position.distance(to: Move.world.apply(Move.suggestion.to.position)) < 1e-9)
-        #expect(wrongTarget.position.distance(to: target.position) > 0.19)
     }
 
     @Test func leavingThePositionGoesBackToSliding() {
-        var state = Move.readyToMark()
-        _ = state.apply(.marked)
+        var state = Move.marked()
         _ = state.apply(.follow(true))
         _ = Move.follow(&state, to: 0.35)
         #expect(state.phase == .turning)
@@ -185,6 +248,20 @@ private enum Move {
         #expect(state.phase == .markingSpeaker)
     }
 
+    @Test func withNothingElseToMarkNoTargetIsShown() {
+        var room = Move.sample.room
+        room.speakers.removeAll { $0.id == ARGuidanceSample.leftID }
+        room.seats = []
+        var state = ARGuidanceState(suggestion: Move.suggestion, room: room)
+        #expect(state.reference == nil)
+        _ = state.apply(.trackingRecovered)
+        _ = state.apply(.floorFound)
+        _ = state.apply(.reticleMoved(Move.frontEdge(ofCentre: Move.start.position, facing: Move.start.facing)))
+        _ = state.apply(.marked)
+        #expect(state.phase == .cannotAlign(.nothingElseToMark))
+        #expect(state.target == nil)
+    }
+
     @Test func tooDarkIsReadFromTheLight() {
         #expect(ARTrackingIssue.insufficientFeatures(ambientIntensity: 30) == .tooDark)
         #expect(ARTrackingIssue.insufficientFeatures(ambientIntensity: 900) == .insufficientFeatures)
@@ -192,13 +269,42 @@ private enum Move {
     }
 }
 
+@Suite struct ARReferenceTests {
+    @Test func thePairPartnerThenTheSeatThenASubwoofer() throws {
+        let sample = ARGuidanceSample.rightSpeaker()
+        #expect(ARReference.choose(for: sample.suggestion, in: sample.room)?.kind == .speaker(.left))
+
+        var noPartner = sample.room
+        noPartner.speakers.removeAll { $0.id == ARGuidanceSample.leftID }
+        let seat = try #require(ARReference.choose(for: sample.suggestion, in: noPartner))
+        #expect(seat.kind == .seat)
+        #expect(seat.modelPoint == noPartner.primarySeat?.position)
+
+        // A subwoofer far enough away is the last resort.
+        var subOnly = noPartner
+        subOnly.seats = []
+        subOnly.speakers.append(PlacedSpeaker(role: .subwoofer, position: PlanPoint(x: -1.5, z: -2.3), facing: .pi / 2, isConfirmed: true))
+        #expect(ARReference.choose(for: sample.suggestion, in: subOnly)?.kind == .speaker(.subwoofer))
+    }
+
+    @Test func aPointTooCloseToTheSpeakerIsNotUsed() {
+        let sample = ARGuidanceSample.rightSpeaker()
+        var room = sample.room
+        room.speakers.removeAll { $0.id == ARGuidanceSample.leftID }
+        // The only seat 30 cm in front of the speaker: too short a baseline.
+        let from = sample.suggestion.from
+        room.seats = [Seat(position: from.position + PlanPoint(angle: from.facing) * 0.3, isConfirmed: true)]
+        #expect(ARReference.choose(for: sample.suggestion, in: room) == nil)
+    }
+}
+
 @Suite struct ARGuidanceAlignmentTests {
-    @Test func aMarkMapsTheModelTargetIntoTheWorldAndBack() throws {
-        var state = Move.readyToMark()
-        _ = state.apply(.marked)
+    @Test func twoMarksMapTheModelTargetIntoTheWorldAndBack() throws {
+        let state = Move.marked()
         let alignment = try #require(state.alignment)
         #expect(isClose(alignment.rotation, Move.world.rotation, 1e-9))
         #expect(isClose(alignment.translation, Move.world.translation, 1e-9))
+        #expect(alignment.residual < 1e-9)
         let target = try #require(state.target)
         #expect(isClose(target.position, Move.world.apply(Move.suggestion.to.position), 1e-9))
         #expect(isClose(alignment.inverse.apply(target.position), Move.suggestion.to.position, 1e-9))
@@ -208,27 +314,44 @@ private enum Move {
         #expect(isClose(speaker.position, Move.start.position, 1e-9))
     }
 
-    @Test func aCameraHeadingOffByAFewDegreesMovesTheTargetLittle() throws {
+    /// The finding: one mark and the camera's heading put a 35 cm target 12 cm off for a 20° heading error. With two
+    /// marks the camera's heading is not used for the alignment at all; with each mark 1.5 cm off as well (a person
+    /// is not exact), the target stays within a few centimetres.
+    @Test(arguments: [20.0, 30.0, -20.0])
+    func aHeadingErrorWithTwoMarksKeepsTheTargetClose(degrees: Double) throws {
         var state = Move.readyToMark()
         var camera = Move.camera
-        camera.heading += PlanAngle.radians(5)
+        camera.heading += PlanAngle.radians(degrees)
         _ = state.apply(.cameraMoved(camera))
-        _ = state.apply(.marked)
+        // Each mark 1.5 cm off, in opposite directions across the baseline: the worst case for the rotation.
+        let first = Move.frontEdge(ofCentre: Move.start.position, facing: Move.start.facing)
+        let across = (Move.leftFront - first.point).normalized.rightHand * 0.015
+        _ = state.apply(.reticleMoved(FloorHit(point: first.point + across, height: first.height)))
+        Move.markBoth(&state, secondAt: Move.leftFront - across)
+        #expect(state.phase == .sliding)
         let target = try #require(state.target)
-        // 5° about a point 15 cm behind the mark moves a target 35 cm away by about 4 cm.
-        #expect(target.position.distance(to: Move.world.apply(Move.suggestion.to.position)) < 0.05)
+        let truth = Move.world.apply(Move.suggestion.to.position)
+        #expect(target.position.distance(to: truth) < 0.025)
+        // The fitted rotation is within a degree of the truth.
+        let rotationError = PlanAngle.difference(from: Move.world.rotation, to: try #require(state.alignment).rotation)
+        #expect(abs(rotationError) < PlanAngle.radians(1))
     }
 
-    @Test func aSecondMatchedPointRefitsAndReportsTheResidual() throws {
+    @Test func theTargetFollowsTheMarkedSpeakerNotTheFitsAverage() throws {
+        // The room's pair 10 cm wider than the plan's: the fit splits that between the marks (a residual of 5 cm;
+        // 10 cm, a pair 20 cm off, would stop the guide), and the target stays the slide from where the speaker was
+        // marked.
         var state = Move.readyToMark()
-        _ = state.apply(.marked)
-        let seat = try #require(Move.sample.room.primarySeat).position
-        let refit = try #require(state.refinedAlignment(matching: [(model: seat, world: Move.world.apply(seat))]))
-        #expect(refit.isConsistent)
-        #expect(isClose(refit.rotation, Move.world.rotation, 1e-6))
-        let wrong = Move.world.apply(seat) + PlanPoint(x: 0.6, z: 0)
-        let bad = try #require(state.refinedAlignment(matching: [(model: seat, world: wrong)]))
-        #expect(!bad.isConsistent)
+        let first = Move.frontEdge(ofCentre: Move.start.position, facing: Move.start.facing).point
+        let outward = (Move.leftFront - first).normalized
+        Move.markBoth(&state, secondAt: Move.leftFront + outward * 0.1)
+        #expect(state.phase == .sliding)
+        let alignment = try #require(state.alignment)
+        #expect(isClose(alignment.residual, 0.05, 1e-6))
+        let start = try #require(state.markedStart)
+        let target = try #require(state.target)
+        #expect(isClose(target.position.distance(to: start.position), 0.35, 1e-9))
+        #expect(isClose(start.position, Move.start.position, 1e-9))
     }
 }
 
@@ -280,8 +403,7 @@ private enum Move {
 @Suite struct ARReadoutTextTests {
     /// V3OAR verbatim.
     @Test func theMockupsReadout() throws {
-        var state = Move.readyToMark()
-        _ = state.apply(.marked)
+        var state = Move.marked()
         _ = state.apply(.follow(true))
         _ = Move.follow(&state, to: 0.17)
         let readout = try #require(state.readout)
@@ -299,8 +421,7 @@ private enum Move {
     }
 
     @Test func theTurnSaysItCannotBeMeasured() throws {
-        var state = Move.readyToMark()
-        _ = state.apply(.marked)
+        var state = Move.marked()
         _ = state.apply(.follow(true))
         _ = Move.follow(&state, to: 0.35)
         let readout = try #require(state.readout)

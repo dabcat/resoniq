@@ -23,8 +23,9 @@ enum OptimizeHomeState: Equatable {
     case suggestion(tracker: RoomDisplay.Tracker, headline: String, basis: String?, plan: OptimizePlan)
     /// Measured, and the Kit has nothing to suggest: what it says is the headline, with any further sentences.
     case nothingToSuggest(tracker: RoomDisplay.Tracker, headline: String, notes: [String], plan: OptimizePlan)
-    /// The speaker was moved; waiting for the second measurement.
-    case moved(tracker: RoomDisplay.Tracker, headline: String, plan: OptimizePlan)
+    /// The speaker was moved; waiting for the second measurement. `note` says how sure the plan is of where the
+    /// speaker went (not seen at all after "I'll move it myself", or marked off the suggested spot).
+    case moved(tracker: RoomDisplay.Tracker, headline: String, note: String?, plan: OptimizePlan)
     /// Measured again and compared: the headline is the comparison's verdict, and "See before and after" opens it.
     case verified(tracker: RoomDisplay.Tracker, headline: String, plan: OptimizePlan)
 }
@@ -113,9 +114,9 @@ struct OptimizeHomeView: View {
                 tracker: tracker, headline: headline, plan: plan, notes: notes,
                 legend: plan.content.measuredSpots.isEmpty ? .none : .measured,
                 primary: (OptimizeText.measureAgain, onMeasure))
-        case .moved(let tracker, let headline, let plan):
+        case .moved(let tracker, let headline, let note, let plan):
             Page(
-                tracker: tracker, headline: headline, plan: plan, legend: .measured,
+                tracker: tracker, headline: headline, plan: plan, notes: note.map { [$0] } ?? [], legend: .measured,
                 primary: (OptimizeText.measureAgainFromSeat, onMeasure))
         case .verified(let tracker, let headline, let plan):
             Page(
@@ -257,7 +258,7 @@ struct OptimizeHomeContainer: View {
         let system = system
         let context = system.map { ListeningContext(room: $0.room?.name ?? StoreText.defaultRoomName, system: $0.name) }
             ?? ListeningContext(room: StoreText.defaultRoomName, system: StoreText.defaultSystemName)
-        let input = OptimizeHomeInput.read(from: store, system: system)
+        let input = OptimizeHomeInput(store?.optimizeStatus(in: system) ?? OptimizeStatus())
         let made = OptimizeHomeState.make(input)
         OptimizeHomeView(
             context: context, state: made.state, notice: input.layoutUnreadable ? OptimizeText.roomUnreadable : nil,

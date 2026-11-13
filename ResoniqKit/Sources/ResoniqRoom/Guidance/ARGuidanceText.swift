@@ -23,12 +23,49 @@ public enum ARGuidanceText {
 
     public static let markSpeaker = ARGuidanceMessage(
         headline: "Put the dot on the floor at the middle of the speaker's front.",
-        detail: "Stand in front of the speaker and face it, the way you face it from your seat.")
+        detail: "Then I'll ask for one more point, so the outline lands in the right place.")
 
     /// Marking, with the centre of the screen off the floor.
     public static let markAimLower = ARGuidanceMessage(
         headline: "Put the dot on the floor at the middle of the speaker's front.",
         detail: "Aim a little lower, at the floor just in front of it.")
+
+    /// The second mark: the other speaker's front, or the floor under the seat.
+    public static func markReference(_ kind: ARReference.Kind) -> ARGuidanceMessage {
+        switch kind {
+        case .speaker(let role):
+            ARGuidanceMessage(
+                headline: "Now put the dot at the middle of \(RoomText.inSentence(role))'s front.",
+                detail: "Two points let me line the plan up with your room. Leave the first speaker where it is for now.")
+        case .seat:
+            ARGuidanceMessage(
+                headline: "Now put the dot on the floor below where your head is when you sit.",
+                detail: "Two points let me line the plan up with your room. Leave the speaker where it is for now.")
+        }
+    }
+
+    /// The second mark, with the centre of the screen off the floor.
+    public static let markReferenceAimLower = ARGuidanceMessage(
+        headline: "Aim at the floor.",
+        detail: "The dot only settles on the floor. Point a little lower.")
+
+    /// The marks are not as far apart as the plan says.
+    public static let marksDisagree = ARGuidanceMessage(
+        headline: "Your marks don't match the plan.",
+        detail: "They're not as far apart as the plan says, so the outline could land in the wrong place. Mark both again, or fix the layout so it shows where things really are.")
+
+    /// Nothing besides the speaker to mark.
+    public static let nothingElseToMark = ARGuidanceMessage(
+        headline: "I need a second point to line the plan up.",
+        detail: "Add your seat or another speaker to the layout, then try again.")
+
+    /// The primary button for the second mark: "This is the left speaker", "This is my seat".
+    public static func markReferenceButton(_ kind: ARReference.Kind) -> String {
+        switch kind {
+        case .speaker(let role): "This is \(RoomText.inSentence(role))"
+        case .seat: "This is my seat"
+        }
+    }
 
     // MARK: The steps
 
@@ -56,7 +93,8 @@ public enum ARGuidanceText {
     // MARK: Buttons
 
     public static let markButton = "This is the speaker"
-    public static let markAgain = "Mark it again"
+    public static let markAgain = "Mark again"
+    public static let fixLayout = "Fix the layout"
     public static let cantMove = "Can't move it"
     public static let inPlace = "It's in place"
     public static let close = "Close AR guide"

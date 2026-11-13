@@ -2,6 +2,7 @@
 import ARKit
 import os
 import ResoniqRoom
+import ResoniqStore
 import RoomPlan
 import SwiftUI
 
@@ -110,8 +111,10 @@ final class RoomCaptureHostController: UIViewController {
     }
 
     /// Stopping the session is what makes RoomPlan process the scan and call the view delegate. Guarded so a
-    /// double tap cannot stop twice. A cancelled scan tells the delegate first, so nothing is processed.
+    /// double tap cannot stop twice. A cancelled scan tells the delegate first, so nothing is processed; a cancel
+    /// after Finish (closing while RoomPlan is processing) still tells it, so the result and its export are dropped.
     func stopScanning(cancelled: Bool) {
+        if cancelled { coordinator.isCancelled = true }
         guard !hasStopped else { return }
         hasStopped = true
         overlayTask?.cancel()
@@ -120,7 +123,6 @@ final class RoomCaptureHostController: UIViewController {
         proxy?.restore(on: captureView.captureSession)
         proxy = nil
         eventSink.finish()
-        if cancelled { coordinator.isCancelled = true }
         // A session that already ended with an error has nothing to stop.
         guard hasStarted, !coordinator.hasFinished else { return }
         captureView.captureSession.stop()
@@ -235,8 +237,13 @@ final class RoomCaptureCoordinator: NSObject, @preconcurrency RoomCaptureViewDel
         hasFinished = true
         // `CapturedRoom` is Sendable: converted and exported off the main actor, then handed over as a value.
         let model = model
-        Task {
+        Task { [weak self] in
             let result = await Self.process(processedResult)
+            // Closed while the export ran: nobody will confirm this scan, so its temporary file goes now.
+            guard let self, !self.isCancelled else {
+                if let url = result.usdzURL { try? FileManager.default.removeItem(at: url) }
+                return
+            }
             if !result.lowConfidence.isEmpty || !result.dropped.isEmpty {
                 Self.log.notice(
                     "Scan kept \(result.lowConfidence.count) low-confidence items, dropped \(result.dropped.count)")
@@ -257,7 +264,7 @@ final class RoomCaptureCoordinator: NSObject, @preconcurrency RoomCaptureViewDel
     @concurrent
     nonisolated static func process(_ room: CapturedRoom) async -> RoomScanResult {
         let conversion = RoomPlanConverter.conversion(from: room)
-        let url = URL.temporaryDirectory.appending(path: "Resoniq-scan-\(UUID().uuidString).usdz")
+        let url = ScanFileStore.temporaryExportURL(in: URL.temporaryDirectory)
         var usdz: URL?
         do {
             try room.export(to: url, exportOptions: .parametric)

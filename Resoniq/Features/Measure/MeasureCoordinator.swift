@@ -49,13 +49,21 @@ final class MeasureCoordinator {
     var path: [Route] = []
     private(set) var numbers: Numbers?
     private(set) var comparing: Comparing?
-    /// A measurement that finished but is not kept: one that could not conclude. Measure home shows it with what went
-    /// wrong, until the next measurement.
+    /// A measurement that finished but is not kept: one that could not conclude, or one the store could not save.
+    /// Measure home shows it until the next measurement.
     private(set) var unsaved: MeasureSummary?
+    /// The store could not save a conclusive measurement: the alert that says so, in the product's voice. Set once
+    /// the cover has gone; `RootView` shows it.
+    var saveFailedAlert: Bool = false
 
-    /// Called with the stored measurement each time a conclusive seat report was kept, after the cover was closed. The
-    /// Optimize coordinator sets it, to compare a measurement made after a move.
+    /// Called with the stored measurement each time a conclusive seat report was kept, once the cover has finished
+    /// dismissing (`coverDismissed`), so whoever presents next does not present over a cover that is still leaving.
+    /// The Optimize coordinator sets it, to compare a measurement made after a move.
     @ObservationIgnored var onSeatKept: ((SeatMeasurement) -> Void)?
+
+    /// What the cover's dismissal hands on: the kept measurement, or that the save failed.
+    @ObservationIgnored private var pendingKept: SeatMeasurement?
+    @ObservationIgnored private var pendingSaveFailure = false
 
     @ObservationIgnored private let store: ResoniqStore
     @ObservationIgnored private let audio: AudioEnvironment
@@ -155,17 +163,23 @@ final class MeasureCoordinator {
     // MARK: Finishing
 
     /// The flow produced a report. A conclusive one is kept in the selected system; one that could not conclude is not
-    /// kept and Measure home shows it with what went wrong. Either way the cover closes onto Measure home. Once per
-    /// flow: a report from a flow that is no longer the one on screen is ignored.
+    /// kept and Measure home shows it with what went wrong. A conclusive one the store could not save stays on Measure
+    /// home too, unsaved, and an alert says so once the cover has gone. Either way the cover closes onto Measure home,
+    /// and a kept measurement is handed on from the dismissal. Once per flow: a report from a flow that is no longer
+    /// the one on screen is ignored.
     func measurementFinished(_ report: SeatReport, from flow: SeatFlow) {
         guard case .measurement(let current) = content, current === flow else { return }
         var kept: SeatMeasurement?
         if report.isConclusive, let system {
-            kept = try? store.keep(report, in: system)
+            do {
+                kept = try store.keep(report, in: system)
+            } catch {
+                pendingSaveFailure = true
+            }
         }
         unsaved = kept == nil ? MeasureSummary(report: report, date: .now) : nil
+        pendingKept = kept
         close()
-        if let kept { onSeatKept?(kept) }
         // The cover closes onto Measure home; say what was found, since nothing on screen moves VoiceOver there.
         let verdict = report.verdict
         Task {
@@ -182,10 +196,36 @@ final class MeasureCoordinator {
         content = nil
     }
 
+    /// The system finished dismissing the cover: hand on what the measurement left (a kept measurement to Optimize, a
+    /// failed save to the alert).
+    func coverDismissed() {
+        if pendingSaveFailure {
+            pendingSaveFailure = false
+            saveFailedAlert = true
+        }
+        guard let kept = pendingKept else { return }
+        pendingKept = nil
+        onSeatKept?(kept)
+    }
+
     /// The scene left the foreground: stop anything that plays or listens. A measurement goes back to Sit and aim, the
     /// live view stops until it is shown again.
     func suspend() {
         stopWork()
+    }
+
+    /// "Delete all results" or "Delete everything": the cover closes, and an unsaved result, a comparison, The numbers
+    /// and anything waiting to be handed on are dropped, back to Measure home.
+    func resetAfterDataDeletion() {
+        close()
+        pendingKept = nil
+        pendingSaveFailure = false
+        saveFailedAlert = false
+        comparing = nil
+        unsaved = nil
+        numbers = nil
+        path = []
+        shownSystem = system?.persistentModelID
     }
 
     private func stopWork() {

@@ -28,6 +28,18 @@ enum V2Fixtures {
             distortionPercent: nil, bassDecay: nil)
     }
 
+    /// A conclusive report with one bass dip: the problem the fixture suggestion answers (61 Hz) unless told otherwise.
+    static func dipReport(_ verdict: String = "From your seat, a bass note is missing.", at frequency: Float = 61) -> SeatReport {
+        let dip = SeatExtreme(
+            kind: .dip, frequency: frequency, deviation: -11, range: FrequencyRange(lower: frequency * 0.9, upper: frequency * 1.1),
+            spread: 2)
+        return SeatReport(
+            schemaVersion: SeatReport.currentSchemaVersion, verdict: verdict, isConclusive: true, validSpotCount: 3,
+            requiredSpotCount: 3, spots: [], curve: nil, leftCurve: nil, rightCurve: nil, spotCurves: [], spread: nil,
+            assessed: nil, evenBandDecibels: 4, extremes: [dip], leftRightDifference: nil, findings: [], numbers: [],
+            distortionPercent: nil, bassDecay: nil)
+    }
+
     static func comparison(_ verdict: String = "The missing bass note is back.") -> ComparisonReport {
         ComparisonReport(verdict: verdict, rows: [], note: "All measured just now.", outcome: .improved, nextTarget: nil, isConclusive: true)
     }
@@ -62,8 +74,11 @@ struct StoreV2Tests {
         #expect(room.layout == model)
         #expect(room.layoutUpdatedAt == date)
         #expect(room.layoutSchemaVersion == RoomModel.currentSchemaVersion)
-        let again = ResoniqStore(container: container)
-        #expect(try again.layout(of: again.rooms()[0]) == model)
+        // A second context reads what was saved, not the object in memory.
+        let again = ResoniqStore(container: container, context: ModelContext(container))
+        let stored = try #require(try again.rooms().first)
+        #expect(stored !== room)
+        #expect(try again.layout(of: stored) == model)
     }
 
     @Test func unknownLayoutVersionAndDamagedDataAreReported() throws {
@@ -237,6 +252,7 @@ struct StoreV2Tests {
 
         let after = try store.keep(V2Fixtures.seatReport("after"), in: system, date: Date(timeIntervalSince1970: 400))
         // A second measurement alone is not a verification.
+        #expect(store.progress(in: system) == OptimizeProgress(scanned: true, measured: true, moved: true))
         try store.recordVerification(optimization, after: after, comparison: V2Fixtures.comparison())
         #expect(store.progress(in: system) == OptimizeProgress(scanned: true, measured: true, moved: true, verified: true))
 
@@ -302,8 +318,9 @@ struct StoreV2Tests {
         // The optimisation and its stored values are intact and can be read.
         #expect(try container.mainContext.fetchCount(FetchDescriptor<Optimization>()) == 1)
         #expect(try optimization.readComparison() != nil)
-        let again = ResoniqStore(container: container)
+        let again = ResoniqStore(container: container, context: ModelContext(container))
         let fetched = try #require(again.context.fetch(FetchDescriptor<Optimization>()).first)
+        #expect(fetched !== optimization)
         #expect(fetched.seatBefore == nil && fetched.seatAfter == nil)
     }
 
@@ -382,8 +399,11 @@ struct ScanFileTests {
         try store.setLayout(V2Fixtures.room(), for: room, scanFile: first)
         #expect(room.scanFileName == first)
 
-        // An edit without a file keeps the reference.
-        try store.setLayout(V2Fixtures.room(speakerX: -1.2), for: room)
+        // An edit of a scanned room without a file keeps the reference (a hand-entered one drops it: see
+        // `StoreMaintenanceTests`).
+        var edited = V2Fixtures.room(speakerX: -1.2)
+        edited.source = .scanned
+        try store.setLayout(edited, for: room)
         #expect(room.scanFileName == first)
         #expect(files.url(for: first) != nil)
 
@@ -545,11 +565,13 @@ struct IntroGateTests {
         #expect(gate.isShown)
     }
 
-    @Test func standardGateReadsTheResetArgument() throws {
+    @Test func standardGateResetsOnlyWhenTheAppAsks() throws {
         let defaults = try #require(UserDefaults(suiteName: "intro-\(UUID().uuidString)"))
         IntroGate(flag: UserDefaultsIntroFlag(defaults)).finish()
         #expect(!IntroGate.standard(defaults: defaults).isShown)
+        // The launch argument alone does nothing: the Kit never reads it (a Release build must not honour it).
         defaults.set(true, forKey: "resetIntro")
-        #expect(IntroGate.standard(defaults: defaults).isShown)
+        #expect(!IntroGate.standard(defaults: defaults).isShown)
+        #expect(IntroGate.standard(defaults: defaults, resetRequested: true).isShown)
     }
 }

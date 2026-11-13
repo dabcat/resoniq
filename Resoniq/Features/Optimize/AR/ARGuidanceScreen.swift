@@ -7,40 +7,44 @@ import SwiftUI
 /// instruction, the progress bar and its two lines, the haptics line, "Can't move it" and "It's in place".
 ///
 /// States without a mockup, which follow design/DESIGN_SYSTEM.md (the frame and voice of the scan's states): the
-/// camera permission needed or denied, AR not available, finding the floor and marking the speaker (their own
-/// instruction and primary button in the same sheet), tracking limited or interrupted (the sheet's instruction
-/// gives way to what to do), the follow control over the camera, and "Mark it again". Copy is in the Kit's
-/// `ARGuidanceText` and `RoomText`.
+/// camera permission needed or denied, AR not available, finding the floor, marking the speaker and then the second
+/// point (the other speaker, or the seat) that lines the plan up with the room (each with its own instruction and
+/// primary button in the same sheet), marks that do not agree with the plan ("Mark again" or "Fix the layout"),
+/// tracking limited or interrupted (the sheet's instruction gives way to what to do), the follow control over the
+/// camera, and "Mark again". Copy is in the Kit's `ARGuidanceText` and `RoomText`.
 struct ARGuidanceScreen: View {
     @State private var readiness: ScanReadiness
     @State private var model: ARGuidanceModel
-    private let onPlaced: (PlanPose) -> Void
+    private let onPlaced: (ARPlacement) -> Void
     private let onDeclined: () -> Void
+    private let onFixLayout: () -> Void
     private let onClose: () -> Void
 
     @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var scenePhase
 
     /// - Parameters:
-    ///   - onPlaced: "It's in place": the speaker's new pose in room-model coordinates. The position is where the
-    ///     person last pointed at the speaker; the facing is the suggestion's, as they confirmed the turn by eye.
+    ///   - onPlaced: "It's in place": where the person last pointed at the speaker, in room-model coordinates, and
+    ///     how far that is from the suggested spot; the facing is the suggestion's, as they confirmed the turn by eye.
     ///   - onDeclined: "Can't move it".
-    init(suggestion: PlacementSuggestion, room: RoomModel, onPlaced: @escaping (PlanPose) -> Void,
-         onDeclined: @escaping () -> Void, onClose: @escaping () -> Void) {
+    ///   - onFixLayout: "Fix the layout", when the marks do not agree with the plan.
+    init(suggestion: PlacementSuggestion, room: RoomModel, onPlaced: @escaping (ARPlacement) -> Void,
+         onDeclined: @escaping () -> Void, onFixLayout: @escaping () -> Void, onClose: @escaping () -> Void) {
         self.init(
             suggestion: suggestion, room: room, readiness: ARGuidanceCapability.readiness(),
             source: ARGuidanceCapability.makeSource(), haptics: ARGuidanceCapability.makeHaptics(),
-            onPlaced: onPlaced, onDeclined: onDeclined, onClose: onClose)
+            onPlaced: onPlaced, onDeclined: onDeclined, onFixLayout: onFixLayout, onClose: onClose)
     }
 
     /// For previews and debug screens: a fixed readiness and a source.
     init(suggestion: PlacementSuggestion, room: RoomModel, readiness: ScanReadiness, source: any ARGuidanceSource,
-         haptics: any ARGuidanceHaptics = SilentARGuidanceHaptics(), onPlaced: @escaping (PlanPose) -> Void,
-         onDeclined: @escaping () -> Void, onClose: @escaping () -> Void) {
+         haptics: any ARGuidanceHaptics = SilentARGuidanceHaptics(), onPlaced: @escaping (ARPlacement) -> Void,
+         onDeclined: @escaping () -> Void, onFixLayout: @escaping () -> Void = {}, onClose: @escaping () -> Void) {
         _readiness = State(initialValue: readiness)
         _model = State(initialValue: ARGuidanceModel(suggestion: suggestion, room: room, source: source, haptics: haptics))
         self.onPlaced = onPlaced
         self.onDeclined = onDeclined
+        self.onFixLayout = onFixLayout
         self.onClose = onClose
     }
 
@@ -48,12 +52,12 @@ struct ARGuidanceScreen: View {
         Group {
             switch readiness {
             case .ready:
-                GuidingView(model: model, onClose: close)
+                GuidingView(model: model, onFixLayout: fixLayout, onClose: close)
                     .onAppear { model.start() }
                     .onDisappear { model.stop() }
                     .onChange(of: model.state.phase) { _, phase in
                         switch phase {
-                        case .placed(let pose): onPlaced(pose)
+                        case .placed(let placement): onPlaced(placement)
                         case .declined: onDeclined()
                         default: break
                         }
@@ -96,6 +100,11 @@ struct ARGuidanceScreen: View {
         model.stop()
         onClose()
     }
+
+    private func fixLayout() {
+        model.stop()
+        onFixLayout()
+    }
 }
 
 // MARK: - Guiding
@@ -103,6 +112,7 @@ struct ARGuidanceScreen: View {
 /// The camera with its overlay and the sheet (the mockup).
 private struct GuidingView: View {
     let model: ARGuidanceModel
+    let onFixLayout: () -> Void
     let onClose: () -> Void
 
     var body: some View {
@@ -148,7 +158,7 @@ private struct GuidingView: View {
                 }
             }
 
-            GuidanceSheet(model: model)
+            GuidanceSheet(model: model, onFixLayout: onFixLayout)
                 .padding(.top, -ResoniqRadius.sheet)
         }
         .background {
@@ -199,9 +209,11 @@ private struct FollowControl: View {
 }
 
 /// The bottom of V3OAR: the instruction, the bar with its two lines, the haptics line and the two buttons; before
-/// the target shows, the step's instruction and "This is the speaker".
+/// the target shows, the step's instruction and its mark button ("This is the speaker", then "This is the left
+/// speaker" or "This is my seat"), or, when the marks do not agree, "Mark again" and "Fix the layout".
 private struct GuidanceSheet: View {
     let model: ARGuidanceModel
+    let onFixLayout: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -305,6 +317,33 @@ private struct GuidanceSheet: View {
                     .buttonStyle(ResoniqPrimaryButtonStyle())
                     .disabled(!state.canMark)
                     .opacity(state.canMark ? 1 : Metrics.disabledOpacity)
+                Button(ARGuidanceText.cantMove, action: model.decline)
+                    .buttonStyle(ResoniqTextLinkStyle())
+            }
+            .padding(.top, ResoniqSpace.s2)
+        case .markingReference:
+            VStack(spacing: 0) {
+                Button(state.reference.map { ARGuidanceText.markReferenceButton($0.kind) } ?? ARGuidanceText.markButton,
+                       action: model.mark)
+                    .buttonStyle(ResoniqPrimaryButtonStyle())
+                    .disabled(!state.canMark)
+                    .opacity(state.canMark ? 1 : Metrics.disabledOpacity)
+                Button(ARGuidanceText.markAgain, action: model.remark)
+                    .buttonStyle(ResoniqTextLinkStyle())
+            }
+            .padding(.top, ResoniqSpace.s2)
+        case .cannotAlign(.marksDisagree):
+            VStack(spacing: 0) {
+                Button(ARGuidanceText.markAgain, action: model.remark)
+                    .buttonStyle(ResoniqPrimaryButtonStyle())
+                Button(ARGuidanceText.fixLayout, action: onFixLayout)
+                    .buttonStyle(ResoniqTextLinkStyle())
+            }
+            .padding(.top, ResoniqSpace.s2)
+        case .cannotAlign(.nothingElseToMark):
+            VStack(spacing: 0) {
+                Button(ARGuidanceText.fixLayout, action: onFixLayout)
+                    .buttonStyle(ResoniqPrimaryButtonStyle())
                 Button(ARGuidanceText.cantMove, action: model.decline)
                     .buttonStyle(ResoniqTextLinkStyle())
             }

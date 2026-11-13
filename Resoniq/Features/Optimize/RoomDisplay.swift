@@ -320,18 +320,41 @@ nonisolated enum RoomDisplay {
 
 // MARK: - Optimize home
 
-/// What the home screen has to work with. Plain values read from the store (or a fixture).
+/// What the home screen has to work with. Plain values read from the store (`ResoniqStore.optimizeStatus`) or a
+/// fixture.
 struct OptimizeHomeInput {
     var layout: RoomModel?
-    /// The latest seat measurement's report.
+    /// The baseline's report: the measurement made in the room's current layout. Nil when there is none.
     var seat: SeatReport?
     var progress: OptimizeProgress
     /// The current optimisation's comparison, once it has one.
     var comparison: ComparisonReport?
-    /// Suggestions the person declined for this measurement; the home shows the next one the advisor has.
+    /// Suggestions turned down that still stand turned down; the home shows the next one the advisor has.
     var declined: [PlacementSuggestion] = []
+    /// How the open move was placed, once moved.
+    var placement: OptimizeRules.MovePlacement?
     /// The stored layout could not be read: the home shows "no room yet" with a line saying so.
     var layoutUnreadable = false
+
+    init(
+        layout: RoomModel?, seat: SeatReport?, progress: OptimizeProgress, comparison: ComparisonReport? = nil,
+        declined: [PlacementSuggestion] = [], placement: OptimizeRules.MovePlacement? = nil, layoutUnreadable: Bool = false
+    ) {
+        self.layout = layout
+        self.seat = seat
+        self.progress = progress
+        self.comparison = comparison
+        self.declined = declined
+        self.placement = placement
+        self.layoutUnreadable = layoutUnreadable
+    }
+
+    /// The store's status as the home's input: a mapping, nothing decided.
+    init(_ status: OptimizeStatus) {
+        self.init(
+            layout: status.layout, seat: status.baseline, progress: status.progress, comparison: status.comparison,
+            declined: status.declined, placement: status.placement, layoutUnreadable: status.layoutUnreadable)
+    }
 }
 
 extension OptimizeHomeState {
@@ -353,7 +376,12 @@ extension OptimizeHomeState {
             return (.verified(tracker: tracker, headline: comparison.verdict, plan: plan(measured: true)), nil)
         }
         if input.progress.moved {
-            return (.moved(tracker: tracker, headline: OptimizeText.movedHeadline, plan: plan(measured: true)), nil)
+            return (
+                .moved(
+                    tracker: tracker, headline: OptimizeText.movedHeadline,
+                    note: input.placement.flatMap(OptimizeText.movedNote), plan: plan(measured: true)),
+                nil
+            )
         }
         guard let report = input.seat else {
             return (.notMeasured(tracker: tracker, headline: OptimizeText.notMeasuredHeadline, plan: plan(measured: false)), nil)

@@ -24,9 +24,13 @@ public enum OptimizationOutcome: String, Codable, Sendable, CaseIterable {
     case putBack
     /// The suggestion was turned down before any move.
     case declined
+    /// The room's layout changed under it (a rescan, entry by hand, or an edit that is not the recorded move), so its
+    /// before and after no longer describe the room. Stored as a new raw string; an older build reads it as
+    /// `suggested` (`outcome`'s fallback), which only an app downgrade could meet.
+    case superseded
 
-    /// Whether the user has finished with it (kept, put back or declined).
-    public var isClosed: Bool { self == .kept || self == .putBack || self == .declined }
+    /// Whether the user has finished with it (kept, put back, declined, or superseded by a new layout).
+    public var isClosed: Bool { self == .kept || self == .putBack || self == .declined || self == .superseded }
 }
 
 /// Decodes the values a model keeps as `Data` with a schema version beside them.
@@ -187,6 +191,9 @@ public enum ResoniqSchemaV2: VersionedSchema {
             guard let layoutData else { return nil }
             return try StoredValue.decode(RoomModel.self, from: layoutData, version: layoutSchemaVersion, expected: RoomModel.currentSchemaVersion)
         }
+
+        /// The layout at measurement time, nil when there was none or it is unreadable.
+        public var layout: RoomModel? { (try? readLayout()) ?? nil }
     }
 
     /// One try at improving the seat: a suggestion, the layouts before and after, and what the second measurement said.
@@ -244,6 +251,10 @@ public enum ResoniqSchemaV2: VersionedSchema {
 
         public var suggestion: PlacementSuggestion? { try? readSuggestion() }
         public var comparison: ComparisonReport? { (try? readComparison()) ?? nil }
+        /// The layout before, nil when unreadable.
+        public var layoutBefore: RoomModel? { try? readLayoutBefore() }
+        /// The layout after, nil before the move or when unreadable.
+        public var layoutAfter: RoomModel? { (try? readLayoutAfter()) ?? nil }
     }
 }
 

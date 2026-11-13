@@ -121,6 +121,15 @@ public enum RoomGeometry {
         return bounds(of: room)?.contains(point) ?? false
     }
 
+    /// Whether a point can be shown to be inside the room: inside a closed outline. A room whose walls do not close a
+    /// loop (a scan with walls missing) has only its bounding rectangle, which `contains` falls back to for editing;
+    /// that is a guess, so nothing counts as shown to be inside it. The advisor suggests only such points.
+    public static func isProvablyInside(_ point: PlanPoint, in room: RoomModel) -> Bool {
+        let polygon = outline(of: room)
+        guard polygon.count >= 3, point.isFinite else { return false }
+        return Planar.contains(point, polygon: polygon)
+    }
+
     /// The nearest wall to a point, inside the room or outside it; nil for a room without walls.
     public static func nearestWall(to point: PlanPoint, in room: RoomModel) -> WallDistance? {
         var best: WallDistance?

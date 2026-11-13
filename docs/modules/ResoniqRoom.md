@@ -1,7 +1,7 @@
 ---
 type: "module"
 spec_module: "C, D"
-phase: 4
+phase: 5
 status: "active"
 tags:
   - "module"
@@ -63,7 +63,7 @@ Paths below are relative to `ResoniqKit/Sources/ResoniqRoom/`.
 | `CameraPermission`, `ScanReadiness` | `RoomPlan/ScanState.swift:5`, `:14` | `init(isSupported:camera:)`: no LiDAR → `unsupported` (manual entry), not asked → `needsPermission`, denied or restricted → `denied`, else `ready` |
 | `ScanInstruction`, `ScanDirection`, `ScanFailure` | `RoomPlan/ScanState.swift:39`, `:49`, `:58` | RoomPlan's instruction and capture errors as plain values, plus `noWalls` (an empty scan) |
 | `ScanProgress` | `RoomPlan/ScanState.swift:70` | `missingWalls(of:)` (:75, the dashed segment between an open chain's free ends, for the inset), `insetFacing(planAngle:)` (:112) |
-| `ScanText`, `ScanGuidance` | `RoomPlan/ScanText.swift:18`, `:4` | Every string of the Scan screen: `guidance(for:coverage:)` (:26, the sentence, the line under it, the arrow), `wallCount` (:58), `insetSummary` (:63), `label(for:)` (:72), buttons (:92), the states without a mockup, `failureHeadline` (:126), `failureBody` (:137) |
+| `ScanText`, `ScanGuidance` | `RoomPlan/ScanText.swift:18`, `:4` | Every string of the Scan screen: `guidance(for:coverage:)` (:26, the sentence, the line under it, the arrow), `wallCount` (:58), `insetSummary` (:63), `label(for:)` (:72), buttons (:72), the states without a mockup, `failureHeadline` (:126), `failureBody` (:137) |
 
 What the conversion does not keep, because the model has no place for it: confidence (returned in `Conversion.lowConfidence`), whether a door is open, wall thickness and curve (a curved wall becomes its chord), opening and sill heights, object attributes and storage subtypes, stories and sections. Objects the model has no category for (a refrigerator, a stove) are kept as `.other` with their footprint and get no label.
 

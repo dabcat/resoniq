@@ -1,7 +1,7 @@
 ---
 type: "module"
 spec_module: "B"
-phase: 3
+phase: 6
 status: "active"
 tags:
   - "module"
@@ -14,14 +14,14 @@ Paths below are relative to `ResoniqKit/Sources/ResoniqDiagnostics/`.
 
 ## Conventions
 
-- **One grid.** Every curve (response, THD, the portrait) is on `ResponseGrid`: 241 log-spaced points from 20 Hz to 20 kHz, about 24 an octave (`Vocabulary.swift:96`).
+- **One grid.** Every curve (response, THD, the portrait) is on `ResponseGrid`: 241 log-spaced points from 20 Hz to 20 kHz, about 24 an octave (`Vocabulary.swift:102`).
 - **Levels are relative.** A response is dB re the sweep, uncalibrated; it is read against its own trend or level-matched against another run. `RunMeasurement.referenceLevel` is the median from 300 Hz to 3 kHz (`ResponseComparison.defaultMatchBand`). No level is a sound pressure.
 - **What the DSP measured, and nothing else.** A run is analysed only when `RecordingQuality.assess` says `.valid` and the recording holds the whole sweep (`ImpulseResponse.capturesWholeSweep`). Inside a run:
   - the response is read only inside `responseBand`, the impulse response's `trustedBand` within the grid; outside it the curve holds the edge value and nothing is raised from it;
   - THD is read only inside `HarmonicDistortion.trustedBand(order: 2, sweep:)` (80 Hz to about 9.3 kHz for `LogSweep.measurement`), and each point is a `DistortionReading`: `measured` where `SweepDistortion.isMeasurable(at:)` holds on the smoothed THD, otherwise `belowNoise` with the bound the floor gives (the floor raised by `SweepDistortion.measurableMarginDecibels`), or `notRead`.
 - **Rules of evidence** (`SpeakerDiagnosis.swift:24–38`): a deviation in every valid run is `inferred`, "3 of 3 runs", medium confidence; in fewer but at least two, `inferred` with low confidence; in one, dropped. A dip above 14 kHz is `inconclusive`. A buzz is claimed only on `measured` THD; THD above the threshold but `belowNoise` is `inconclusive` (`distortionUnclear`), never a buzz. The even statement is `measured`; a driver is in it only when its response stays within `EvenBand.decibels` (±3 dB, the one definition the seat uses too) of its trend over its judged range (woofer 50–300 Hz, mid 300 Hz–3 kHz, tweeter 3–14 kHz, cut short where a top-end dip begins) and no deviation or inconclusive finding overlaps it; between 3 and 6 dB a driver is simply left out, neither even nor suspect. Its words name the response stretch, the stretch where every run ruled a buzz out, and, when the woofer is in it, that distortion was not checked below 80 Hz. A driver whose level is 15 dB or more under the loudest other is "barely heard" (`quietBand`, `measured`, cause left open); one too close to the room's noise is `notAssessed` (`inconclusive`), and the verdict calls healthy only the drivers checked; with nothing assessed the report is not conclusive. An invalid run is reported and nothing is drawn from it; under two valid runs nothing is concluded. No score, and words hedge ("may be buzzing", "Possible buzz").
 - **Rattle: inferred from the session, never measured.** The DSP measures the non-harmonic residue only on a steady tone (`ToneDistortionResult.nonHarmonicResidue`); a sweep's deconvolution has no such figure. What a run carries instead is the session's observation that sound tied to the sweep came back where the run paused (`SweepTiedSound`, `RunAnalysis.swift:174`; the app maps `RunRecording.sweepTiedSound` onto it and passes it to `RunAnalyzer`). At the same place (overlapping within `samePlaceOctaves`) in at least `minimumAgreeingRuns` valid runs it is a `rattle` finding: `inferred`, basis "2 of 3 runs", low confidence unless in every run of three, its confidence statement naming the room or something near the speaker vibrating, no numbers; in one run it is dropped; an invalid run's observation does not count. Over a measured buzz it is not a second finding: the buzz carries it (`Finding.sweepTied`) and its detail adds "I also heard sound tied to the test tone there in 2 of 3 runs." Either way the drivers it overlaps leave the even statement, which never mentions rattle (the observation's absence proves nothing).
-- **Portrait outside the measured band.** The axis is 20 Hz to 20 kHz; outside the stretch every run measured, the portrait holds the width at the edge (`PortraitProfile.swift:13`, `SpeakerDiagnosis.consensusResponse` at `SpeakerDiagnosis.swift:157`). With `LogSweep.measurement` the trusted band covers the whole grid, so nothing is held.
+- **Portrait outside the measured band.** The axis is 20 Hz to 20 kHz; outside the stretch every run measured, the portrait holds the width at the edge (`PortraitProfile.swift:13`, `SpeakerDiagnosis.consensusResponse` at `SpeakerDiagnosis.swift:205`). With `LogSweep.measurement` the trusted band covers the whole grid, so nothing is held.
 
 ## Public interface
 
@@ -33,8 +33,8 @@ Paths below are relative to `ResoniqKit/Sources/ResoniqDiagnostics/`.
 | `RecordingCheck.Problem` | `RunAnalysis.swift:30` | `clipped`, `tooQuiet`, `tooNoisy`, `silent`, `corrupt`, `incomplete` |
 | `DistortionReading` | `RunAnalysis.swift:62` | `notRead`, `measured(percent:)`, `belowNoise(readPercent:upperBoundPercent:)` |
 | `RunMeasurement` | `RunAnalysis.swift:76` | `response`, `referenceLevel`, `responseBand`, `thdDecibels` (gross), `thdMeasurable`, `thdNoiseFloorDecibels`, `delay`, `bandCentres`, `bandSignalToNoise`; `init` (:108), `normalizedResponse` (:135), `isResponseMeasured(atIndex:)` (:138), `thdPercent(atIndex:)` (:143), `distortion(atIndex:)` (:148), `signalToNoise(at:)` (:159). The three newer fields are optional so reports stored before them still decode; nil counts as measured nowhere |
-| `RunRecord` | `RunAnalysis.swift:167` | `check` and, for a valid run only, `measurement`; `interference` (optional, phase 6: what a sound classifier heard during a noisy run); `init(check:measurement:interference:)` |
-| `RunAnalysis` | `RunAnalysis.swift:183` | `verdict` (the DSP's, with full numbers) and `record`; `init(verdict:measurement:)` (:191), `init(verdict:check:measurement:)` (:196), `isValid`, `measurement` |
+| `RunRecord` | `RunAnalysis.swift:190` | `check` and, for a valid run only, `measurement`; `interference` (optional, phase 6: what a sound classifier heard during a noisy run); `init(check:measurement:interference:)` |
+| `RunAnalysis` | `RunAnalysis.swift:224` | `verdict` (the DSP's, with full numbers) and `record`; `init(verdict:measurement:)` (:191), `init(verdict:check:measurement:)` (:196), `isValid`, `measurement` |
 | `RunAnalyzer.analyze(recording:sweep:noiseFloor:thresholds:quality:sweepTiedSound:)` | `RunAnalysis.swift` | One run's numbers; an invalid or incomplete recording is not analysed; the session's observation is kept on the record either way |
 | `SweepTiedSound`, `RunRecord.sweepTiedSound` | `RunAnalysis.swift:174`, `:198` | Where in the sweep sound tied to it was heard (`range`); `init?(lower:upper:)` from the session's hertz; optional on the record, encoded only when set; `RunRecord`/`RunAnalysis.adding(sweepTiedSound:)` |
 | `InputLevel` | `Readings.swift:10` | The level reading: `good`, `tooQuiet` (only above the woofer, under the check's minimum peak), `tooLoud` (clipping); `label` "Good, no clipping", `shortLabel` "Good" |
@@ -44,19 +44,19 @@ Paths below are relative to `ResoniqKit/Sources/ResoniqDiagnostics/`.
 | Symbol | Where | Holds |
 |---|---|---|
 | `SpeakerReport` | `SpeakerDiagnosis.swift:5` | `verdict`, `findings` (invalid runs first, then top of the portrait down), `profile`, `runs`, `consensusResponse`, `isConclusive`, `modelFindings` (optional, phase 6), `suspectedDefects` |
-| `SpeakerDiagnosis.diagnose(runs:counterpart:thresholds:)` | `SpeakerDiagnosis.swift:43` | The report from a speaker's runs, and the other speaker's for a left/right comparison |
+| `SpeakerDiagnosis.diagnose(runs:counterpart:thresholds:)` | `SpeakerDiagnosis.swift:52` | The report from a speaker's runs, and the other speaker's for a left/right comparison |
 | `Finding` | `Finding.swift:7` | `id`, `kind`, `frequencyRange`, `bands`, `tag`, `basis`, `confidence`, `headline`, `detail`, `sentence`, `tagLine`, `confidenceStatement`, `repeatability`, `listenFrequency`, `context`, `numbers`, `recordingProblem`, `interference` and `modelSupport` (both optional, phase 6); `band` |
 | `Finding.Kind` | `Finding.swift:8` | `responseDip`, `responsePeak`, `distortion`, `topEndDip`, `even`, `invalidRecording`, `leftRightDifference`, `distortionUnclear`, `quietBand` (:29, a deviation), `notAssessed` (:32), `rattle` (:36, a deviation, `inferred`); `isDeviation` |
 | `Finding.SweepTiedEvidence`, `Finding.sweepTied` | `Finding.swift:49`, `:141` | On a buzz, the sound tied to the sweep heard at the same place: `range`, `runsHeard`, `runsCompared`, `statement` |
 | `SpeakerReport.drawableResponse` | `Readings.swift:51` | `consensusResponse` with nil where not every valid run measured |
-| `EvenBand.decibels` | `Vocabulary.swift:20` | ±3 dB, the one definition of "even" for speakers and seats |
-| `Finding.Confidence`, `Finding.Basis`, `Finding.Numbers` | `Finding.swift:37`, `:42`, `:56` | Low/medium/high (never high from one position); "3 of 3 runs"; the numbers behind a finding, per run |
+| `EvenBand.decibels` | `Vocabulary.swift:21` | ±3 dB, the one definition of "even" for speakers and seats |
+| `Finding.Confidence`, `Finding.Basis`, `Finding.Numbers` | `Finding.swift:60`, `:65`, `:79` | Low/medium/high (never high from one position); "3 of 3 runs"; the numbers behind a finding, per run |
 | `EvidenceTag` | `Vocabulary.swift:4` | `measured`, `inferred`, `inconclusive`, `estimate`; `displayName` (:15) |
-| `FrequencyRange` | `Vocabulary.swift:19` | `init(lower:upper:)` (:23), `centre`, `octaves`, `contains`, `overlaps(_:toleranceOctaves:)` (:38), `widened(octaves:)` (:44) |
-| `DriverBand` | `Vocabulary.swift:59` | `woofer`, `middle`, `tweeter`; `wooferUpperFrequency` 300 Hz (:65), `tweeterLowerFrequency` 3 kHz (:67), `init(frequency:)` (:69), `range` (:80), `displayName` (:89) |
-| `ResponseGrid` | `Vocabulary.swift:96` | `lowerFrequency`, `upperFrequency`, `count`, `frequencies` (:102), `pointsPerOctave` (:107), `nearestIndex(to:)` (:110) |
+| `FrequencyRange` | `Vocabulary.swift:25` | `init(lower:upper:)` (:23), `centre`, `octaves`, `contains`, `overlaps(_:toleranceOctaves:)` (:44), `widened(octaves:)` (:50) |
+| `DriverBand` | `Vocabulary.swift:65` | `woofer`, `middle`, `tweeter`; `wooferUpperFrequency` 300 Hz (:71), `tweeterLowerFrequency` 3 kHz (:73), `init(frequency:)` (:75), `range` (:86), `displayName` (:89) |
+| `ResponseGrid` | `Vocabulary.swift:102` | `lowerFrequency`, `upperFrequency`, `count`, `frequencies` (:108), `pointsPerOctave` (:113), `nearestIndex(to:)` (:116) |
 | `DiagnosisText` | `DiagnosisText.swift:8` | Every user-facing string; public: `rounded(_:)` (:50), `frequency(_:)` (:56), `range(_:)` (:62) |
-| `DiagnosisThresholds` | `DiagnosisThresholds.swift:8` | Every number that turns measurements into findings, 17 fields (:14–90), `init` (:92), `standard` (:131) |
+| `DiagnosisThresholds` | `DiagnosisThresholds.swift:8` | Every number that turns measurements into findings, 17 fields (:14–90), `init` (:105), `standard` (:148) |
 
 ### Portrait
 
@@ -75,22 +75,22 @@ In `Seat/`. Plans: [phase-3-measure.md](../plans/phase-3-measure.md), [phase-5-a
 | `SpotAnalyzer.roomCurve(_:thresholds:)` | `Seat/SpotAnalysis.swift:154` | The one definition of a seat curve's smoothing: 1/12 octave under 200 Hz, 1/3 above, blended over an octave |
 | `SpotAnalysis` | `Seat/SpotAnalysis.swift:63` | `left`, `right` (nil for one speaker), `isValid` (every recording it needs), `problems` |
 | `SpotRecording`, `SpotMeasurement` | `Seat/SpotAnalysis.swift:49`, `:5` | A recording's `check` and, when valid, its `response` (dB re sweep, on `ResponseGrid`), `responseBand`, band signal-to-noise, `distortionPercent`, `bassDecay`; public inits for fixtures |
-| `SeatDiagnosis.diagnose(spots:room:thresholds:) -> SeatReport` | `Seat/SeatDiagnosis.swift:55` | The seat's result; rules of evidence in the doc comment (`:35–50`) |
+| `SeatDiagnosis.diagnose(spots:room:thresholds:) -> SeatReport` | `Seat/SeatDiagnosis.swift:55` | The seat's result; rules of evidence in the doc comment (`:33–50`) |
 | `RoomHint` | `Seat/SeatReport.swift:5` | Width, length, height in metres, each optional; axial modes c/2L·n computed here (c = 343 m/s, `SeatDiagnosis.swift:53`), no dependency on `ResoniqRoom` |
-| `SeatReport` | `Seat/SeatReport.swift:159` | `schemaVersion` (`currentSchemaVersion` 1), `verdict`, `isConclusive`, `validSpotCount`, `requiredSpotCount`, `spots` (`SpotCheck`), `curve`, `leftCurve`, `rightCurve`, `spotCurves`, `spread`, `assessed`, `evenBandDecibels`, `extremes`, `leftRightDifference`, `findings`, `numbers`, `distortionPercent`, `bassDecay`; `displayedFindings` (first three, :246), `placementTargets` (bass extremes, :249), `progress` ("1 of 3 in"), `footnote`, `level(at:)` |
+| `SeatReport` | `Seat/SeatReport.swift:165` | `schemaVersion` (`currentSchemaVersion` 1), `verdict`, `isConclusive`, `validSpotCount`, `requiredSpotCount`, `spots` (`SpotCheck`), `curve`, `leftCurve`, `rightCurve`, `spotCurves`, `spread`, `assessed`, `evenBandDecibels`, `extremes`, `leftRightDifference`, `findings`, `numbers`, `distortionPercent`, `bassDecay`; `displayedFindings` (first three, :252), `placementTargets` (bass extremes, :259), `progress` ("1 of 3 in"), `footnote`, `level(at:)` |
 | `SeatReport.drawableRange`, `drawable(_:)`, `drawableCurve`, `drawableLeftCurve`, `drawableRightCurve`, `drawableSpotCurves`, `heldAtEdges(_:)` | `Seat/SeatReport.swift:273`, `:299` | What a curve may be drawn over: from the first to the last assessed point inside the judged band (30 Hz–10 kHz); nil outside it. `heldAtEdges` fills the gaps with the nearest drawn value for a component that draws every grid point. Stored JSON unchanged |
 | `SeatReport.location(of:)`, `MeasuredPlace` | `Seat/SeatReport.swift:264`, `:54` | A measured problem's place is the seat (`.seat`), not an extent; `placementTargets` says so |
 | `SeatDiagnosis.building(spots:thresholds:) -> SeatBuilding` | `Seat/SeatBuilding.swift:24` | The running average from the spots analysed so far: `spotCurves` and `average` (drawable, as the report of those spots holds them), `progress` "1 of 3 in", `validSpotCount`, `requiredSpotCount` |
 | `SeatExtreme` | `Seat/SeatReport.swift:18` | `kind` (`peak`, `dip`), `frequency` (interpolated), `deviation` (signed dB re middle), `range`, `spread`; `label` "41 Hz +9 dB", `frequencyLabel`, `valueLabel` "+9.2 dB". Maps onto `AcousticProblem(frequency:deviation:kind:)` in the app |
-| `SeatFinding` | `Seat/SeatReport.swift:62` | `kind` (`bass`, `rest`, `leftRight`, `roomCause`, `invalidSpot`), `tag`, `basis` (`SeatBasis`: `roomSize`, `spotToSpot`), `isDeviation`, `headline`, `tagLine`, `detail`, `strength` |
-| `SeatNumberRow` | `Seat/SeatReport.swift:107` | `kind`, `label`, `value`, `word`, `tag`: "41 Hz · +9.2 dB · peak · Measured", "< 80 Hz · ≈ 0.6 s · decay · Estimate" |
-| `SeatDecay`, `SpotCheck` | `Seat/SeatReport.swift:128`, `:143` | Bass band and RT60; a spot's two recording checks |
+| `SeatFinding` | `Seat/SeatReport.swift:68` | `kind` (`bass`, `rest`, `leftRight`, `roomCause`, `invalidSpot`), `tag`, `basis` (`SeatBasis`: `roomSize`, `spotToSpot`), `isDeviation`, `headline`, `tagLine`, `detail`, `strength` |
+| `SeatNumberRow` | `Seat/SeatReport.swift:113` | `kind`, `label`, `value`, `word`, `tag`: "41 Hz · +9.2 dB · peak · Measured", "< 80 Hz · ≈ 0.6 s · decay · Estimate" |
+| `SeatDecay`, `SpotCheck` | `Seat/SeatReport.swift:134`, `:149` | Bass band and RT60; a spot's two recording checks |
 | `SeatThresholds` | `Seat/SeatThresholds.swift:8` | 25 fields, `standard` (:185) |
 | `SeatComparison.compare(before:after:targeting:thresholds:) -> ComparisonReport` | `Seat/SeatComparison.swift:98` | Verdict, rows, note, outcome; rules in the doc comment |
 | `SeatComparison.repeatability(at:before:after:thresholds:)` | `Seat/SeatComparison.swift:194` | The one definition of the least change that counts |
 | `ComparisonReport` | `Seat/SeatComparison.swift:52` | `schemaVersion` (1), `verdict`, `rows`, `note`, `outcome` (`ComparisonOutcome`: `improved`, `unchanged`, `worse`, `mixed`), `nextTarget`, `isConclusive`, `tag` (`measured`) |
 | `ComparisonRow` | `Seat/SeatComparison.swift:21` | `label`, `before`, `after`, `status`, `change` (`ComparisonChange`), `beforeDecibels`, `afterDecibels`, `frequency`, `tag` |
-| `SeatText` | `Seat/SeatText.swift:6` | Every seat and comparison string; public: `frequency(_:)` (whole hertz under 1 kHz), `signedDecibels(_:)`, `signedDecibelsTenths(_:)` (U+2212 minus), `progress(valid:required:)`, `buildingLabel(captured:drawn:of:)` (:74), the analysing lines, `displayResolutionDecibels` (:40) |
+| `SeatText` | `Seat/SeatText.swift:6` | Every seat and comparison string; public: `frequency(_:)` (whole hertz under 1 kHz), `signedDecibels(_:)`, `signedDecibelsTenths(_:)` (U+2212 minus), `progress(valid:required:)`, `buildingLabel(captured:drawn:of:)` (:74), the analysing lines, `displayResolutionDecibels` (:40); the strings of the screen shown while the spots are put together: `analysingHeadline`, `analysingBody`, `analysingKicker`, `analysingWaiting` |
 
 How the seat result is made:
 
@@ -112,15 +112,15 @@ In `Models/`. The rule is "DSP first, AI second": a model's output adds an `infe
 |---|---|---|
 | `SoundClassifying` | `Models/SoundClassifying.swift:28` | `classify(_ samples: [Float], sampleRate: Double) async throws -> [SoundClassification]`, `Sendable`; empty for audio too short |
 | `SoundClassification` | `Models/SoundClassifying.swift:4` | `identifier`, `confidence` (0…1), `start`, `duration`, `end` |
-| `SystemSoundClassifier` | `Models/SystemSoundClassifier.swift:20` | Apple's built-in classifier (`.version1`, 303 labels) with `SNAudioStreamAnalyzer` on a background queue; `windowDuration` 1.5 s, `overlapFactor` 0.5, `labelsPerWindow` 10, `isAvailable`, `knownLabels()`; resumes exactly once (complete, fail, or cancel → `CancellationError`); under 1.5 s returns `[]`. `#if canImport(SoundAnalysis)`: macOS and iOS |
+| `SystemSoundClassifier` | `Models/SystemSoundClassifier.swift:20` | Apple's built-in classifier (`.version1`, 303 labels) with `SNAudioStreamAnalyzer` on a background queue; `windowDuration` 1.5 s, `overlapFactor` 0.5, `labelsPerWindow` 10, `isAvailable`, `knownLabels()`; resumes exactly once (complete, fail, or cancel → `CancellationError`); under 1.5 s returns `[]`. `#if canImport(SoundAnalysis)`: macOS and iOS; throws `SoundClassifierError.unsupportedFormat(sampleRate)` for a rate it cannot take |
 | `InterferenceKind` | `Models/InterferenceKind.swift:4` | `speech`, `music`, `televisionOrRadio` (no system label maps to it), `traffic`, `appliance`, `animal`, `doorOrFootsteps`, `windOrRain`, `babyOrChildren`, `phoneOrAlarm`, `unknown`; `isMimickedBySweep` (music, animal, phoneOrAlarm, unknown) |
 | `InterferenceMapping` | `Models/InterferenceKind.swift:50` | `labels`: 190 of the 303 identifiers (184 to kinds, 6 `testSignal`: synthesizer, theremin, tuning_fork, beep, whistling, bell); `ignored` (silence); `label(for:)` |
 | `InterferenceContext` | `Models/InterferenceAdvisor.swift:17` | `sweepSilent` (paused stretch, noise-floor listen), `sweepPlaying` (a recording judged too noisy) |
 | `InterferenceReport` | `Models/InterferenceAdvisor.swift:28` | `kind`, `confidence` (mean over the stretches heard), `duration`, `fraction`, `sentence` ("It sounds like someone talking."), `basis` ("sound classifier, 82 %"), `tagLine`, `tag` (always `inferred`) |
-| `InterferenceAdvisor.describe(classifications:context:thresholds:)` | `Models/InterferenceAdvisor.swift:70` | Pure: the kind heard longest at or above `minimumConfidence`, or nil; rules in the doc comment |
+| `InterferenceAdvisor.describe(classifications:context:thresholds:)` | `Models/InterferenceAdvisor.swift:82` | Pure: the kind heard longest at or above `minimumConfidence`, or nil; rules in the doc comment |
 | `InterferenceAdvisor.note(heard:sampleRate:sweepPlaying:classifier:) -> InterferenceNote?` | `Models/InterferenceAdvisor.swift:153`, `:59` | The paused screen's line from audio the session kept (`pausedAudio()`, `noisyRecording`): `sentence` and `tagLine`, or nil |
 | `InterferenceAdvisor.noiseNote(heard:sampleRate:context:classifier:)` | `Models/InterferenceAdvisor.swift` | **The app's call when a run pauses or fails for noise**: the report to show under "It got noisy, so I stopped." (`sentence`, `tagLine`), or nil (nothing clear, `unknown`, or the classifier failed; never throws). `noiseSentence` gives the sentence alone |
-| `RunRecord.adding(interference:)`, `RunAnalysis.adding(interference:)` | `Models/InterferenceAdvisor.swift:173`, `:180` | Attach a report to a noisy run; `SpeakerDiagnosis` copies it onto that run's `invalidRecording` finding (`Finding.interference`) |
+| `RunRecord.adding(interference:)`, `RunAnalysis.adding(interference:)` | `Models/InterferenceAdvisor.swift:202`, `:209` | Attach a report to a noisy run; `SpeakerDiagnosis` copies it onto that run's `invalidRecording` finding (`Finding.interference`) |
 | `LogMelSpectrogram` | `Models/LogMelSpectrogram.swift:16` | `compute(_:sampleRate:configuration:)`, `configuration`, `sampleRate`, `frameCount`, `bandCount`, `values` (frames × bands, dB), `bandCentres`, `level(frame:band:)`, `frame(_:)` |
 | `LogMelSpectrogram.Configuration` | `Models/LogMelSpectrogram.swift:17` | `windowLength` 2048, `hopLength` 480 (10 ms at 48 kHz), `window` Hann, `bandCount` 64, 20 Hz–20 kHz, `referencePower` 1 (dBFS RMS), `floorDecibels` −120; `frameCount(sampleCount:)`: 0 under one window, else `1 + (n − 2048) / 480` |
 | `DefectFeatures` | `Models/DefectFeatures.swift:11` | Per octave band (`bandCentres`, 31.6 Hz–15.8 kHz, 10): `thdPercent` (measured only), `responseDeviation` (from the run's own `Trend`), `signalToNoise`, `runToRunSpread` (standard deviation across runs); `broadbandSignalToNoise`, `validRunCount`, `runCount`; `init(runs:)`, `init(records:)`; `vector` (`vectorLength` 84: value and presence per figure) |
@@ -140,7 +140,7 @@ How model output joins a report (`ModelAdvice`):
 - Only the most confident class speaks, and only at or above `minimumDefectConfidence`; when it is `normal`, nothing at all.
 - A `buzzing` prediction supports an existing `inferred` `distortion` finding (`Finding.modelSupport`: "A defect classifier also heard a buzz (74 %)."). Every other class, or a buzz with no inferred buzz finding, adds one `ModelFinding` ("Possible rattle", "I may have heard a rattle.", "Inferred · defect classifier, 81 %"); a second join replaces it.
 - The anomaly check adds "Something sounded unusual" ("Inferred · anomaly check, 3.1 × usual") at or above `minimumAnomalyRatio`, beside a defect line, never as the verdict.
-- Model lines live in `SpeakerReport.modelFindings`, not in `findings`, because the app switches exhaustively over `Finding.Kind` (`Resoniq/Features/Diagnose/FindingScreen.swift:308`); a new kind would need an app change. The app shows nothing from a model until a screen is built for it.
+- Model lines live in `SpeakerReport.modelFindings`, not in `findings`, because the app switches exhaustively over `Finding.Kind` (`Resoniq/Features/Diagnose/FindingScreen.swift:382`, `:409` and `DiagnosticsDisplay.swift:70`); a new kind would need an app change. The app shows nothing from a model until a screen is built for it.
 
 Naming interference: labels are grouped by window, and a kind's confidence in a window is its most confident label. Test-signal labels are never counted. With the sweep playing (`sweepPlaying`), music, animals, alarms and `unknown` are not named either: the app's measurement sweep reads as "music" up to 0.95, "theremin" 0.96, "tuning_fork" and "bell", and a plain sweep's top octaves as "bird_chirp_tweet" 0.52. Speech over the sweep is still named (0.67–0.99 per window).
 

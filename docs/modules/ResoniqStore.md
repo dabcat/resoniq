@@ -1,7 +1,7 @@
 ---
 type: "module"
 spec_module: "E"
-phase: 5
+phase: 6
 status: "active"
 tags:
   - "module"
@@ -10,7 +10,7 @@ tags:
 
 Local persistence with SwiftData: rooms with their layout, sound systems, speaker tests, seat measurements and optimisations, plus the scan file of a room. No accounts, no CloudKit, no network. The store keeps what the Kit decided; it decides nothing itself, except the one rule of the optimise tracker (`progress`).
 
-Callers hand it finished values (`SpeakerReport`, `SeatReport`, `RoomModel`, `PlacementSuggestion`, `ComparisonReport`); it encodes them as JSON `Data` with a schema version beside each and reads them back with typed accessors that throw instead of crashing. Plans: [phase-2](../plans/phase-2-diagnose.md), [phase-3-measure.md](../plans/phase-3-measure.md), [phase-4-room.md](../plans/phase-4-room.md), [phase-5-ar.md](../plans/phase-5-ar.md).
+Callers hand it finished values (`SpeakerReport`, `SeatReport`, `RoomModel`, `PlacementSuggestion`, `ComparisonReport`); it encodes them as JSON `Data` with a schema version beside each and reads them back with typed accessors that throw instead of crashing. Also the counts and delete-all calls Settings and the rooms sheet use, the default names, and the "intro finished" flag. Plans: [phase-2](../plans/phase-2-diagnose.md), [phase-3-measure.md](../plans/phase-3-measure.md), [phase-4-room.md](../plans/phase-4-room.md), [phase-5-ar.md](../plans/phase-5-ar.md), [phase-6](../plans/phase-6-ai-finish.md).
 
 Paths are relative to `ResoniqKit/Sources/ResoniqStore/`.
 
@@ -70,6 +70,19 @@ To change a model again: add `ResoniqSchemaV3`, move the typealiases, add a stag
 | `currentOptimization(in:)`, `optimizations(in:)` | `ResoniqStore+Optimize.swift:161`, `:166` | latest not closed; all, newest first |
 | `progress(in:)` | `ResoniqStore+Optimize.swift:173` | `OptimizeProgress` (below) |
 
+### Settings, rooms and the intro
+
+| Symbol | Where | Does |
+|---|---|---|
+| `SoundSystemKind`, `SpeakerPosition` | `Models.swift:6`, `:15` | The kinds of system (`stereoPair`, `stereoWithSubwoofer`, `soundbar`, `singleSpeaker`, `surround`) and a test's speaker (`left`, `right`, `single`) |
+| `StoreText` | `StoreText.swift:2` | `defaultRoomName` "My room", `defaultSystemName` "My speakers", `displayName` of a kind and of a position (:11, :24); `newRoomName(existing:)`, `newSystemName(existing:)` (`ResoniqStore+Data.swift:46`, `:48`) |
+| `StoreCounts` | `ResoniqStore+Data.swift:6` | Rooms, systems, speaker tests, seat measurements, room scans; `results` (tests plus seat measurements); `init(system:)` (:26) and `init(room:)` (:34) give what deleting that system or room takes with it |
+| `counts()` | `ResoniqStore+Data.swift:53` | The whole store's counts, for Settings |
+| `canDelete(_ room:)`, `canDelete(_ system:)` | `ResoniqStore+Data.swift:65`, `:70` | False for the last room, and for the last system of a room |
+| `deleteAllResults()` | `ResoniqStore+Data.swift:76` | Every speaker test, seat measurement and optimisation; rooms, systems, layouts and scans stay |
+| `deleteEverything()` | `ResoniqStore+Data.swift:85` | Everything, scan files included, then "My room" and "My speakers" are created and selected again |
+| `IntroGate`, `IntroFlagStore`, `UserDefaultsIntroFlag` | `IntroGate.swift:25`, `:4`, `:9` | Whether the three intro screens are shown (until finished or skipped once, key `introFinished`); `finish()` (:43), `reset()` (:46); `standard(defaults:)` (:34) resets first when the launch argument `-resetIntro YES` is set; nothing in the app calls `standard` yet (Settings uses `IntroGate()`, and no screen reads `isShown`, see [App](App.md)) |
+
 ### Tracker progress
 
 `OptimizeProgress` (`ResoniqStore+Optimize.swift:25`) has four flags, each true only when its data exists. The current optimisation is the latest one that is not kept, put back or declined.
@@ -87,7 +100,7 @@ The task asked for the first part of `measured` only; the `seatBefore` clause is
 
 ## Tests
 
-`ResoniqKit/Tests/ResoniqStoreTests/`: `ResoniqStoreTests.swift` (phase 2, unchanged) and `StoreV2Tests.swift`: layout round trip and unknown version; seat measurement keep, latest, history, discard, snapshot; optimisation life cycle through every outcome; `progress` for each combination; cascade and nullify rules, including reading after the referenced object is gone; scan files in a temporary directory; and the migration test, which writes a V1 store to disk (room, system, speaker test, selection), closes it, opens it with V2 and the plan, checks everything and the empty new fields, then writes V2 data into it.
+`ResoniqKit/Tests/ResoniqStoreTests/`: `ResoniqStoreTests.swift` (phase 2, unchanged) and `StoreV2Tests.swift` (which also covers `counts()`, `canDelete`, `deleteAllResults()` and `deleteEverything()`; `IntroGateTests` in the same file): layout round trip and unknown version; seat measurement keep, latest, history, discard, snapshot; optimisation life cycle through every outcome; `progress` for each combination; cascade and nullify rules, including reading after the referenced object is gone; scan files in a temporary directory; and the migration test, which writes a V1 store to disk (room, system, speaker test, selection), closes it, opens it with V2 and the plan, checks everything and the empty new fields, then writes V2 data into it.
 
 ## Limits
 

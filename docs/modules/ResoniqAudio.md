@@ -1,7 +1,7 @@
 ---
 type: "module"
 spec_module: "A"
-phase: 3
+phase: 6
 status: "active"
 tags:
   - "module"
@@ -14,13 +14,13 @@ Paths below are relative to `ResoniqKit/Sources/ResoniqAudio/`.
 
 ## Conventions
 
-- **One sweep.** Every run plays `LogSweep.measurement(sampleRate:)` (10 Hz to 22 kHz over 4 s, at the DSP's safe level), through `MeasurementConfiguration.sweep(sampleRate:)` (`MeasurementConfiguration.swift:119`). Nothing here sets its range or length. A stream under 44.1 kHz fails the test before any sound (`MeasurementConfiguration.minimumSampleRate`, `MeasurementSession.swift:155`).
+- **One sweep.** Every run plays `LogSweep.measurement(sampleRate:)` (10 Hz to 22 kHz over 4 s, at the DSP's safe level), through `MeasurementConfiguration.sweep(sampleRate:)` (`MeasurementConfiguration.swift:144`). Nothing here sets its range or length. A stream under 44.1 kHz fails the test before any sound (`MeasurementConfiguration.minimumSampleRate`, `MeasurementConfiguration.swift:140`, checked in `RunPerformer.swift:331`).
 - **One clock.** Every wait (the floor, the quiet before resuming, the decay) is counted in captured samples on the IO's capture timeline, so a test on `SimulatedAudioIO` runs as fast as the arithmetic and gives the same answer as one in real time. `AudioIO.schedule` returns the capture position of a buffer's first sample; the route's own delay is measured from the recording.
 - **Levels are dBFS RMS**, the DSP's one convention (`LevelMeter`): a full-scale sine reads −3.01 dBFS, and 107 "dB" on screen with `SoundLevel.approximateOffsetDecibels`. The on-screen figure is an estimate and decides nothing.
 - **The run check** (`RunPerformer.check`, `RunPerformer.swift:274`, and `inspect` (:285), which also gives the deconvolved delay; `MeasurementSession.check` forwards to it): `RecordingQuality.assess`, where anything but `.valid` (`.corrupt` included) is `RunProblem.unusable`; then the recording is deconvolved and one that does not hold the whole sweep (`ImpulseResponse.capturesWholeSweep`) is `RunProblem.didNotArrive`. The deconvolved response is the authority on arrival: the live `ArrivalTracker` estimate only decides when the recorder stops listening. A bad run is repeated once; a second ends the test.
 - **One run machinery.** `FloorListener` (`RunPerformer.swift:11`) listens for the floor; `RunPerformer` (`RunPerformer.swift:58`) plays one sweep on one channel from its first block to a checked `RunRecording` (start, pause, resume and splice through `RunRecorder`, restarts, repeat once). `MeasurementSession` makes one per run; `SeatMeasurementSession` one per channel per spot. Both sessions own the stream, the states and the progress. The extraction was proven behaviour-preserving by the unchanged phase 2 tests and a characterisation digest of six scenarios (identical states, progress and recordings before and after).
-- **The seat's tail.** `MeasurementConfiguration.seat` (`SeatMeasurementTypes.swift:105`) keeps 2 s of recording after the sweep's end arrives (`minimumTail`), for `Decay` and the room window, with `maximumDecay` 3 s so the longest route delay still leaves time for it.
-- **Isolation.** `MeasurementSession`, `SeatMeasurementSession`, `TonePlayer` and the stillness monitors are `@MainActor`; the work per 100 ms block is well under a millisecond. Capture runs on the IO's threads; the run check runs off the main actor (`@concurrent`). `LiveSpectrum` analyses in a `@concurrent` task that owns the stream and hands each finished `MagnitudeResponse` to the consumer through an `AsyncStream` continuation. Nothing runs on the render thread (`EngineAudioIO.swift:30`).
+- **The seat's tail.** `MeasurementConfiguration.seat` (`SeatMeasurementTypes.swift:136`) keeps 2 s of recording after the sweep's end arrives (`minimumTail`), for `Decay` and the room window, with `maximumDecay` 3 s so the longest route delay still leaves time for it.
+- **Isolation.** `MeasurementSession`, `SeatMeasurementSession`, `TonePlayer` and the stillness monitors are `@MainActor`; the work per 100 ms block is well under a millisecond. Capture runs on the IO's threads; the run check runs off the main actor (`@concurrent`). `LiveSpectrum` analyses in a `@concurrent` task that owns the stream and hands each finished `MagnitudeResponse` to the consumer through an `AsyncStream` continuation. Nothing runs on the render thread (`EngineAudioIO.swift:38`).
 
 ## Public interface
 
@@ -37,24 +37,24 @@ Paths below are relative to `ResoniqKit/Sources/ResoniqAudio/`.
 | `AudioIO` | `AudioIO.swift:106` | `start()`, `schedule(_:on:mode:)`, `stopPlayback()`, `stop()`, `outputRoute` (:121; nil by default, :126) |
 | `EngineAudioIO` | `EngineAudioIO.swift:44` | The real IO: `.playAndRecord`, mode `.measurement`, A2DP and AirPlay allowed, HFP not; one session owner (an activation generation); scheduling from the host clock, appended after queued audio; `preferredSampleRate` (:46), `tapBufferSize` (:48), `schedulingLead` (:51), `stopFade` (:55), `outputRoute` (:133) |
 | `SimulatedAudioIO` | `SimulatedAudioIO.swift:130` | The IO for tests: a simulated speaker per channel, route delay, noise and bursts, an optional room, an output route, real-time or immediate pacing (the sleep is injectable, internal init); refuses to schedule before the first block, as the engine does; `Configuration` (:136, `room` :153, `outputRoute` :155), `fail(with:)` (:216), `setRouteDelay(_:)` (:222), `currentSpot` (:227), `moveToSpot(_:)` (:232) |
-| `SimulatedRoom` | `SimulatedRoom.swift:16` | Room modes (`Mode` :18: frequency, Q, level per spot; `decayTime(sampleRate:)` :35, `q(forDecay:frequency:sampleRate:)` :41), `rightOffsetDecibels` (:54), a comb tail with `reverberationTime` (:56) and `reverberationLevel` (:58), `combDelays` (:50), `spotCount` (:69), `livingRoom` (:75), `magnitude(at:spot:channel:sampleRate:)` (:103): the exact response a test compares with |
+| `SimulatedRoom` | `SimulatedRoom.swift:16` | Room modes (`Mode` :18: frequency, Q, level per spot; `decayTime(sampleRate:)` :35, `q(forDecay:frequency:sampleRate:)` :41), `rightOffsetDecibels` (:54), a comb tail with `reverberationTime` (:56) and `reverberationLevel` (:58), `combDelays` (:50), `spotCount` (:69), `livingRoom` (:74), `magnitude(at:spot:channel:sampleRate:)` (:102): the exact response a test compares with |
 | `SimulatedSpeaker`, `SimulatedFilter`, `NoiseBurst` | `SimulatedAudioIO.swift:42`, `:5`, `:100` | What the simulated IO plays through and adds; `SimulatedSpeaker.Rattle` (:58, non-harmonic noise in proportion to the signal in a band), `SimulatedSpeaker.bookshelf` (:84) |
 
 ### The test
 
 | Symbol | Where | Holds |
 |---|---|---|
-| `MeasurementSession` | `MeasurementSession.swift:17` | `init(io:channel:permission:stillness:configuration:thresholds:)` (:70), `start()` (:87), `run()` (:95), `cancel()` (:106), `progressUpdates()` (:115), `state`, `progress`, `runCount`, `isRunning`; `check` (:371) forwards to `RunPerformer.check` |
+| `MeasurementSession` | `MeasurementSession.swift:17` | `init(io:channel:permission:stillness:configuration:thresholds:)` (:70), `start()` (:101), `run()` (:109), `cancel()` (:122), `progressUpdates()` (:131), `state`, `progress`, `runCount`, `isRunning`; `check` (:392) forwards to `RunPerformer.check` |
 | `MeasurementSession.State` | `MeasurementSession.swift:19` | `idle`, `measuringNoiseFloor`, `playing(run:note:)`, `paused(run:resumeFrequency:)`, `checking(run:)`, `finished(MeasurementResult)`, `failed(MeasurementFailure)`; `isFinal` (:33) |
-| `MeasurementConfiguration` | `MeasurementConfiguration.swift:5` | Every timing of a test, 20 fields, among them `maximumPauses` (:69), `maximumPauseWait` (:72), `sweepTiedTolerance` (:78), `maximumSpliceMisalignment` (:83); `init` (:85), `standard` (:135), `seat` (`SeatMeasurementTypes.swift:105`), `minimumSampleRate` (:140), `sweep(sampleRate:)` (:144) |
+| `MeasurementConfiguration` | `MeasurementConfiguration.swift:5` | Every timing of a test, 20 fields, among them `maximumPauses` (:69), `maximumPauseWait` (:72), `sweepTiedTolerance` (:78), `maximumSpliceMisalignment` (:83); `init` (:85), `standard` (:135), `seat` (`SeatMeasurementTypes.swift:136`), `minimumSampleRate` (:140), `sweep(sampleRate:)` (:49) |
 | `MeasurementResult` | `MeasurementTypes.swift:80` | `channel`, `sweep`, `noiseFloor`, `runs` |
 | `RunRecording` | `MeasurementTypes.swift:47` | One run's samples (from `leadIn` before the sweep), `sampleRate`, `leadIn`, `arrivalDelay` (live estimate), `verdict`, `spliceCount`, `phoneMoved`, `attempt`, `sweepTiedSound` (:70, the frequencies where sound tied to the sweep was heard), `takeOffsets` (:73, each spliced take's misalignment, samples), `measuredDelay` (:76, deconvolved) |
 | `MeasurementProgress` | `MeasurementTypes.swift:88` | What Listening and Paused show: run, frequency arriving, sweep fraction, room level, the "quiet enough" mark, input level and peak, clipping, phone steady, route delay |
 | `RunProblem` | `MeasurementTypes.swift:4` | `unusable(RecordingVerdict)` (:7), `didNotArrive` (:11), `interruptedRepeatedly` (:14) |
 | `RunNote` | `MeasurementTypes.swift:18` | `repeating(RunProblem)`, `restarted(RestartReason)` |
-| `RestartReason` | `RunRecorder.swift:216` | `noiseTooEarly`, `timelineUnreliable` |
+| `RestartReason` | `RunRecorder.swift:335` | `noiseTooEarly`, `timelineUnreliable` |
 | `MeasurementFailure` | `MeasurementTypes.swift:26` | `permissionDenied`, `interrupted`, `routeChanged`, `recordingUnusable(RunProblem)`, `cancelled`, `audioUnavailable(String)`, `tooNoisy` (:40), `speakersNotConnected(AudioOutputRoute)` (:43) |
-| `SweepNoiseDetector` | `SweepNoiseDetector.swift:22` | Room noise while the sweep plays: the strongest tone and its harmonics taken out, the rest against the floor's same bins; `init(noiseFloor:sweep:blockLength:thresholds:)` (:72), `assess(_:)` (:109), `Assessment` (:38) |
+| `SweepNoiseDetector` | `SweepNoiseDetector.swift:22` | Room noise while the sweep plays: the strongest tone and its harmonics taken out, the rest against the floor's same bins; `init(noiseFloor:sweep:blockLength:thresholds:)` (:72), `assess(_:)` (:114), `Assessment` (:43) |
 | `SweepSplicer.splice(_:_:crossfadeAt:crossfadeLength:)` | `SweepSplicer.swift:43` | Joins two takes of the sweep with a raised-cosine crossfade |
 | `SoundLevel` | `SoundLevel.swift:4` | `dBFS` (RMS), `approximateOffsetDecibels` (:16), `approximateDecibels` (:26), `init(of:)` (:29) |
 
@@ -62,13 +62,13 @@ Paths below are relative to `ResoniqKit/Sources/ResoniqAudio/`.
 
 | Symbol | Where | Holds |
 |---|---|---|
-| `SeatMeasurementSession` | `SeatMeasurementSession.swift:21` | `init(io:channels:permission:stillness:configuration:thresholds:)` (:95; `channels` `[.left, .right]` or `[.both]`, configuration `.seat`), `start()` (:113), `run()` (:121), `cancel()` (:134), `skipToResult()` (:145), `progressUpdates()` (:154), `state`, `progress`, `channels`, `spotCount`, `isRunning`; `stillnessHold` (:51), `movementTimeout` (:54), `capturedHold` (:57) |
+| `SeatMeasurementSession` | `SeatMeasurementSession.swift:21` | `init(io:channels:permission:stillness:configuration:thresholds:)` (:95; `channels` `[.left, .right]` or `[.both]`, configuration `.seat`), `start()` (:134), `run()` (:142), `cancel()` (:155), `skipToResult()` (:166), `progressUpdates()` (:175), `state`, `progress`, `channels`, `spotCount`, `isRunning`; `stillnessHold` (:51), `movementTimeout` (:54), `capturedHold` (:57) |
 | `SeatMeasurementSession.State` | `SeatMeasurementSession.swift:23` | `idle`, `measuringNoiseFloor`, `waitingForStillness(spot:)`, `playing(spot:channel:note:)`, `paused(spot:channel:resumeFrequency:)`, `checking(spot:channel:)`, `spotCaptured(spot:)` (lasts `capturedHold`), `finished(SeatMeasurementResult)`, `failed(MeasurementFailure)`; `isFinal` (:41) |
 | `SeatSpot` | `SeatMeasurementTypes.swift:5` | `seat`, `left`, `right`; `index` (:11) |
-| `SeatSpotRecording` | `SeatMeasurementTypes.swift:15` | `spot`, `recordings` per channel (`RunRecording.run` is the channel's place in the order), `phoneMoved`, `movementDetected`; `recording(for:)` (:36) |
-| `SeatMeasurementResult` | `SeatMeasurementTypes.swift:41` | `channels`, `sweep`, `noiseFloor`, `spots`; `isComplete` (:50) |
-| `SeatMeasurementProgress` | `SeatMeasurementTypes.swift:54` | `spot`, `spotsCaptured`, `spotCount`, `channel` (nil while waiting), `frequency`, `sweepFraction`, `roomLevel`, `quietEnoughLevel`, `isRoomQuiet`, `inputLevel`, `inputPeakDecibels`, `isClipping`, `isPhoneSteady`, `stillness` (0–1 of the hold while waiting), `routeDelay` |
-| `SpotAwareStillnessMonitor` | `SeatMeasurementTypes.swift:91` | A `StillnessMonitor` told `willWaitForStillness(at:)` each time a spot is waited for |
+| `SeatSpotRecording` | `SeatMeasurementTypes.swift:20` | `spot`, `recordings` per channel (`RunRecording.run` is the channel's place in the order), `phoneMoved`, `movementDetected`; `recording(for:)` (:41) |
+| `SeatMeasurementResult` | `SeatMeasurementTypes.swift:46` | `channels`, `sweep`, `noiseFloor`, `spots`; `isComplete` (:55) |
+| `SeatMeasurementProgress` | `SeatMeasurementTypes.swift:59` | `spot`, `spotsCaptured`, `spotCount`, `channel` (nil while waiting), `frequency`, `sweepFraction`, `roomLevel`, `quietEnoughLevel`, `isRoomQuiet`, `inputLevel`, `inputPeakDecibels`, `isClipping`, `isPhoneSteady`, `stillness` (0–1 of the hold while waiting), `routeDelay` |
+| `SpotAwareStillnessMonitor` | `SeatMeasurementTypes.swift:122` | A `StillnessMonitor` told `willWaitForStillness(at:)` each time a spot is waited for |
 | `SimulatedStillnessMonitor` | `SimulatedStillnessMonitor.swift:14` | Acts out "moved, then still" before every spot after the first, immediate (`movingReads`) or real-time (`moveDuration`) pacing; `detectsMovement` (:27), `onMove` (:29, wire to `SimulatedAudioIO.moveToSpot`), `moves` |
 | `LiveSpectrum` | `LiveSpectrum.swift:19` | `init(io:)` (:36), `bands()` (:42): an `AsyncStream<MagnitudeResponse>` of third-octave levels (dBFS RMS, 20 Hz–20 kHz, 31 bands); `smoothingCoefficient(time:)` (:73), `smoothed(previous:current:)` (:78) |
 

@@ -90,6 +90,21 @@ public struct SimulatedSpeaker: Sendable, Hashable {
         ]
     )
 
+    /// `bookshelf` with a woofer that buzzes between about 100 and 160 Hz: the simulator's left speaker, so the demo
+    /// flow ends on "Possible buzz at 100–160 Hz".
+    ///
+    /// The strength is set by the level at the defect: the sweep's 0.25 peak through `gain` 0.5 and the 70 Hz
+    /// high-pass is about 0.12 at 130 Hz, so `cubic · a³ / 4` gives a third harmonic of `cubic · a² / 4` of the
+    /// fundamental, while the same cubic adds `3 · cubic · a² / 4` to the fundamental itself. THD is their ratio, about
+    /// `0.0036 · cubic / (1 + 0.0108 · cubic)`: 10.7 % at cubic 40 (measured; over 10 % for only about 0.15 octave,
+    /// under the diagnosis's 1/6, so no buzz was reported), 19 % at cubic 100 (measured: over 10 % from about 100 to
+    /// 160 Hz, and the fundamental about 4 dB up at 130 Hz, under the 6 dB of a peak). Pinned by `DemoSpeakerTests`.
+    public static let buzzingBookshelf: SimulatedSpeaker = {
+        var speaker = bookshelf
+        speaker.defect = Defect(band: 100...160, cubic: 100)
+        return speaker
+    }()
+
     /// |H(f)| of the linear part, gain included.
     public func linearGain(at frequency: Double, sampleRate: Double) -> Double {
         filters.reduce(gain) { $0 * $1.magnitude(at: frequency, sampleRate: sampleRate) }

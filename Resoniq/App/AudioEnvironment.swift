@@ -6,9 +6,10 @@ import SwiftUI
 ///
 /// On a device that is the real engine, the system's permission and Core Motion. In the iOS simulator, which has no
 /// loop from the speaker to the microphone, it is `SimulatedAudioIO` paced in real time with a speaker on the left
-/// that buzzes between about 70 and 110 Hz and a clean one on the right, so both outcomes can be seen. A Debug
-/// build on a device can ask for the same with `-simulatedAudio YES`; `-simulatedNoise YES` adds a burst of noise a
-/// few seconds into the second run so the Paused screen can be seen.
+/// that buzzes between about 100 and 160 Hz (`SimulatedSpeaker.buzzingBookshelf`, about 19 % THD, which the
+/// diagnosis reports as "Possible buzz at 100–160 Hz") and a clean one on the right, so both outcomes can be seen.
+/// A Debug build on a device can ask for the same with `-simulatedAudio YES`; `-simulatedNoise YES` adds a burst of
+/// noise a few seconds into the second run so the Paused screen can be seen.
 ///
 /// The seat measurement and the live spectrum get their own simulation: the seat's runs on a `SimulatedRoom` like the
 /// Measure mockup's (a peak near 41 Hz, a dip near 61 Hz, even above) with a stillness monitor that acts out "moved,
@@ -72,11 +73,9 @@ struct AudioEnvironment {
     }
 
     private static func simulatedConfiguration(noise: Bool, pacing: SimulatedAudioIO.Pacing) -> SimulatedAudioIO.Configuration {
-        var buzzing = SimulatedSpeaker.bookshelf
-        buzzing.defect = SimulatedSpeaker.Defect(band: 70...110, cubic: 12)
         // The second scheduled buffer is the second run's sweep.
         let bursts = noise ? [NoiseBurst(start: .afterScheduling(buffer: 1, offset: 3), duration: 4, rms: 0.02)] : []
-        return SimulatedAudioIO.Configuration(bursts: bursts, left: buzzing, right: .bookshelf, pacing: pacing)
+        return SimulatedAudioIO.Configuration(bursts: bursts, left: .buzzingBookshelf, right: .bookshelf, pacing: pacing)
     }
 
     /// The room of the Measure mockup: +9 dB at 41 Hz and -11 dB at 61 Hz, a little different at each spot and at the

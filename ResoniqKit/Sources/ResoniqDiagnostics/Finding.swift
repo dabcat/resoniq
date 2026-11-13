@@ -20,12 +20,15 @@ public struct Finding: Sendable, Codable, Identifiable, Equatable {
         case invalidRecording
         /// The response differs from the other speaker's.
         case leftRightDifference
+        /// Distortion read above the buzz threshold but did not stand clear of the room's noise: inconclusive, it
+        /// could be the noise.
+        case distortionUnclear
 
         /// Whether the finding is a suspected defect (drawn as a deviation, named in the verdict).
         public var isDeviation: Bool {
             switch self {
             case .responseDip, .responsePeak, .distortion, .leftRightDifference: true
-            case .topEndDip, .even, .invalidRecording: false
+            case .topEndDip, .even, .invalidRecording, .distortionUnclear: false
             }
         }
     }

@@ -9,6 +9,12 @@ import ResoniqDSP
 /// `width = referenceWidth · (1 + (level − reference) / dynamicRange)`, clamped to 0…1. So an even speaker is an even
 /// shape at 0.8, a 6 dB dip is a fifth narrower (0.64: plain to see, nowhere near vanishing), a peak has room up to
 /// +7.5 dB, and a bass roll-off of 24 dB narrows the shape to a stem rather than cutting it off.
+///
+/// **Outside the measured band.** The axis always runs 20 Hz to 20 kHz, but a response is measured only over its
+/// trusted band (`RunMeasurement.responseBand`). Between 20 Hz and the band's lower edge, and between its upper edge
+/// and 20 kHz, the finished portrait holds the width at that edge: the shape neither invents a roll-off nor a rise
+/// it did not hear, and no finding is raised from those held widths. With `LogSweep.measurement` the trusted band
+/// covers 20 Hz to 20.8 kHz, so nothing is held.
 public struct PortraitProfile: Sendable, Codable, Equatable {
     /// The width of the reference level, as a fraction of the full width.
     public static let referenceWidth: Float = 0.8

@@ -18,14 +18,58 @@ func deviations(_ report: SpeakerReport) -> [Finding] {
 // MARK: - Healthy speakers: the worst failure is a false alarm
 
 @Suite struct HealthySpeakerTests {
-    static let seeds: [UInt64] = [1, 2, 3, 4, 5, 6]
+    /// Seeds of the speaker's own −60 dBFS noise: a quiet room.
+    static let seeds: [UInt64] = [1, 2, 3, 4]
+    /// Rooms down to the recording check's 20 dB gate: two seeds at the gate, where noise reads as the most
+    /// distortion, and one at 25 and 30 dB.
+    static let noisyCases: [HealthyCase] = [
+        HealthyCase(seed: 7, signalToNoise: 20),
+        HealthyCase(seed: 8, signalToNoise: 20),
+        HealthyCase(seed: 7, signalToNoise: 25),
+        HealthyCase(seed: 7, signalToNoise: 30),
+    ]
+    static let allCases: [HealthyCase] = seeds.map { HealthyCase(seed: $0, signalToNoise: nil) } + noisyCases
 
-    @Test(arguments: seeds)
-    func `a healthy speaker gives no deviation findings`(seed: UInt64) {
-        let report = SpeakerDiagnosis.diagnose(runs: Bench.healthyRunsBySeed[seed]!, counterpart: nil)
+    @Test(arguments: allCases)
+    func `a healthy speaker gives no deviation findings`(_ item: HealthyCase) {
+        let runs = Bench.healthyRuns[item]!
+        #expect(runs.allSatisfy { $0.isValid }, "\(runs.map(\.verdict))")
+        let report = SpeakerDiagnosis.diagnose(runs: runs, counterpart: nil)
         #expect(deviations(report).isEmpty, "\(deviations(report).map(\.headline))")
         #expect(report.verdict == "Sounds healthy.")
         #expect(!report.findings.contains { $0.tag == .inferred })
+        #expect(!report.findings.contains { $0.kind == .distortionUnclear }, "\(report.findings.map(\.headline))")
+    }
+
+    /// The review's most severe defect: at 20 dB signal-to-noise a clean speaker's THD reads 2–5 % from the noise
+    /// alone. That reading is not a measurement, so it is never a buzz, and the even statement does not call the
+    /// speaker clean where it was taken.
+    @Test func `noise read as distortion is neither a buzz nor called clean`() throws {
+        let runs = Bench.healthyRuns[HealthyCase(seed: 7, signalToNoise: 20)]!
+        let measurement = try #require(runs[0].measurement)
+        let index = ResponseGrid.nearestIndex(to: 5000)
+        guard case .belowNoise(let read, let bound?) = measurement.distortion(atIndex: index) else {
+            Issue.record("expected THD below the noise at 5 kHz, got \(measurement.distortion(atIndex: index))")
+            return
+        }
+        // The speaker's own THD is about 1 %; the rest is noise, and the noise's bound is over the buzz threshold.
+        print("healthy at 20 dB: THD reads \(read) % at 5 kHz, known only to be under \(bound) %")
+        #expect(read > 2)
+        #expect(bound >= DiagnosisThresholds.standard.distortionPercent)
+
+        let report = SpeakerDiagnosis.diagnose(runs: runs, counterpart: nil)
+        #expect(!report.findings.contains { $0.kind == .distortion })
+        let even = try #require(report.findings.first { $0.kind == .even })
+        // The statement covers only where every run ruled a buzz out, which stops well short of 5 kHz.
+        let ruledOut = SpeakerDiagnosis.distortionRuledOut(
+            Dictionary(uniqueKeysWithValues: runs.enumerated().map { ($0.offset, $0.element.measurement!) }),
+            audible: [Bool](repeating: true, count: ResponseGrid.count),
+            thresholds: .standard
+        )
+        let last = try #require(ResponseGrid.frequencies.indices.last { ruledOut[$0] && ResponseGrid.frequencies[$0] < 5000 })
+        #expect(!ruledOut[index])
+        #expect(even.detail == "Distortion stayed under 10 % from 80 Hz to \(DiagnosisText.frequency(ResponseGrid.frequencies[last])).", "\(even.detail)")
+        #expect(ResponseGrid.frequencies[last] < 2000)
     }
 
     /// A speaker with ±2.5 dB of ordinary unevenness and a steep bass roll-off is still healthy.
@@ -50,8 +94,19 @@ func deviations(_ report: SpeakerReport) -> [Finding] {
         var worstDeviation: Float = 0
         var worstDistortion: Float = 0
         for seed in Self.seeds {
-            for run in Bench.healthyRunsBySeed[seed]! {
+            for run in Bench.healthyRuns(seed: seed) {
                 let measurement = try! #require(run.measurement)
+                // In a quiet room a buzz is ruled out everywhere THD is read: the speaker's own 1 % is measured, or
+                // (around 2 kHz, where it sits within 10 dB of the floor) known to be under about 1.1 %.
+                for index in ResponseGrid.frequencies.indices where measurement.thdDecibels[index] != nil {
+                    switch measurement.distortion(atIndex: index) {
+                    case .measured(let percent) where percent < thresholds.distortionPercent: continue
+                    case .belowNoise(_, let bound?) where bound < thresholds.distortionPercent / 2: continue
+                    case let reading:
+                        Issue.record("no buzz ruled out at \(ResponseGrid.frequencies[index]) Hz: \(reading)")
+                    }
+                    break
+                }
                 let deviation = Trend.deviation(of: measurement.response, thresholds: thresholds)
                 for (index, frequency) in ResponseGrid.frequencies.enumerated()
                 where frequency >= thresholds.responseLowerFrequency && frequency <= thresholds.topEndFrequency {
@@ -68,12 +123,14 @@ func deviations(_ report: SpeakerReport) -> [Finding] {
     }
 
     @Test func `a healthy speaker is described as even, and the statement is measured`() throws {
-        let report = SpeakerDiagnosis.diagnose(runs: Bench.healthyRunsBySeed[1]!, counterpart: nil)
+        let report = SpeakerDiagnosis.diagnose(runs: Bench.healthyRuns(seed: 1), counterpart: nil)
         let even = try #require(report.findings.first { $0.kind == .even })
         #expect(even.tag == .measured)
         #expect(even.bands == [.tweeter, .middle, .woofer])
         #expect(even.headline == "Tweeter, mid and woofer are even")
-        #expect(even.detail == "No distortion or rattle found.")
+        // Distortion is read from 80 Hz (the DSP's trusted band for the second harmonic) to under half the sweep's
+        // end; rattle is not measured from a sweep, so it is not mentioned.
+        #expect(even.detail == "Distortion stayed under 10 % from 80 Hz to 9.2 kHz.")
         #expect(even.tagLine == "Measured")
         #expect(even.basis == Finding.Basis(runsAgreeing: 3, runsCompared: 3))
     }
@@ -84,7 +141,7 @@ func deviations(_ report: SpeakerReport) -> [Finding] {
 @Suite struct DistortionTests {
     static let threeOfThree = SpeakerDiagnosis.diagnose(runs: Bench.buzzingRuns, counterpart: nil)
     static let buzzing = Bench.buzzingRuns
-    static let healthy = Bench.healthyRunsBySeed[1]!
+    static let healthy = Bench.healthyRuns(seed: 1)
 
     @Test func `a buzz in 3 of 3 runs is inferred with the basis "3 of 3 runs"`() throws {
         let buzz = try #require(Self.threeOfThree.findings.first { $0.kind == .distortion })
@@ -94,24 +151,40 @@ func deviations(_ report: SpeakerReport) -> [Finding] {
         #expect(buzz.confidence == .medium)
         #expect(buzz.band == .woofer)
         let range = try #require(buzz.frequencyRange)
-        #expect(isNear(range.lower, 70) && isNear(range.upper, 110), "\(range)")
+        // The simulated buzz is 72–110 Hz; THD is read from 80 Hz.
+        #expect(isNear(range.lower, 80) && isNear(range.upper, 110), "\(range)")
         #expect(deviations(Self.threeOfThree).count == 1, "\(deviations(Self.threeOfThree).map(\.headline))")
     }
 
+    /// The mockup's words, with the numbers the DSP's trusted band allows: the mockup's "70–110 Hz" and "around
+    /// 90 Hz" are now "80–110 Hz" and "around 100 Hz", since no THD is read under 80 Hz; and the even statement says
+    /// over which frequencies distortion was measured instead of "No distortion or rattle found." (rattle is not
+    /// measured).
     @Test func `the buzz reads as the mockups show it`() throws {
         let report = Self.threeOfThree
         let buzz = try #require(report.findings.first { $0.kind == .distortion })
-        #expect(buzz.headline == "Buzz at 70–110 Hz")
+        #expect(buzz.headline == "Buzz at 80–110 Hz")
         #expect(buzz.tagLine == "Inferred · 3 of 3 runs")
-        #expect(buzz.sentence == "A buzz around 90 Hz.")
+        #expect(buzz.sentence == "A buzz around 100 Hz.")
         #expect(buzz.confidenceStatement == "Inferred, medium confidence. It repeats every run, but from one microphone position I can't rule out something near the speaker vibrating.")
         #expect(buzz.repeatability == "Same place every time")
-        #expect(buzz.listenFrequency == 90)
+        #expect(buzz.listenFrequency == 100)
         #expect(report.verdict == "Sounds healthy, except the woofer may be buzzing.")
         let even = try #require(report.findings.first { $0.kind == .even })
         #expect(even.headline == "Tweeter and mid are even")
-        #expect(even.detail == "No distortion or rattle found.")
+        #expect(even.detail == "Distortion stayed under 10 % from 310 Hz to 9.2 kHz.")
         #expect(even.tagLine == "Measured")
+    }
+
+    @Test func `a buzz in a room at the 20 dB gate is still measured`() throws {
+        let runs = Bench.runs(Bench.noisy(Bench.buzzing, signalToNoise: 20), seed: 9)
+        #expect(runs.allSatisfy { $0.isValid }, "\(runs.map(\.verdict))")
+        let report = SpeakerDiagnosis.diagnose(runs: runs, counterpart: nil)
+        let buzz = try #require(report.findings.first { $0.kind == .distortion })
+        #expect(buzz.tag == .inferred && buzz.basis.text == "3 of 3 runs")
+        let range = try #require(buzz.frequencyRange)
+        #expect(isNear(range.lower, 80) && isNear(range.upper, 110), "\(range)")
+        #expect(deviations(report).count == 1, "\(deviations(report).map(\.headline))")
     }
 
     @Test func `the numbers behind the buzz are kept for each run`() throws {
@@ -157,7 +230,7 @@ func deviations(_ report: SpeakerReport) -> [Finding] {
 @Suite struct ResponseTests {
     @Test func `a broad dip in every run is inferred and placed where it is`() throws {
         let speaker = Bench.healthy(with: [Biquad.peaking(frequency: 1000, q: 1, gain: -9, sampleRate: Bench.sampleRate)])
-        let report = SpeakerDiagnosis.diagnose(runs: Bench.runs(speaker), counterpart: nil)
+        let report = SpeakerDiagnosis.diagnose(runs: Bench.runs(speaker, sweep: Bench.responseSweep), counterpart: nil)
         let dip = try #require(report.findings.first { $0.kind == .responseDip })
         #expect(dip.tag == .inferred && dip.basis.text == "3 of 3 runs")
         #expect(dip.band == .middle)
@@ -178,7 +251,7 @@ func deviations(_ report: SpeakerReport) -> [Finding] {
 
     @Test func `a peak in every run is inferred`() throws {
         let speaker = Bench.healthy(with: [Biquad.peaking(frequency: 3000, q: 1, gain: 9, sampleRate: Bench.sampleRate)])
-        let report = SpeakerDiagnosis.diagnose(runs: Bench.runs(speaker), counterpart: nil)
+        let report = SpeakerDiagnosis.diagnose(runs: Bench.runs(speaker, sweep: Bench.responseSweep), counterpart: nil)
         let peak = try #require(report.findings.first { $0.kind == .responsePeak })
         #expect(peak.tag == .inferred)
         #expect(isNear(try #require(peak.frequencyRange).centre, 3000))
@@ -213,7 +286,7 @@ func deviations(_ report: SpeakerReport) -> [Finding] {
         let report = SpeakerDiagnosis.diagnose(runs: Bench.runs(speaker), counterpart: nil)
         #expect(report.verdict == "Sounds healthy, except the woofer may be buzzing.")
         #expect(report.findings.map(\.tagLine) == ["Inconclusive", "Measured", "Inferred · 3 of 3 runs"])
-        #expect(report.findings.map(\.headline) == ["Very top notes dip", "Tweeter and mid are even", "Buzz at 70–110 Hz"])
+        #expect(report.findings.map(\.headline) == ["Very top notes dip", "Tweeter and mid are even", "Buzz at 80–110 Hz"])
         #expect(report.findings.map(\.detail).first == "Above 14 kHz. Could be the phone's angle.")
     }
 }
@@ -222,7 +295,7 @@ func deviations(_ report: SpeakerReport) -> [Finding] {
 
 @Suite struct InvalidRecordingTests {
     static let buzzing = Bench.buzzingRuns
-    static let healthy = Bench.healthyRunsBySeed[1]!
+    static let healthy = Bench.healthyRuns(seed: 1)
 
     @Test func `a clipped run is reported and nothing is concluded from it`() throws {
         let clippedRun = Bench.clippedRun
@@ -274,13 +347,172 @@ func deviations(_ report: SpeakerReport) -> [Finding] {
         #expect(report.verdict == "I couldn't get clean enough recordings to judge this speaker.")
         #expect(report.profile == .notHeard)
     }
+
+    @Test func `a corrupt run is invalid and says so in its own words`() throws {
+        var recording = Bench.healthy.record(Bench.sweep)
+        recording[50_000] = .nan
+        recording[50_001] = .infinity
+        let run = RunAnalyzer.analyze(recording: recording, sweep: Bench.sweep, noiseFloor: Bench.noiseFloor(rms: Bench.healthy.noiseRMS))
+        #expect(run.verdict == .corrupt(nonFiniteSampleCount: 2))
+        #expect(run.record.check == .corrupt(nonFiniteSampleCount: 2))
+        #expect(run.measurement == nil)
+        let report = SpeakerDiagnosis.diagnose(runs: [run, Self.healthy[1], Self.healthy[2]], counterpart: nil)
+        let invalid = try #require(report.findings.first)
+        #expect(invalid.recordingProblem == .corrupt)
+        #expect(invalid.tag == .inconclusive)
+        #expect(invalid.headline == "One run came back damaged")
+        #expect(invalid.sentence == "The recording came back damaged, so I left that run out.")
+        #expect(report.isConclusive && deviations(report).isEmpty)
+    }
+
+    /// A recording that stopped before the sweep's end arrived concludes nothing, not even about the part it holds
+    /// (`RecordingCheck.incomplete` gives the reasons).
+    @Test func `a run cut short is invalid, and nothing is drawn from the part it holds`() throws {
+        let whole = Bench.buzzing.record(Bench.sweep)
+        // The sweep's last sample arrives at the delay plus its length; stop half a second before.
+        let end = Int(Bench.buzzing.delaySamples) + Bench.sweep.sampleCount - Int(0.5 * Bench.sampleRate)
+        let run = RunAnalyzer.analyze(recording: Array(whole[..<end]), sweep: Bench.sweep, noiseFloor: Bench.noiseFloor(rms: Bench.healthy.noiseRMS))
+        guard case .valid = run.verdict, case .incomplete(let captured?) = run.record.check else {
+            Issue.record("expected a valid level and an incomplete recording, got \(run.verdict), \(run.record.check)")
+            return
+        }
+        #expect(captured.lower == Float(Bench.sweep.startFrequency))
+        #expect(captured.upper < Float(Bench.sweep.endFrequency) && captured.upper > 1000, "\(captured)")
+        #expect(run.measurement == nil)
+        // The buzz is in this run and one good run: one good run is not enough.
+        let report = SpeakerDiagnosis.diagnose(runs: [run, Self.buzzing[1], Self.healthy[2]], counterpart: nil)
+        let invalid = try #require(report.findings.first)
+        #expect(invalid.recordingProblem == .incomplete)
+        #expect(invalid.headline == "One run was cut short")
+        #expect(deviations(report).isEmpty, "\(deviations(report).map(\.headline))")
+    }
+}
+
+// MARK: - What is known, from measurements made by hand
+
+/// Runs built directly from `RunMeasurement`, so each rule of evidence is tested on exactly the reading it is about.
+enum Handmade {
+    static let bands = OctaveBands.centres(fraction: 1, from: 31.5, to: 16000)
+
+    /// THD at one grid frequency: what was read, whether it is a measurement, and the noise floor.
+    struct Reading {
+        var percent: Float
+        var measurable: Bool
+        var floorPercent: Float?
+    }
+
+    /// A clean speaker's reading: 1 % over a floor of 0.05 %, measured.
+    static let clean = Reading(percent: 1, measurable: true, floorPercent: 0.05)
+
+    /// One valid run: a flat response at −12 dB measured over `responseBand` (`response` may change it), and THD
+    /// from 80 Hz to 9 kHz from `thd`.
+    static func run(
+        responseBand: FrequencyRange? = FrequencyRange(lower: 20, upper: 20000),
+        response: (Float) -> Float = { _ in -12 },
+        thd: (Float) -> Reading = { _ in clean }
+    ) -> RunAnalysis {
+        let grid = ResponseGrid.frequencies
+        let levels = grid.map(response)
+        let readings: [Reading?] = grid.map { $0 >= 80 && $0 <= 9000 ? thd($0) : nil }
+        let measurement = RunMeasurement(
+            response: levels,
+            referenceLevel: RunAnalyzer.referenceLevel(of: levels),
+            responseBand: responseBand,
+            thdDecibels: readings.map { $0.map { Decibels.fromAmplitude($0.percent / 100) } },
+            thdMeasurable: readings.map { $0?.measurable ?? false },
+            thdNoiseFloorDecibels: readings.map { $0?.floorPercent.map { Decibels.fromAmplitude($0 / 100) } },
+            delay: 0.05,
+            bandCentres: bands,
+            bandSignalToNoise: bands.map { _ in 40 }
+        )
+        return RunAnalysis(verdict: .valid(level: Level(peak: 0.25, rms: 0.1, dcOffset: 0), signalToNoise: 40), measurement: measurement)
+    }
+
+    /// 15 % between 1 and 2 kHz, `measurable` or below a floor of 8 % (known only to be under 25 %); clean elsewhere.
+    static func midBuzz(measurable: Bool) -> RunAnalysis {
+        run(thd: { (1000...2000).contains($0) ? Reading(percent: 15, measurable: measurable, floorPercent: 8) : clean })
+    }
+}
+
+@Suite struct EvidenceTests {
+    @Test func `distortion over the threshold but not clear of the noise is inconclusive, never a buzz`() throws {
+        let report = SpeakerDiagnosis.diagnose(runs: (0..<3).map { _ in Handmade.midBuzz(measurable: false) }, counterpart: nil)
+        #expect(!report.findings.contains { $0.kind == .distortion })
+        let unclear = try #require(report.findings.first { $0.kind == .distortionUnclear })
+        #expect(unclear.tag == .inconclusive)
+        #expect(unclear.tagLine == "Inconclusive")
+        #expect(unclear.basis.text == "3 of 3 runs")
+        #expect(unclear.confidence == nil)
+        #expect(unclear.headline == "Too noisy to tell at 1–2 kHz")
+        #expect(unclear.detail == "Distortion read about 15 % there, but the room's noise reads nearly as high.")
+        #expect(unclear.confidenceStatement.hasPrefix("Inconclusive."))
+        #expect(!unclear.kind.isDeviation)
+        #expect(report.verdict == "Sounds healthy.")
+        // The even statement stops short of the unclear band.
+        let even = try #require(report.findings.first { $0.kind == .even })
+        let below = try #require(ResponseGrid.frequencies.last { $0 < 1000 })
+        let from = try #require(ResponseGrid.frequencies.first { $0 >= 80 })
+        #expect(even.detail == "Distortion stayed under 10 % from \(DiagnosisText.frequency(from)) to \(DiagnosisText.frequency(below)).")
+    }
+
+    @Test func `the same distortion clear of the noise is a buzz`() throws {
+        let report = SpeakerDiagnosis.diagnose(runs: (0..<3).map { _ in Handmade.midBuzz(measurable: true) }, counterpart: nil)
+        let buzz = try #require(report.findings.first { $0.kind == .distortion })
+        #expect(buzz.tag == .inferred && buzz.band == .middle)
+        #expect(!report.findings.contains { $0.kind == .distortionUnclear })
+    }
+
+    @Test func `unclear distortion in one run of three is dropped`() {
+        let runs = [Handmade.midBuzz(measurable: false), Handmade.run(), Handmade.run()]
+        let report = SpeakerDiagnosis.diagnose(runs: runs, counterpart: nil)
+        #expect(!report.findings.contains { $0.kind == .distortionUnclear || $0.kind == .distortion })
+    }
+
+    @Test func `distortion below a floor that rules no buzz out is not called clean`() throws {
+        // From 3 kHz up, 6 % read under a floor of 5 %: all that is known is that THD is under 16 %, which does not
+        // rule a 10 % buzz out; and 6 % is under the threshold, so nothing is unclear either.
+        let noisy = Handmade.Reading(percent: 6, measurable: false, floorPercent: 5)
+        let runs = (0..<3).map { _ in Handmade.run(thd: { $0 >= 3000 ? noisy : Handmade.clean }) }
+        let report = SpeakerDiagnosis.diagnose(runs: runs, counterpart: nil)
+        #expect(!report.findings.contains { $0.kind == .distortion || $0.kind == .distortionUnclear })
+        let even = try #require(report.findings.first { $0.kind == .even })
+        let below = try #require(ResponseGrid.frequencies.last { $0 < 3000 })
+        #expect(even.detail.hasSuffix("to \(DiagnosisText.frequency(below)).") , "\(even.detail)")
+    }
+
+    @Test func `with distortion measured nowhere, the even statement says so`() throws {
+        let unknown = Handmade.Reading(percent: 3, measurable: false, floorPercent: nil)
+        let report = SpeakerDiagnosis.diagnose(runs: (0..<3).map { _ in Handmade.run(thd: { _ in unknown }) }, counterpart: nil)
+        let even = try #require(report.findings.first { $0.kind == .even })
+        #expect(even.detail == "I couldn't measure distortion over the room's noise.")
+        #expect(even.headline == "Tweeter, mid and woofer are even")
+    }
+
+    @Test func `nothing is raised from held values outside the measured band`() throws {
+        // Measured from 100 Hz to 10 kHz only. What lies outside (a deep "dip" in the bass, a "peak" in the top) is
+        // not a measurement and must raise nothing.
+        let band = FrequencyRange(lower: 100, upper: 10000)
+        let response: (Float) -> Float = { $0 < 60 ? -40 : ($0 > 12000 ? 0 : -12) }
+        let report = SpeakerDiagnosis.diagnose(runs: (0..<3).map { _ in Handmade.run(responseBand: band, response: response) }, counterpart: nil)
+        #expect(report.findings.allSatisfy { !$0.kind.isDeviation && $0.kind != .topEndDip }, "\(report.findings.map(\.headline))")
+        // Woofer and tweeter were not measured whole, so only the mid is called even.
+        let even = try #require(report.findings.first { $0.kind == .even })
+        #expect(even.bands == [.middle])
+        // The portrait holds the edge widths outside the band.
+        let widths = report.profile.widths
+        let first = try #require(ResponseGrid.frequencies.firstIndex { band.contains($0) })
+        let last = try #require(ResponseGrid.frequencies.lastIndex { band.contains($0) })
+        #expect(widths[..<first].allSatisfy { $0 == widths[first] })
+        #expect(widths[(last + 1)...].allSatisfy { $0 == widths[last] })
+        #expect(abs(widths[first] - PortraitProfile.referenceWidth) < 1e-5)
+    }
 }
 
 // MARK: - Left and right
 
 @Suite struct LeftRightTests {
-    static let left = Bench.runs(Bench.healthy(with: [Biquad.peaking(frequency: 2000, q: 1.2, gain: -4, sampleRate: Bench.sampleRate)]), seed: 21)
-    static let right = Bench.runs(Bench.healthy(with: [Biquad.peaking(frequency: 2000, q: 1.2, gain: 4, sampleRate: Bench.sampleRate)]), seed: 31)
+    static let left = Bench.runs(Bench.healthy(with: [Biquad.peaking(frequency: 2000, q: 1.2, gain: -4, sampleRate: Bench.sampleRate)]), seed: 21, sweep: Bench.responseSweep)
+    static let right = Bench.runs(Bench.healthy(with: [Biquad.peaking(frequency: 2000, q: 1.2, gain: 4, sampleRate: Bench.sampleRate)]), seed: 31, sweep: Bench.responseSweep)
 
     @Test func `speakers that differ are told apart, though neither deviates alone`() throws {
         let report = SpeakerDiagnosis.diagnose(runs: Self.left, counterpart: Self.right)
@@ -295,8 +527,8 @@ func deviations(_ report: SpeakerReport) -> [Finding] {
     }
 
     @Test func `a difference the other speaker's own dip explains is left to that speaker's report`() {
-        let dipped = Bench.runs(Bench.healthy(with: [Biquad.peaking(frequency: 2000, q: 1, gain: -9, sampleRate: Bench.sampleRate)]), seed: 41)
-        let healthy = Bench.healthyRunsBySeed[2]!
+        let dipped = Bench.runs(Bench.healthy(with: [Biquad.peaking(frequency: 2000, q: 1, gain: -9, sampleRate: Bench.sampleRate)]), seed: 41, sweep: Bench.responseSweep)
+        let healthy = Bench.healthyRuns(seed: 2)
         let report = SpeakerDiagnosis.diagnose(runs: healthy, counterpart: dipped)
         #expect(deviations(report).isEmpty, "\(deviations(report).map(\.headline))")
         let other = SpeakerDiagnosis.diagnose(runs: dipped, counterpart: healthy)

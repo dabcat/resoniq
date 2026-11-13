@@ -174,8 +174,25 @@ public enum DiagnosisText {
         )
     }
 
-    /// `bands` top of the portrait first.
-    static func even(bands: [DriverBand]) -> Words {
+    static func distortionUnclear(range: FrequencyRange, read: Float) -> Words {
+        Words(
+            headline: "Too noisy to tell at \(self.range(range))",
+            detail: "Distortion read about \(percent(read)) % there, but the room's noise reads nearly as high.",
+            sentence: "It was too noisy to tell about distortion around \(frequency(range.centre))."
+        )
+    }
+
+    static let distortionUnclearConfidence =
+        "Inconclusive. The room's noise alone reads almost as much distortion as I found there, so I can't tell a buzz from the noise. A quieter room would settle it."
+
+    /// "from 80 Hz to 9.3 kHz".
+    private static func span(_ range: FrequencyRange) -> String {
+        "from \(frequency(range.lower)) to \(frequency(range.upper))"
+    }
+
+    /// `bands` top of the portrait first. `range` is where every run ruled a buzz out (distortion under `percent`),
+    /// nil when nowhere; the detail names exactly that.
+    static func even(bands: [DriverBand], distortionBelow threshold: Float, over range: FrequencyRange?) -> Words {
         let names = bands.map(shortBandName)
         let list: String
         switch names.count {
@@ -185,9 +202,12 @@ public enum DiagnosisText {
         }
         let capitalised = list.prefix(1).uppercased() + list.dropFirst()
         let verb = names.count == 1 ? "is" : "are"
+        // Only harmonic distortion is measured from a sweep, so rattle is never mentioned.
+        let detail = range.map { "Distortion stayed under \(percent(threshold)) % \(span($0))." }
+            ?? "I couldn't measure distortion over the room's noise."
         return Words(
             headline: "\(capitalised) \(verb) even",
-            detail: "No distortion or rattle found.",
+            detail: detail,
             sentence: "The \(list) \(verb) even."
         )
     }
@@ -224,6 +244,18 @@ public enum DiagnosisText {
                 detail: "The microphone gave me silence, so I left \(left) out.",
                 sentence: "The microphone gave me silence, so I left \(left) out."
             )
+        case .corrupt:
+            return Words(
+                headline: runs == 1 ? "One run came back damaged" : "\(runs) runs came back damaged",
+                detail: "The recording held samples that weren't sound, so I left \(left) out. Playing it again usually fixes it.",
+                sentence: "The recording came back damaged, so I left \(left) out."
+            )
+        case .incomplete:
+            return Words(
+                headline: runs == 1 ? "One run was cut short" : "\(runs) runs were cut short",
+                detail: "The recording stopped before the whole test sound had reached me, so I left \(left) out. A wireless speaker can add a long delay.",
+                sentence: "The recording was cut short, so I left \(left) out."
+            )
         }
     }
 
@@ -243,7 +275,7 @@ public enum DiagnosisText {
         case .responseDip: return "\(band) may be weak around \(around)"
         case .responsePeak: return "\(band) may be too loud around \(around)"
         case .leftRightDifference: return "it may not match the other speaker around \(around)"
-        case .topEndDip, .even, .invalidRecording: return ""
+        case .topEndDip, .even, .invalidRecording, .distortionUnclear: return ""
         }
     }
 

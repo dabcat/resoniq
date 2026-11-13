@@ -46,13 +46,16 @@ public struct DiagnosisThresholds: Sendable, Equatable {
     /// the edges of a buzz a fraction of an octave wide.
     public var distortionSmoothingFraction: Int
 
-    /// Distortion is looked for from this frequency up, in hertz. **First guess**: 40 Hz. Below it a healthy woofer
-    /// playing loud distorts by design, and the second harmonic's start ripples near the sweep's start.
+    /// Distortion is looked for from this frequency up, in hertz. **First guess**: 40 Hz; below it a healthy woofer
+    /// playing loud distorts by design. THD is only read inside the DSP's trusted band for the second harmonic
+    /// (`HarmonicDistortion.trustedBand(order:sweep:)`, from 80 Hz for `LogSweep.measurement`), so with the
+    /// measurement sweep that band, not this, sets the bottom.
     public var distortionLowerFrequency: Float
 
     /// THD, in per cent, above which a band counts as buzzing. **First guess**: 10 %. A healthy speaker at a
     /// moderate level stays around 1 % in the mid and a few per cent in the deep bass; a buzzing cone or a rubbing
-    /// voice coil reaches tens of per cent.
+    /// voice coil reaches tens of per cent. A band counts only where THD is a measurement (clear of the noise floor
+    /// by `SweepDistortion.measurableMarginDecibels`); the margin is the DSP's, not restated here.
     public var distortionPercent: Float
 
     /// The narrowest distortion band reported, in octaves. **First guess**: 1/6 octave.

@@ -3,7 +3,7 @@
 Resoniq is a native iOS app that diagnoses speakers, measures how a system sounds at the seat, and guides
 speaker placement with RoomPlan and AR. Everything runs on the device: no accounts, no backend, no network.
 
-Read first: `docs/index.md` (map of the notes), `docs/ARCHITECTURE.md` (modules and decisions), `docs/PLAN.md`
+Read first: `docs/index.md` (map of the notes), the `resoniq-stack` skill (the tools and how we use them), `docs/ARCHITECTURE.md` (modules and decisions), `docs/PLAN.md`
 (phases and status). The product is defined in `docs/PRODUCT_SPEC.md`, the look in `design/DESIGN_SYSTEM.md`,
 the screens in `design/DESIGN_SPEC.md`.
 

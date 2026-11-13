@@ -14,7 +14,7 @@ launch the app and test a speaker immediately.
 | # | Phase | Status | Plan | PR |
 |---|---|---|---|---|
 | — | Repo foundation: spec, design, vault, agent rules, screen templates | in review | — | #1 |
-| 0 | Setup: project, package, theme, fonts, icon, tab shell | active | [phase-0-setup](plans/phase-0-setup.md) | |
+| 0 | Setup: project, package, theme, fonts, icon, tab shell | in review | [phase-0-setup](plans/phase-0-setup.md) | #2 |
 | 1 | DSP core: signals, FFT, response, THD, noise floor, clipping | planned | | |
 | 2 | Diagnose flow | planned | | |
 | 3 | Measure flow | planned | | |

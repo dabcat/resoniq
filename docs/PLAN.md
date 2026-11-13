@@ -16,11 +16,17 @@ launch the app and test a speaker immediately.
 | — | Repo foundation: spec, design, vault, agent rules, screen templates | done | — | #1 |
 | 0 | Setup: project, package, theme, fonts, icon, tab shell | done | [phase-0-setup](plans/phase-0-setup.md) | #2 |
 | 1 | DSP core: signals, FFT, response, THD, noise floor, clipping | done | [phase-1-dsp](plans/phase-1-dsp.md) | #3 |
-| 2 | Diagnose flow | active | [phase-2-diagnose](plans/phase-2-diagnose.md) | |
-| 3 | Measure flow | planned | [phase-3-measure](plans/phase-3-measure.md) | |
-| 4 | Optimize: room scan and layout | planned | [phase-4-room](plans/phase-4-room.md) | |
-| 5 | Optimize: AR guidance and before/after | planned | [phase-5-ar](plans/phase-5-ar.md) | |
+| 2 | Diagnose flow | done | [phase-2-diagnose](plans/phase-2-diagnose.md) | |
+| 3 | Measure flow | done | [phase-3-measure](plans/phase-3-measure.md) | |
+| 4 | Optimize: room scan and layout | done | [phase-4-room](plans/phase-4-room.md) | |
+| 5 | Optimize: AR guidance and before/after | done | [phase-5-ar](plans/phase-5-ar.md) | |
 | 6 | AI diagnostics and finish | active | [phase-6-ai-finish](plans/phase-6-ai-finish.md) | |
+
+Phases 2 and 3 are one pull request (the review fixes for phase 2 were made on the phase 3 branch), and phases
+4 to 6 followed on the same branch, so the PR cells for 2 to 6 stay empty until it is opened. "Done" means the
+code and its tests exist and the screens run in the simulator; nothing has run on an iPhone, which the
+[device checklist](device-checklist.md) is for. Phase 6 is still active: the intro, Settings and the rooms sheet
+are built but not reachable from the app, and there is no privacy manifest ([phase 6 notes](plans/phase-6-ai-finish.md)).
 
 ## Phases
 
@@ -50,8 +56,21 @@ design spec, accessibility pass.
 
 ## Open risks
 
-- **No training data** for the speaker-defect classifier. Phase 6 needs recordings of known-good and defective
-  speakers; collecting them can start during phase 2 using the app's own recordings.
-- **Device-only verification.** Phases 2–5 cannot be verified in the simulator; phases 4–5 need LiDAR.
-- **Undesigned states** (microphone denied, clipping, phone moved, Settings, manual room entry, no improvement):
-  built from the design system's rules, then reviewed against the canvas when designed.
+- **Nothing has run on a device.** The real audio engine, microphone, RoomPlan, ARKit, haptics and every
+  first-guess threshold are unverified; the simulator runs the same flows on simulated audio, a scripted scan
+  and a scripted AR move. The steps, and which block calling a feature working, are in the
+  [device checklist](device-checklist.md).
+- **Built but not reachable.** The intro, Settings and the rooms and systems sheet exist and are shown only by
+  debug screen names; Diagnose's Settings button and the room switcher do nothing yet
+  ([App](modules/App.md)). There is no privacy manifest.
+- **No training data** for the speaker-defect classifier. The Core ML slots ship empty and the report says
+  nothing on a model's behalf; collecting recordings is planned in
+  [the dataset plan](research/2026-11-13-defect-dataset-plan.md).
+- **Sweep safety on vented speakers.** The measurement sweep starts at 10 Hz at the safe level; the owner has
+  not confirmed that start for a vented speaker at high volume ([ResoniqDSP](modules/ResoniqDSP.md)).
+- **Wording the owner has not confirmed.** Findings hedge in their headlines where the mockups do not; the
+  layout guess says speakers were guessed where the mockup says they were spotted; the advisor's move is 40 cm
+  where the mockup says 35 cm.
+- **Undesigned states** (microphone denied, repeating, failed, not connected, quiet woofer, not assessed, worse
+  and unchanged results, Fix a wall, manual room entry) are built from the design system's rules and listed as
+  "no mockup" in the screens' headers; they are still to be reviewed against the canvas when designed.

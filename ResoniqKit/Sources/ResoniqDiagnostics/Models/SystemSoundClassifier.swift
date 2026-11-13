@@ -29,13 +29,21 @@ public struct SystemSoundClassifier: SoundClassifying {
         (try? SNClassifySoundRequest(classifierIdentifier: .version1)) != nil
     }
 
+    /// Whether `sampleRate` can be the analyzer's time scale: a positive whole number of hertz that fits a
+    /// `CMTimeScale`.
+    static func isUsable(sampleRate: Double) -> Bool {
+        sampleRate.isFinite && sampleRate > 0 && sampleRate.rounded() == sampleRate && sampleRate <= Double(CMTimeScale.max)
+    }
+
     /// Every label identifier the system classifier knows.
     public static func knownLabels() throws -> [String] {
         try SNClassifySoundRequest(classifierIdentifier: .version1).knownClassifications
     }
 
+    /// No classification (not an error) for audio shorter than a window, or at a sample rate the analyzer's time
+    /// scale cannot hold: not a whole number of hertz, or beyond `CMTimeScale`.
     public func classify(_ samples: [Float], sampleRate: Double) async throws -> [SoundClassification] {
-        guard sampleRate > 0, Double(samples.count) / sampleRate >= Self.windowDuration else { return [] }
+        guard Self.isUsable(sampleRate: sampleRate), Double(samples.count) / sampleRate >= Self.windowDuration else { return [] }
         try Task.checkCancellation()
         let run = ClassificationRun()
         return try await withTaskCancellationHandler {

@@ -154,4 +154,19 @@ struct SoundClassifierTests {
         }
     }
 }
+
+/// What the classifier refuses before it reaches the system: it needs neither the system classifier nor `say`, so it
+/// always runs.
+struct SoundClassifierInputTests {
+    @Test(arguments: [44100.5, 0, -48000, .infinity, .nan, 1e12])
+    func `a sample rate the analyzer cannot use gives no classification, not a trap`(sampleRate: Double) async throws {
+        let samples = [Float](repeating: 0.1, count: 4 * 48000)
+        #expect(try await SystemSoundClassifier().classify(samples, sampleRate: sampleRate).isEmpty)
+        #expect(!SystemSoundClassifier.isUsable(sampleRate: sampleRate))
+    }
+
+    @Test func `a whole number of hertz is usable`() {
+        #expect(SystemSoundClassifier.isUsable(sampleRate: 48000) && SystemSoundClassifier.isUsable(sampleRate: 44100))
+    }
+}
 #endif

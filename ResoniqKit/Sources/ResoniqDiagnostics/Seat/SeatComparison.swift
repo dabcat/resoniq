@@ -86,12 +86,22 @@ public struct ComparisonReport: Sendable, Codable, Equatable {
 /// - **Repeatability.** A change counts only when it is larger than the measurement's repeatability at that
 ///   frequency: `SeatThresholds.repeatabilityDecibels`, or `repeatabilitySpreadShare` of the two measurements' mean
 ///   spot-to-spot spread there when that is larger (`repeatability(at:before:after:)`, the one definition). A
-///   smaller change is "unchanged".
-/// - **Targets.** Each targeted extreme is looked for in the second measurement within `samePlaceOctaves` of where
-///   it was, in its own direction (the deepest point for a dip, the highest for a peak); its size before is the
-///   target's own.
-/// - **What was not targeted** is reported too: bass extremes of the first measurement that were not targeted, any
-///   new bass extreme in the second, and voices and treble, so a move that made something else worse is never hidden.
+///   smaller change is "unchanged", even when it carries a curve across the edge of the even band: 3.2 dB before and
+///   2.9 dB after is the same curve measured twice, not "even now".
+/// - **Following a bass extreme.** Each targeted extreme, and each bass extreme of the first measurement that was not
+///   targeted, is looked for in the second within `samePlaceOctaves` of where it was, as the larger excursion of
+///   either sign there (`excursion(in:near:octaves:)`). Its size before is its own. It improved when its magnitude
+///   fell by more than the repeatability, and got worse when it grew by more. One that changed sign and now lies
+///   outside the even band (a dip that became a peak) is a new problem, `worse`, never a fix.
+/// - **New bass extremes** of the second measurement away from every followed one are reported when they grew by
+///   more than the repeatability.
+/// - **Voices and treble** are compared by the largest excursion of each curve above the bass, where both were
+///   assessed (`restComparison`).
+/// - **The verdict** is built from the row that decided the outcome, named for what it is (a peak is a booming note,
+///   a dip a missing note): an improved bass row says "back" (a dip) or "calmer" (a peak) only when its value now lies
+///   inside the even band, and otherwise "less quiet" or "less strong" with the figure left. Targeted rows decide
+///   first, then the other bass rows, then voices and treble. With nothing targeted (a room-shape suggestion) the
+///   verdict is built the same way from what measurably changed.
 /// - **Only the second measurement** can say "improved"; every row is `measured`. An incomplete measurement on
 ///   either side compares nothing.
 public enum SeatComparison {
@@ -100,6 +110,16 @@ public enum SeatComparison {
     /// before and after of a move, and a change counts only above the measurement's own repeatability.
     public static let occasionsNote =
         "These are two measurements, not a before and after of a move. I only call something a change when it is bigger than the usual difference between two measurements of the same room."
+
+    /// One compared bass extreme, before its row is ordered.
+    private struct Followed {
+        let row: ComparisonRow
+        /// Magnitude before less magnitude after, dB.
+        let improvement: Float
+        let kind: SeatExtreme.Kind
+        /// It changed sign and now lies outside the even band.
+        let flipped: Bool
+    }
 
     public static func compare(
         before: SeatReport,
@@ -115,79 +135,78 @@ public enum SeatComparison {
         func repeatabilityAt(_ frequency: Float) -> Float {
             repeatability(at: frequency, before: before, after: after, thresholds: t)
         }
-        func judge(_ improvement: Float, at frequency: Float) -> ComparisonChange {
-            let limit = repeatabilityAt(frequency)
-            return improvement > limit ? .improved : (improvement < -limit ? .worse : .unchanged)
-        }
-
-        // Targeted problems.
-        var targetRows: [(row: ComparisonRow, improvement: Float, kind: SeatExtreme.Kind)] = []
-        for target in targets {
-            let now = extreme(in: afterCurve, kind: target.kind, near: target.frequency, octaves: t.samePlaceOctaves)
-            let improvement = target.kind == .dip ? now - target.deviation : target.deviation - now
-            targetRows.append((
-                ComparisonRow(
-                    label: SeatText.rowLabel(target.kind, frequency: target.frequency, depth: target.deviation, threshold: t.vanishingDipDecibels),
-                    before: SeatText.signedDecibels(target.deviation), after: SeatText.signedDecibels(now), status: nil,
-                    change: judge(improvement, at: target.frequency), beforeDecibels: target.deviation, afterDecibels: now,
-                    frequency: target.frequency
+        func follow(_ extreme: SeatExtreme) -> Followed {
+            let now = excursion(in: afterCurve, near: extreme.frequency, octaves: t.samePlaceOctaves)
+            let improvement = abs(extreme.deviation) - abs(now)
+            let flipped = now * extreme.deviation < 0 && abs(now) > t.evenBandDecibels
+            let limit = repeatabilityAt(extreme.frequency)
+            let change: ComparisonChange = flipped ? .worse : (improvement > limit ? .improved : (improvement < -limit ? .worse : .unchanged))
+            return Followed(
+                row: ComparisonRow(
+                    label: SeatText.rowLabel(extreme.kind, frequency: extreme.frequency, depth: extreme.deviation, threshold: t.vanishingDipDecibels),
+                    before: SeatText.signedDecibels(extreme.deviation), after: SeatText.signedDecibels(now), status: nil,
+                    change: change, beforeDecibels: extreme.deviation, afterDecibels: now, frequency: extreme.frequency
                 ),
-                improvement, target.kind
-            ))
+                improvement: improvement, kind: extreme.kind, flipped: flipped
+            )
         }
-        targetRows.sort { $0.improvement > $1.improvement }
-
-        // Untargeted bass: the first measurement's other bass extremes, and new ones in the second.
         func near(_ a: Float, _ b: Float) -> Bool { abs(log2(a / b)) <= t.samePlaceOctaves }
-        var otherRows: [ComparisonRow] = []
-        for old in before.placementTargets where !targets.contains(where: { near($0.frequency, old.frequency) && $0.kind == old.kind }) {
-            let now = extreme(in: afterCurve, kind: old.kind, near: old.frequency, octaves: t.samePlaceOctaves)
-            let improvement = old.kind == .dip ? now - old.deviation : old.deviation - now
-            otherRows.append(ComparisonRow(
-                label: SeatText.rowLabel(old.kind, frequency: old.frequency, depth: old.deviation, threshold: t.vanishingDipDecibels),
-                before: SeatText.signedDecibels(old.deviation), after: SeatText.signedDecibels(now), status: nil,
-                change: judge(improvement, at: old.frequency), beforeDecibels: old.deviation, afterDecibels: now, frequency: old.frequency
-            ))
-        }
-        for new in after.placementTargets where !before.placementTargets.contains(where: { near($0.frequency, new.frequency) && $0.kind == new.kind }) {
+
+        // Targeted problems, largest improvement first; then the first measurement's other bass extremes.
+        let targetRows = targets.map(follow).sorted { $0.improvement > $1.improvement }
+        let untargeted = before.placementTargets.filter { old in !targets.contains { near($0.frequency, old.frequency) && $0.kind == old.kind } }
+        var otherRows = untargeted.map(follow)
+        // New bass extremes, away from everything already followed (a followed one that changed sign is its own row).
+        let followed = targets + untargeted
+        for new in after.placementTargets where !followed.contains(where: { near($0.frequency, new.frequency) }) {
             let then = SeatCurve.value(beforeCurve, at: new.frequency)
             let worsening = abs(new.deviation) - abs(then)
-            guard judge(-worsening, at: new.frequency) == .worse else { continue }
-            otherRows.append(ComparisonRow(
-                label: SeatText.rowLabel(new.kind, frequency: new.frequency, depth: new.deviation, threshold: t.vanishingDipDecibels, new: true),
-                before: SeatText.signedDecibels(then), after: SeatText.signedDecibels(new.deviation), status: nil,
-                change: .worse, beforeDecibels: then, afterDecibels: new.deviation, frequency: new.frequency
+            guard worsening > repeatabilityAt(new.frequency) else { continue }
+            otherRows.append(Followed(
+                row: ComparisonRow(
+                    label: SeatText.rowLabel(new.kind, frequency: new.frequency, depth: new.deviation, threshold: t.vanishingDipDecibels, new: true),
+                    before: SeatText.signedDecibels(then), after: SeatText.signedDecibels(new.deviation), status: nil,
+                    change: .worse, beforeDecibels: then, afterDecibels: new.deviation, frequency: new.frequency
+                ),
+                improvement: -worsening, kind: new.kind, flipped: false
             ))
         }
 
         // Voices and treble.
         let restRow = restComparison(before: before, after: after, beforeCurve: beforeCurve, afterCurve: afterCurve, thresholds: t)
 
-        let rows = targetRows.map(\.row) + otherRows + [restRow]
+        let bassRows = targetRows + otherRows
+        let rows = bassRows.map(\.row) + [restRow]
         let improved = rows.contains { $0.change == .improved }
         let worse = rows.contains { $0.change == .worse }
         let outcome: ComparisonOutcome = improved ? (worse ? .mixed : .improved) : (worse ? .worse : .unchanged)
+        let flip = bassRows.first { $0.flipped }
 
         let verdict: String
         switch outcome {
         case .improved:
-            if let best = targetRows.first(where: { $0.row.change == .improved }) {
-                let fixed = abs(best.row.afterDecibels ?? 0) < t.vanishingDipDecibels
-                verdict = fixed ? SeatText.fixedVerdict(best.kind) : SeatText.partlyVerdict(best.kind)
+            // Targets first (already ordered by improvement), then the other bass rows by improvement.
+            let decisive = targetRows.first { $0.row.change == .improved }
+                ?? otherRows.filter { $0.row.change == .improved }.max { $0.improvement < $1.improvement }
+            if let decisive, let now = decisive.row.afterDecibels {
+                verdict = abs(now) <= t.evenBandDecibels
+                    ? SeatText.fixedVerdict(decisive.kind)
+                    : SeatText.partlyVerdict(decisive.kind, now: now)
             } else {
-                verdict = SeatText.partlyVerdict(.dip)
+                verdict = restRow.status == SeatText.restEvenNow ? SeatText.restEvenVerdict : SeatText.restBetterVerdict
             }
         case .unchanged: verdict = SeatText.unchangedVerdict
-        case .worse: verdict = SeatText.worseVerdict
+        case .worse: verdict = flip.map { SeatText.flippedVerdict($0.kind) } ?? SeatText.worseVerdict
         case .mixed: verdict = SeatText.mixedVerdict
         }
 
         let remaining = after.extremes.max { abs($0.deviation) < abs($1.deviation) }
         var note = SeatText.notePrefix
-        if outcome == .worse {
+        if outcome == .worse, flip == nil {
             note += " " + SeatText.putBack
         } else if let remaining {
-            note += " " + SeatText.remaining(remaining, threshold: t.vanishingDipDecibels, bass: remaining.frequency < t.bassUpperFrequency)
+            let isNew = flip.map { near($0.row.frequency ?? 0, remaining.frequency) } ?? false
+            note += " " + SeatText.remaining(remaining, threshold: t.vanishingDipDecibels, bass: remaining.frequency < t.bassUpperFrequency, new: isNew)
         } else {
             note += " " + SeatText.nothingRemains
         }
@@ -203,40 +222,67 @@ public enum SeatComparison {
         return max(thresholds.repeatabilityDecibels, thresholds.repeatabilitySpreadShare * mean)
     }
 
-    /// The deepest (dip) or highest (peak) value of `curve` within `octaves` of `frequency`, read between grid points.
-    static func extreme(in curve: [Float], kind: SeatExtreme.Kind, near frequency: Float, octaves: Float) -> Float {
+    /// The `steps + 1` values of `curve` read evenly in log frequency within `octaves` of `frequency`.
+    private static func window(_ curve: [Float], near frequency: Float, octaves: Float) -> [Float] {
         let steps = 48
-        let values = (0...steps).map { step in
+        return (0...steps).map { step in
             SeatCurve.value(curve, at: frequency * pow(2, octaves * (2 * Float(step) / Float(steps) - 1)))
         }
+    }
+
+    /// The deepest (dip) or highest (peak) value of `curve` within `octaves` of `frequency`, read between grid points.
+    static func extreme(in curve: [Float], kind: SeatExtreme.Kind, near frequency: Float, octaves: Float) -> Float {
+        let values = window(curve, near: frequency, octaves: octaves)
         return kind == .dip ? values.min()! : values.max()!
     }
 
-    /// Voices and treble: even before and after, or how far the largest excursion beyond the even band changed.
+    /// The value of `curve` furthest from 0 dB, either sign, within `octaves` of `frequency`: how a followed extreme is
+    /// judged, so a dip that turned into a peak there reads as the peak.
+    static func excursion(in curve: [Float], near frequency: Float, octaves: Float) -> Float {
+        window(curve, near: frequency, octaves: octaves).max { abs($0) < abs($1) }!
+    }
+
+    /// Voices and treble, from `bassUpperFrequency` to `upperFrequency`.
+    ///
+    /// Each measurement's largest excursion there is read from its curve at the points both measurements assessed
+    /// (`beforeDecibels`, `afterDecibels`); whether each is even comes from its extremes, as its own report says. The
+    /// row improved or got worse only when the largest excursion moved by more than the repeatability at the worse of
+    /// the two places; a smaller move is "unchanged", and when it crossed the edge of the even band the status says it
+    /// is about the same.
     static func restComparison(before: SeatReport, after: SeatReport, beforeCurve: [Float], afterCurve: [Float], thresholds t: SeatThresholds) -> ComparisonRow {
-        let rest = { (extremes: [SeatExtreme]) in extremes.filter { $0.frequency >= t.bassUpperFrequency } }
-        let then = rest(before.extremes)
-        let now = rest(after.extremes)
-        let worstThen = then.map { abs($0.deviation) }.max() ?? 0
-        let worstNow = now.map { abs($0.deviation) }.max() ?? 0
-        let label = SeatText.restRowLabel
+        let grid = ResponseGrid.frequencies
+        let points = grid.indices.filter { index in
+            grid[index] >= t.bassUpperFrequency && grid[index] <= t.upperFrequency
+                && (before.assessed?[index] ?? true) && (after.assessed?[index] ?? true)
+        }
+        func worst(_ curve: [Float]) -> (value: Float, frequency: Float) {
+            guard let index = points.max(by: { abs(curve[$0]) < abs(curve[$1]) }) else { return (0, t.bassUpperFrequency) }
+            return (abs(curve[index]), grid[index])
+        }
+        let (worstThen, whereThen) = worst(beforeCurve)
+        let (worstNow, whereNow) = worst(afterCurve)
+        let evenThen = !before.extremes.contains { $0.frequency >= t.bassUpperFrequency }
+        let evenNow = !after.extremes.contains { $0.frequency >= t.bassUpperFrequency }
+        let limit = max(
+            repeatability(at: whereThen, before: before, after: after, thresholds: t),
+            repeatability(at: whereNow, before: before, after: after, thresholds: t)
+        )
+        let improvement = worstThen - worstNow
         func row(_ status: String, _ change: ComparisonChange) -> ComparisonRow {
-            ComparisonRow(label: label, before: nil, after: nil, status: status, change: change,
+            ComparisonRow(label: SeatText.restRowLabel, before: nil, after: nil, status: status, change: change,
                           beforeDecibels: worstThen, afterDecibels: worstNow, frequency: nil)
         }
-        switch (then.isEmpty, now.isEmpty) {
+        switch (evenThen, evenNow) {
         case (true, true):
-            let points = ResponseGrid.frequencies.indices.filter {
-                ResponseGrid.frequencies[$0] >= t.bassUpperFrequency && ResponseGrid.frequencies[$0] <= t.upperFrequency
-            }
             let moved = points.contains { abs(afterCurve[$0] - beforeCurve[$0]) > t.repeatabilityDecibels }
             return row(moved ? SeatText.restChangedEven : SeatText.restUnchangedEven, .unchanged)
-        case (true, false): return row(SeatText.restUnevenNow, .worse)
-        case (false, true): return row(SeatText.restEvenNow, .improved)
+        case (true, false):
+            return improvement < -limit ? row(SeatText.restUnevenNow, .worse) : row(SeatText.restAboutSameUneven, .unchanged)
+        case (false, true):
+            return improvement > limit ? row(SeatText.restEvenNow, .improved) : row(SeatText.restAboutSameEven, .unchanged)
         case (false, false):
-            let improvement = worstThen - worstNow
-            if improvement > t.repeatabilityDecibels { return row(SeatText.restBetter, .improved) }
-            if improvement < -t.repeatabilityDecibels { return row(SeatText.restWorse, .worse) }
+            if improvement > limit { return row(SeatText.restBetter, .improved) }
+            if improvement < -limit { return row(SeatText.restWorse, .worse) }
             return row(SeatText.restUnchangedUneven, .unchanged)
         }
     }

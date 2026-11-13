@@ -209,6 +209,8 @@ final class SeatFlow {
         case tooNoisy
         /// The sound would come out of the phone itself.
         case speakersNotConnected(AudioOutputRoute)
+        /// The phone never held still long enough for a spot.
+        case phoneNeverStill
     }
 
     enum Step: Equatable {
@@ -327,6 +329,7 @@ final class SeatFlow {
             case .audioUnavailable: .failed(.audioUnavailable)
             case .tooNoisy: .failed(.tooNoisy)
             case .speakersNotConnected(let route): .failed(.speakersNotConnected(route))
+            case .phoneNeverStill: .failed(.phoneNeverStill)
             }
         }
     }
@@ -456,7 +459,9 @@ final class SeatFlow {
     ) async -> SpotAnalysis? {
         guard let left = spot.recording(for: channels[0]) else { return nil }
         let right = channels.count > 1 ? spot.recording(for: channels[1]) : nil
-        return SpotAnalyzer.analyze(left: left.samples, right: right?.samples, sweep: sweep, noiseFloor: floor)
+        return SpotAnalyzer.analyze(
+            left: left.samples, right: right?.samples, sweep: sweep, noiseFloor: floor, movementDetected: spot.movementDetected
+        )
     }
 
     /// Each spot not analysed yet (`known` holds those that are), the spots side by side, then the diagnosis of the

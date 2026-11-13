@@ -54,7 +54,7 @@ let dipTolerance = 2.0
         #expect(shown.map(\.headline) == [
             "One bass note booms, one nearly vanishes",
             "Voices and treble are even, left matches right",
-            "It's the room, not the speakers",
+            "It's probably the room, not the speakers",
         ])
         #expect(shown.map(\.tag) == [.measured, .measured, .inferred])
         #expect(shown.map(\.tagLine) == [
@@ -212,6 +212,40 @@ let dipTolerance = 2.0
         #expect(report.findings.map(\.headline) == ["Voices and treble are even"])
         #expect(!report.numbers.contains { $0.label == "L / R" })
     }
+
+    /// A typical living room: 4.2 × 5.6 m, 2.5 m high.
+    static let livingRoom = RoomHint(width: 4.2, length: 5.6, height: 2.5)
+
+    @Test func `a broad bass peak the same at every spot is not blamed on the room by coincidence`() {
+        // One +6 dB peak about two thirds of an octave wide, no spot-to-spot spread, slid across the bass.
+        var blamed: [Float] = []
+        var centre: Float = 35
+        while centre < 150 {
+            let report = SeatDiagnosis.diagnose(spots: handSpots { bell($0, centre: centre, gain: 6, width: 0.4) }, room: Self.livingRoom)
+            if report.findings.contains(where: { $0.kind == .roomCause }) { blamed.append(centre) }
+            centre *= pow(2, 1.0 / 24)
+        }
+        print("broad peak blamed on the room at \(blamed.map { Int($0) }) Hz")
+        #expect(blamed.isEmpty)
+    }
+
+    @Test func `a narrow bass peak on a mode of the room is put down to it, hedged`() throws {
+        let mode = Float(343.0 / (2 * 5.6) * 2) // 61.25 Hz
+        let report = SeatDiagnosis.diagnose(spots: handSpots { bell($0, centre: mode, gain: 8, width: 0.06) }, room: Self.livingRoom)
+        let cause = try #require(report.findings.first { $0.kind == .roomCause })
+        #expect(cause.basis == .roomSize)
+        #expect(cause.headline == "It's probably the room, not the speakers")
+    }
+
+    @Test func `the mode test's chance of a coincidence in a typical room is small`() {
+        // The share of 30–200 Hz (log frequency) within `roomModeOctaves` of an axial mode of the living room: the
+        // chance that a bass feature at a random frequency lands on a mode.
+        let share = SeatDiagnosis.modeCoincidenceShare(Self.livingRoom)
+        let large = SeatDiagnosis.modeCoincidenceShare(RoomHint(width: 5, length: 7, height: 2.7))
+        print("chance coincidence: living room \(share), larger room \(large)")
+        #expect(share < 0.2)
+        #expect(large < 0.25)
+    }
 }
 
 // MARK: - Spots that cannot be used
@@ -295,5 +329,68 @@ let dipTolerance = 2.0
         #expect(!report.isConclusive)
         #expect(report.verdict == "The room was too loud against the speakers for me to judge your seat.")
         #expect(report.extremes.isEmpty && report.numbers.isEmpty)
+    }
+}
+
+// MARK: - A move the phone did not register
+
+@Suite struct SeatSinglePositionTests {
+    /// The spots, with the moves to every spot after the first not detected.
+    static func undetected(_ spots: [SpotAnalysis]) -> [SpotAnalysis] {
+        spots.enumerated().map { index, spot in
+            SpotAnalysis(left: spot.left, right: spot.right, moveNotDetected: index == 0 ? nil : true)
+        }
+    }
+
+    /// A narrow boom on a mode of the living room, identical at every spot.
+    static let mode = Float(343.0 / (2 * 5.6) * 2)
+    static var identical: [SpotAnalysis] { handSpots { bell($0, centre: mode, gain: 8, width: 0.06) } }
+
+    @Test func `no move seen and three identical spots: the result rests on one position`() throws {
+        let report = SeatDiagnosis.diagnose(spots: Self.undetected(Self.identical), room: SeatCauseTests.livingRoom)
+        print("one position: \(report.verdict) | \(report.findings.map { "\($0.headline) [\($0.tagLine)]" })")
+        #expect(report.isConclusive)
+        #expect(report.restsOnOnePosition == true)
+        #expect(report.verdict
+            == "From your seat, the bass is uneven. The rest is balanced. The phone may not have moved between spots, so this rests on one position.")
+        let caveat = try #require(report.findings.first { $0.kind == .singlePosition })
+        #expect(caveat.tag == .inconclusive)
+        #expect(caveat.headline == "The phone may not have moved between spots")
+        #expect(report.displayedFindings.contains(caveat))
+        #expect(!report.findings.contains { $0.basis == .spotToSpot })
+        // The measured boom is still reported.
+        #expect(report.findings.first?.kind == .bass)
+    }
+
+    @Test func `no move seen but the spots differ: the missing detection is ignored`() {
+        let offsets: [(Float) -> Float] = [{ bell($0, centre: 61, gain: 3) }, { _ in 0 }, { bell($0, centre: 61, gain: -3) }]
+        let spots = handSpots({ bell($0, centre: 61, gain: -11, width: 0.06) }, offsets: offsets)
+        let plain = SeatDiagnosis.diagnose(spots: spots, room: nil)
+        let flagged = SeatDiagnosis.diagnose(spots: Self.undetected(spots), room: nil)
+        #expect(flagged.restsOnOnePosition == nil)
+        #expect(flagged.verdict == plain.verdict)
+        #expect(flagged.findings == plain.findings)
+        #expect(flagged.findings.contains { $0.basis == .spotToSpot })
+    }
+
+    @Test func `moves seen and identical spots: nothing is said`() {
+        let report = SeatDiagnosis.diagnose(spots: Self.identical, room: SeatCauseTests.livingRoom)
+        #expect(report.restsOnOnePosition == nil)
+        #expect(!report.findings.contains { $0.kind == .singlePosition })
+        #expect(!report.verdict.contains("one position"))
+    }
+
+    @Test func `the analyzer carries the missing detection, and it survives JSON`() throws {
+        let room = SeatBench.evenRoom
+        let sweep = SeatBench.shortSweep
+        let left = room.record(sweep, spot: 1, channel: .left, seed: 91)
+        let spot = SpotAnalyzer.analyze(left: left, right: nil, sweep: sweep, noiseFloor: room.noiseFloor(), movementDetected: false)
+        #expect(spot.moveNotDetected == true)
+        let detected = SpotAnalyzer.analyze(left: left, right: nil, sweep: sweep, noiseFloor: room.noiseFloor())
+        #expect(detected.moveNotDetected == nil)
+        #expect(try JSONDecoder().decode(SpotAnalysis.self, from: JSONEncoder().encode(spot)) == spot)
+        // Nothing is written when the move was seen, so stored spots read as before.
+        let plain = try JSONEncoder().encode(detected)
+        #expect(!String(decoding: plain, as: UTF8.self).contains("moveNotDetected"))
     }
 }

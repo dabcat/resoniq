@@ -352,6 +352,8 @@ final class DiagnoseFlow {
             case .audioUnavailable: .failed(.audioUnavailable)
             case .tooNoisy: .failed(.tooNoisy)
             case .speakersNotConnected(let route): .failed(.speakersNotConnected(route))
+            // A speaker test never waits for stillness, so it never ends this way; shown as the audio stopping.
+            case .phoneNeverStill: .failed(.interrupted)
             }
         }
     }
@@ -460,7 +462,8 @@ final class DiagnoseFlow {
             for await item in group { collected.append(item) }
             return collected.sorted { $0.0 < $1.0 }.map(\.1)
         }
-        return (SpeakerDiagnosis.diagnose(runs: analyses, counterpart: counterpart), analyses)
+        let moved = result.runs.filter(\.phoneMoved).map(\.run)
+        return (SpeakerDiagnosis.diagnose(runs: analyses, counterpart: counterpart, phoneMovedRuns: moved), analyses)
     }
 
     static func channel(for position: SpeakerPosition) -> SpeakerChannel {

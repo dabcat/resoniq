@@ -122,6 +122,12 @@ public final class TonePlayer {
         await drain?.value
     }
 
+    /// Waits, without stopping it, until the tone has ended by itself (`maximumDuration`) and the audio is released;
+    /// for tests, which then need no clock of their own.
+    func waitUntilSilent() async {
+        await drain?.value
+    }
+
     private func finish() async {
         io.stopPlayback()
         await io.stop()

@@ -39,14 +39,19 @@ enum SeatCurve {
 ///   `upperFrequency`, at points every recording measured with enough signal over the noise. A dip that runs into
 ///   the bottom of that span is the speakers' roll-off and is not reported.
 /// - Bass peaks and dips, the evenness of the rest and the left/right match are `measured`, with their figures.
-/// - "It's the room, not the speakers" is `inferred`, and said only with a basis: with a room hint, every bass
-///   extreme lies on one of the room's axial modes ("Inferred from room size."); otherwise every bass extreme is
+/// - "It's probably the room, not the speakers" is `inferred`, and said only with a basis: with a room hint, every bass
+///   extreme lies on one of the room's axial modes and is narrow or changes between the spots ("Inferred from room
+///   size."; see `cause` for why a mode match alone is not enough); otherwise every bass extreme is
 ///   narrow and the spots disagree there ("Inferred from how it changes between spots."). Without either it is not
 ///   said. A hint whose modes miss the extremes is no basis, and the spots are then asked.
 /// - Decay is an `estimate` and is given only when the recordings support it; distortion only where measurable.
 /// - A result needs `requiredSpots` valid spots; with fewer the report says why, draws the running average, and
 ///   concludes nothing. A spot that failed is reported only while the result is inconclusive (once it has been
 ///   measured again it no longer matters).
+/// - When the phone was not seen to move to a spot (`SpotAnalysis.moveNotDetected`) and the spots' curves are
+///   near-identical (`singlePositionSpreadDecibels`), the result may rest on one position: the verdict says so, an
+///   `inconclusive` finding explains it, and nothing is inferred from how the spots differ (no spot-to-spot cause, and
+///   a room-size cause needs a narrow extreme). When the curves differ, the missing detection is ignored.
 /// - No score; at most three findings are shown, strongest first.
 public enum SeatDiagnosis {
     /// Speed of sound for the room's axial modes, metres per second, at about 20 °C (as `ResoniqRoom` uses).
@@ -178,8 +183,20 @@ public enum SeatDiagnosis {
                 detail: SeatText.leftMatchesDetail(leftRight.difference), strength: 0
             ))
         }
-        var findings = deviations.sorted { $0.strength > $1.strength } + statements
-        if let basis = cause(bass: bass, room: room, thresholds: t) {
+        // A move the phone did not register matters only when the spots also sound alike: then they may all be one
+        // position. When they differ, the phone moved whatever the sensor said.
+        let undetectedMove = valid.contains { spots[$0].moveNotDetected == true }
+        let judged = grid.indices.filter { assessed[$0] && grid[$0] >= t.lowerFrequency && grid[$0] <= t.upperFrequency }
+        let largestSpread = judged.map { spreadCurve[$0] }.max() ?? 0
+        let singlePosition = undetectedMove && largestSpread < t.singlePositionSpreadDecibels
+        let positionFinding: [SeatFinding] = singlePosition ? [SeatFinding(
+            kind: .singlePosition, tag: .inconclusive, basis: nil, isDeviation: false,
+            headline: SeatText.singlePositionHeadline, tagLine: SeatText.inconclusiveTag,
+            detail: SeatText.singlePositionDetail(largestSpread), strength: 0
+        )] : []
+
+        var findings = deviations.sorted { $0.strength > $1.strength } + positionFinding + statements
+        if let basis = cause(bass: bass, room: room, singlePosition: singlePosition, thresholds: t) {
             findings.append(SeatFinding(
                 kind: .roomCause, tag: .inferred, basis: basis, isDeviation: false,
                 headline: SeatText.causeHeadline, tagLine: SeatText.causeTagLine(basis),
@@ -223,11 +240,12 @@ public enum SeatDiagnosis {
             verdict: SeatText.verdict(
                 bassUneven: !bass.isEmpty, voices: voices, treble: treble, leftRightDiffer: differ,
                 bassChecked: bassMissing == nil, restChecked: restMissing == nil
-            ),
+            ) + (singlePosition ? " " + SeatText.singlePositionCaveat : ""),
             isConclusive: true, validSpotCount: valid.count, requiredSpotCount: t.requiredSpots, spots: checks,
             curve: curve, leftCurve: left, rightCurve: right, spotCurves: spotCurves, spread: spread, assessed: assessed,
             evenBandDecibels: t.evenBandDecibels, extremes: extremes, leftRightDifference: leftRight?.difference,
-            findings: findings, numbers: numbers, distortionPercent: distortion, bassDecay: decay
+            findings: findings, numbers: numbers, distortionPercent: distortion, bassDecay: decay,
+            restsOnOnePosition: singlePosition ? true : nil
         )
     }
 
@@ -284,17 +302,42 @@ public enum SeatDiagnosis {
     }
 
     /// The basis on which the bass unevenness can be put down to the room; nil when there is none.
-    static func cause(bass: [SeatExtreme], room: RoomHint?, thresholds t: SeatThresholds) -> SeatBasis? {
+    ///
+    /// - **Room size**: every bass extreme lies within `roomModeOctaves` of an axial mode *and* looks like a mode: it
+    ///   is narrow (`narrowOctaves`) or the spots disagree there (`spotDisagreementDecibels`). A mode match alone is
+    ///   not enough: the axial modes of a living room are dense in the bass, so a broad bump that is the same at every
+    ///   spot (more likely the speaker's own bass, or its distance from a wall) would land on one by chance.
+    ///   **Chance coincidence** (`modeCoincidenceShare`): with `roomModeOctaves` at 1/48 octave, 17 % of 30–200 Hz
+    ///   lies on an axial mode of a 4.2 × 5.6 × 2.5 m room and 21 % of a 5 × 7 × 2.7 m one (at the earlier 1/24
+    ///   octave it was a third and more), and the shape test cuts what is left further.
+    /// - **Spot to spot**: every bass extreme is narrow and the spots disagree there. Not when `singlePosition`: the
+    ///   spots may all be one position, so their agreement says nothing.
+    static func cause(bass: [SeatExtreme], room: RoomHint?, singlePosition: Bool = false, thresholds t: SeatThresholds) -> SeatBasis? {
         guard !bass.isEmpty else { return nil }
+        func narrow(_ extreme: SeatExtreme) -> Bool { extreme.range.octaves <= t.narrowOctaves }
+        func disagree(_ extreme: SeatExtreme) -> Bool { !singlePosition && extreme.spread >= t.spotDisagreementDecibels }
         if let room {
             let modes = axialModes(room, upTo: t.roomModeUpperFrequency)
             let onModes = bass.allSatisfy { extreme in
-                modes.contains { abs(log2(extreme.frequency / $0)) <= t.roomModeOctaves }
+                modes.contains { abs(log2(extreme.frequency / $0)) <= t.roomModeOctaves } && (narrow(extreme) || disagree(extreme))
             }
             if !modes.isEmpty, onModes { return .roomSize }
         }
-        let changes = bass.allSatisfy { $0.range.octaves <= t.narrowOctaves && $0.spread >= t.spotDisagreementDecibels }
+        let changes = bass.allSatisfy { narrow($0) && disagree($0) }
         return changes ? .spotToSpot : nil
+    }
+
+    /// The share of `lowerFrequency` to `roomModeUpperFrequency` (in log frequency) that lies within `roomModeOctaves`
+    /// of an axial mode of `room`: the chance that a bass feature at a random frequency matches a mode by coincidence.
+    static func modeCoincidenceShare(_ room: RoomHint, thresholds t: SeatThresholds = .standard) -> Double {
+        let modes = axialModes(room, upTo: t.roomModeUpperFrequency)
+        let steps = 4000
+        let octaves = log2(t.roomModeUpperFrequency / t.lowerFrequency)
+        let hits = (0..<steps).filter { step in
+            let frequency = t.lowerFrequency * pow(2, octaves * (Float(step) + 0.5) / Float(steps))
+            return modes.contains { abs(log2(frequency / $0)) <= t.roomModeOctaves }
+        }.count
+        return Double(hits) / Double(steps)
     }
 
     /// The axial modes of the room, hertz: n·c / (2L) for each known dimension, up to `upper`.

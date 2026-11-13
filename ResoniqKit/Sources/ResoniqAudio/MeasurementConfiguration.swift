@@ -20,6 +20,10 @@ public struct MeasurementConfiguration: Sendable, Equatable {
     public var settleDuration: Double
     /// The quiet recording the floor is measured from. About a second (plan, "How a test works").
     public var noiseFloorDuration: Double
+    /// The longest the test listens for a steady, quiet enough floor (after `settleDuration`) before it ends as
+    /// `MeasurementFailure.tooNoisy`, so a loud or unsteady room never leaves "Stay quiet while I listen to the room"
+    /// up for ever. *First guess*: 30 s, as `maximumPauseWait`.
+    public var maximumFloorWait: Double
 
     // MARK: Recording a run
 
@@ -102,8 +106,10 @@ public struct MeasurementConfiguration: Sendable, Equatable {
         maximumPauses: Int = 6,
         maximumPauseWait: Double = 30,
         sweepTiedTolerance: Double = 0.15,
-        maximumSpliceMisalignment: Double = 0.00003
+        maximumSpliceMisalignment: Double = 0.00003,
+        maximumFloorWait: Double = 30
     ) {
+        self.maximumFloorWait = maximumFloorWait
         precondition(runCount > 0, "a test needs at least one run")
         precondition(
             resumeOverlap >= noiseGuard + crossfade + fadeIn + delayMargin,

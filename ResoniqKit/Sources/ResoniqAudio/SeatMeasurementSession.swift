@@ -10,7 +10,9 @@ import ResoniqDSP
 /// **Between spots** the phone must first move (so the same position is not captured twice) and then be still for
 /// `stillnessHold`. When the stillness monitor reports no movement within `movementTimeout`, the spot is captured
 /// once the phone is still, and marked (`SeatSpotRecording.movementDetected`). The first spot only needs the phone
-/// still. A captured spot shows as `spotCaptured` for `capturedHold`, for the haptic and "1 of 3 in".
+/// still. A phone that never holds still for `maximumStillnessWait` ends the measurement (`phoneNeverStill`); a room
+/// that gives no floor for `MeasurementConfiguration.maximumFloorWait` ends it as `tooNoisy`. A captured spot shows
+/// as `spotCaptured` for `capturedHold`, for the haptic and "1 of 3 in".
 ///
 /// **Isolation: the main actor**, as `MeasurementSession`, for the same reasons: the screens observe `state` and
 /// `progress`, the work per 100 ms block is well under a millisecond, capture runs on the IO's threads and the
@@ -46,12 +48,17 @@ public final class SeatMeasurementSession {
         }
     }
 
-    /// Seconds the phone must stay still before a spot is captured. *First guess*: 1 s, long enough that a hand
-    /// settling at ear height has stopped, short enough not to feel slow.
+    /// Seconds the phone must stay still before a spot is captured. *First guess for a hand-held phone*: 1 s, long
+    /// enough that a hand settling at ear height has stopped, short enough not to feel slow.
     public static let stillnessHold: Double = 1
     /// Seconds to wait for the phone to be seen moving to the next spot before capturing it anyway (and marking
-    /// it). *First guess*: 10 s, time to read "Now move the phone 30 cm to your left" and do it.
+    /// it). *First guess for a hand-held phone*: 10 s, time to read "Now move the phone 30 cm to your left" and do it.
     public static let movementTimeout: Double = 10
+    /// The longest a spot is waited for without the phone holding still for `stillnessHold`; past it the measurement
+    /// ends as `MeasurementFailure.phoneNeverStill` instead of waiting for ever. *First guess for a hand-held
+    /// phone*: 30 s, three times `movementTimeout`; a hand that cannot hold still for a second in that time is a
+    /// tremor, a moving vehicle or a phone left on something that vibrates.
+    public static let maximumStillnessWait: Double = 30
     /// Seconds `spotCaptured` lasts before the next spot is waited for (or the measurement finishes).
     /// *First guess*: 0.5 s.
     public static let capturedHold: Double = 0.5
@@ -323,6 +330,9 @@ public final class SeatMeasurementSession {
                 seat.detector = detector
                 captured = SeatMeasurementResult(channels: channels, sweep: seat.sweep, noiseFloor: floor, spots: [])
                 waitForSpot(&seat)
+            } else if seat.listener.hasTimedOut {
+                // No floor within the longest wait: the room is too loud or never steady.
+                return .failed(.tooNoisy)
             }
             return nil
         }
@@ -357,6 +367,9 @@ public final class SeatMeasurementSession {
             seat.waitedSamples += block.samples.count
             seat.stillSamples = steady ? seat.stillSamples + block.samples.count : 0
             report(block, assessment: assessment, quiet: quiet, steady: steady, clipped: clipped, seat: seat)
+            if seat.stillSamples < seat.count(Self.stillnessHold), seat.waitedSamples >= seat.count(Self.maximumStillnessWait) {
+                return .failed(.phoneNeverStill)
+            }
             let first = seat.spotIndex == 0
             guard seat.stillSamples >= seat.count(Self.stillnessHold),
                   first || seat.moved || seat.waitedSamples >= seat.count(Self.movementTimeout)
@@ -372,6 +385,11 @@ public final class SeatMeasurementSession {
         case .capturing:
             return try await capture(block, assessment: assessment, quiet: quiet, steady: steady, clipped: clipped, in: &seat)
         }
+    }
+
+    /// Samples from `block`, where a pause began, until the sweep stopped at the speakers can no longer be heard.
+    private func sweepArrival(_ block: CapturedBlock, delay: Int?, sampleRate: Double) -> Int {
+        PausedAudioKeeper.sweepArrival(delay: delay, blockLength: block.samples.count, configuration: configuration, sampleRate: sampleRate)
     }
 
     private func makePerformer(_ seat: SeatRun) -> RunPerformer {
@@ -416,7 +434,7 @@ public final class SeatMeasurementSession {
             io: io
         )
         seat.performer = performer
-        if case .paused = step { paused?.pauseBegan() }
+        if case .paused = step { paused?.pauseBegan(skipping: sweepArrival(block, delay: seat.tracker.delay, sampleRate: seat.sampleRate)) }
         if performer.isPaused { paused?.keep(block.samples) }
         report(block, assessment: assessment, quiet: quiet, steady: steady, clipped: clipped, seat: seat)
 

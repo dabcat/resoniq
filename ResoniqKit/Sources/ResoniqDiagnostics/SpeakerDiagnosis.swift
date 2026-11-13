@@ -21,6 +21,14 @@ public struct SpeakerReport: Sendable, Codable, Equatable {
     /// Nil when no model said anything, which is always the case while no model ships; optional, so reports stored
     /// before it still decode.
     public internal(set) var modelFindings: [ModelFinding]? = nil
+    /// The runs (1-based, rising) in which the phone moved while the sweep played: they were kept, not failed. From
+    /// the phone's motion sensor, so `measured`; nil when none moved. Optional, so reports stored before it decode, and
+    /// a reopened report says it as the live one did (`phoneMovedNote`).
+    public internal(set) var phoneMovedRuns: [Int]? = nil
+
+    /// "The phone moved while run 2 played. I kept that run, so read its details with a little care."; nil when no
+    /// run moved.
+    public var phoneMovedNote: String? { phoneMovedRuns.flatMap(DiagnosisText.phoneMovedNote(runs:)) }
 
     /// The findings that are suspected defects.
     public var suspectedDefects: [Finding] { findings.filter(\.kind.isDeviation) }
@@ -49,10 +57,24 @@ public enum SpeakerDiagnosis {
     /// - Parameters:
     ///   - runs: This speaker's runs, in the order they were made.
     ///   - counterpart: The other speaker's runs, for a left/right comparison, when it has been tested.
+    ///   - phoneMovedRuns: The runs (1-based) in which the phone moved while the sweep played (the session's
+    ///     `RunRecording.phoneMoved`); kept on the report as `phoneMovedRuns`, changing nothing else.
     public static func diagnose(
         runs: [RunAnalysis],
         counterpart: [RunAnalysis]?,
+        phoneMovedRuns: [Int] = [],
         thresholds: DiagnosisThresholds = .standard
+    ) -> SpeakerReport {
+        var report = diagnosis(runs: runs, counterpart: counterpart, thresholds: thresholds)
+        let moved = Array(Set(phoneMovedRuns)).sorted()
+        report.phoneMovedRuns = moved.isEmpty ? nil : moved
+        return report
+    }
+
+    private static func diagnosis(
+        runs: [RunAnalysis],
+        counterpart: [RunAnalysis]?,
+        thresholds: DiagnosisThresholds
     ) -> SpeakerReport {
         let records = runs.map(\.record)
         let invalid = invalidFindings(records)

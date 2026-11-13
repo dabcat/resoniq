@@ -48,6 +48,42 @@ public struct ScanFileStore: Sendable {
         try? FileManager.default.removeItem(at: folder.appendingPathComponent(name))
     }
 
+    /// Removes every file in the folder whose name is not in `kept` (the names rooms refer to). Returns the names
+    /// removed. A missing folder is not an error.
+    @discardableResult
+    public func sweep(keeping kept: Set<String>) -> [String] {
+        let fileManager = FileManager.default
+        guard let names = try? fileManager.contentsOfDirectory(atPath: folder.path) else { return [] }
+        var removed: [String] = []
+        for name in names.sorted() where !kept.contains(name) && Self.isPlain(name) {
+            if (try? fileManager.removeItem(at: folder.appendingPathComponent(name))) != nil { removed.append(name) }
+        }
+        return removed
+    }
+
+    // MARK: Temporary exports
+
+    /// RoomPlan's USDZ export is written to the temporary directory under this prefix before it is imported.
+    public static let temporaryExportPrefix = "Resoniq-scan-"
+
+    /// A new URL for a scan's temporary export in `directory`.
+    public static func temporaryExportURL(in directory: URL) -> URL {
+        directory.appendingPathComponent("\(temporaryExportPrefix)\(UUID().uuidString).usdz")
+    }
+
+    /// Removes the temporary exports left in `directory` (a scan closed while RoomPlan was processing, the app
+    /// stopped before Confirm layout). Run at launch, when no scan is in progress. Returns the names removed.
+    @discardableResult
+    public static func removeTemporaryExports(in directory: URL) -> [String] {
+        let fileManager = FileManager.default
+        guard let names = try? fileManager.contentsOfDirectory(atPath: directory.path) else { return [] }
+        var removed: [String] = []
+        for name in names.sorted() where name.hasPrefix(temporaryExportPrefix) {
+            if (try? fileManager.removeItem(at: directory.appendingPathComponent(name))) != nil { removed.append(name) }
+        }
+        return removed
+    }
+
     private static func isPlain(_ name: String) -> Bool {
         !name.isEmpty && name != "." && name != ".." && !name.contains("/")
     }

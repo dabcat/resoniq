@@ -78,6 +78,7 @@ extension ResoniqStore {
         try deleteAllObjects(of: SeatMeasurement.self)
         try deleteAllObjects(of: SpeakerTest.self)
         try context.save()
+        onDataReset?()
     }
 
     /// "Delete everything": all rooms with their systems, results and scan files. "My room" and "My speakers" are
@@ -93,6 +94,15 @@ extension ResoniqStore {
         try context.save()
         for name in scanFileNames { scanFiles?.delete(name) }
         try select(try defaultContext().system)
+        onDataReset?()
+    }
+
+    /// Removes scan files no room refers to: one imported for a scan whose layout was never confirmed (the app was
+    /// closed on Confirm layout), or left by a failed save. Run once at launch. Returns the names removed.
+    @discardableResult
+    public func sweepScanFiles() throws -> [String] {
+        guard let scanFiles else { return [] }
+        return scanFiles.sweep(keeping: Set(try rooms().compactMap(\.scanFileName)))
     }
 
     /// One by one: a batch delete cannot honour the relationships between the models.

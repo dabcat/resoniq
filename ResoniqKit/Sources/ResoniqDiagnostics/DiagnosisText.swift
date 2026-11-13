@@ -130,13 +130,39 @@ public enum DiagnosisText {
         var sentence: String
     }
 
+    /// Hedged in every line, never only in the verdict: a buzz is a suspected defect.
     static func distortion(range: FrequencyRange, extreme: Float, at frequency: Float) -> Words {
         Words(
-            headline: "Buzz at \(self.range(range))",
+            headline: "Possible buzz at \(self.range(range))",
             detail: "Distortion rose to \(percent(extreme)) % around \(self.frequency(frequency)).",
-            sentence: "A buzz around \(self.frequency(range.centre))."
+            sentence: "A possible buzz around \(self.frequency(range.centre))."
         )
     }
+
+    /// A driver far quieter than the rest. The difference is measured; what causes it is not known, and the words say
+    /// so.
+    static func quietBand(_ band: DriverBand, range: FrequencyRange, difference: Float) -> Words {
+        Words(
+            headline: "I could barely hear \(bandInSentence(band))",
+            detail: "Around \(self.range(range)) it was about \(decibels(difference)) dB quieter than the rest of the speaker. It could be the driver, its connection, or where the phone was.",
+            sentence: "I could barely hear \(bandInSentence(band))."
+        )
+    }
+
+    static func quietBandConfidence(basis: Finding.Basis) -> String {
+        "Measured: I read the difference in level straight from \(basis.runsCompared == 1 ? "the recording" : "the recordings of \(count(basis.runsCompared, "run", "runs"))"). What causes it I can't tell from here."
+    }
+
+    /// A driver whose band was too close to the room's noise to judge.
+    static func notAssessed(_ band: DriverBand, range: FrequencyRange) -> Words {
+        Words(
+            headline: "Couldn't check \(bandInSentence(band))",
+            detail: "Around \(self.range(range)) the room's noise was too close to the speaker's level, so I can't say how it sounds there.",
+            sentence: "I couldn't check \(bandInSentence(band))."
+        )
+    }
+
+    static let notAssessedConfidence = "Inconclusive. The room was too loud there to tell the speaker from the noise. A quieter moment would settle it."
 
     static func dip(range: FrequencyRange, depth: Float) -> Words {
         Words(
@@ -190,21 +216,39 @@ public enum DiagnosisText {
         "from \(frequency(range.lower)) to \(frequency(range.upper))"
     }
 
-    /// `bands` top of the portrait first. `range` is where every run ruled a buzz out (distortion under `percent`),
-    /// nil when nowhere; the detail names exactly that.
-    static func even(bands: [DriverBand], distortionBelow threshold: Float, over range: FrequencyRange?) -> Words {
+    /// "tweeter, mid and woofer".
+    static func bandList(_ bands: [DriverBand]) -> String {
         let names = bands.map(shortBandName)
-        let list: String
         switch names.count {
-        case 1: list = names[0]
-        case 2: list = "\(names[0]) and \(names[1])"
-        default: list = names.dropLast().joined(separator: ", ") + " and " + names[names.count - 1]
+        case 0: return ""
+        case 1: return names[0]
+        case 2: return "\(names[0]) and \(names[1])"
+        default: return names.dropLast().joined(separator: ", ") + " and " + names[names.count - 1]
         }
+    }
+
+    /// `bands` top of the portrait first. `response` is the stretch the response was found within the even band
+    /// over; `range` is where every run ruled a buzz out (distortion under `percent`), nil when nowhere;
+    /// `uncheckedBelow`, when set, is the frequency under which distortion in the stated bands was not checked. The
+    /// detail names exactly these.
+    static func even(
+        bands: [DriverBand],
+        response: [FrequencyRange],
+        distortionBelow threshold: Float,
+        over range: FrequencyRange?,
+        uncheckedBelow: Float?
+    ) -> Words {
+        let list = bandList(bands)
         let capitalised = list.prefix(1).uppercased() + list.dropFirst()
-        let verb = names.count == 1 ? "is" : "are"
+        let verb = bands.count == 1 ? "is" : "are"
         // Only harmonic distortion is measured from a sweep, so rattle is never mentioned.
-        let detail = range.map { "Distortion stayed under \(percent(threshold)) % \(span($0))." }
-            ?? "I couldn't measure distortion over the room's noise."
+        var detail = "It stays within \(decibels(EvenBand.decibels)) dB \(response.map(span).joined(separator: " and "))."
+        if let range {
+            detail += " Distortion stayed under \(percent(threshold)) % \(span(range))."
+            if let uncheckedBelow { detail += " I couldn't check for distortion below \(frequency(uncheckedBelow))." }
+        } else {
+            detail += " I couldn't measure distortion over the room's noise."
+        }
         return Words(
             headline: "\(capitalised) \(verb) even",
             detail: detail,
@@ -275,16 +319,25 @@ public enum DiagnosisText {
         case .responseDip: return "\(band) may be weak around \(around)"
         case .responsePeak: return "\(band) may be too loud around \(around)"
         case .leftRightDifference: return "it may not match the other speaker around \(around)"
-        case .topEndDip, .even, .invalidRecording, .distortionUnclear: return ""
+        case .quietBand: return "I could barely hear \(band)"
+        case .topEndDip, .even, .invalidRecording, .distortionUnclear, .notAssessed: return ""
         }
     }
 
-    static func verdict(suspected: [Finding]) -> String {
-        switch suspected.count {
+    static let notAssessedVerdict = "The room was too loud against the speaker for me to judge it."
+
+    /// The verdict over what was assessed. `unchecked` are the drivers that could not be assessed, top first, and
+    /// `checked` the rest: "healthy" is said only of the checked ones.
+    static func verdict(suspected: [Finding], unchecked: [DriverBand] = [], checked: [DriverBand] = DriverBand.allCases.reversed()) -> String {
+        let base: String = switch suspected.count {
         case 0: healthyVerdict
         case 1: "Sounds healthy, except \(clause(for: suspected[0]))."
         case 2: "Sounds healthy, except \(clause(for: suspected[0])) and \(clause(for: suspected[1]))."
         default: "I found \(suspected.count) things worth a closer look."
         }
+        guard !unchecked.isEmpty else { return base }
+        let missing = "I couldn't check the \(bandList(unchecked))"
+        guard suspected.isEmpty, !checked.isEmpty else { return "\(base) \(missing)." }
+        return "The \(bandList(checked)) \(checked.count == 1 ? "sounds" : "sound") healthy; \(missing)."
     }
 }

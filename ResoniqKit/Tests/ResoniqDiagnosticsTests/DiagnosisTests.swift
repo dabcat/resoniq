@@ -68,7 +68,7 @@ func deviations(_ report: SpeakerReport) -> [Finding] {
         )
         let last = try #require(ResponseGrid.frequencies.indices.last { ruledOut[$0] && ResponseGrid.frequencies[$0] < 5000 })
         #expect(!ruledOut[index])
-        #expect(even.detail == "Distortion stayed under 10 % from 80 Hz to \(DiagnosisText.frequency(ResponseGrid.frequencies[last])).", "\(even.detail)")
+        #expect(even.detail.contains("Distortion stayed under 10 % from 80 Hz to \(DiagnosisText.frequency(ResponseGrid.frequencies[last]))."), "\(even.detail)")
         #expect(ResponseGrid.frequencies[last] < 2000)
     }
 
@@ -129,8 +129,9 @@ func deviations(_ report: SpeakerReport) -> [Finding] {
         #expect(even.bands == [.tweeter, .middle, .woofer])
         #expect(even.headline == "Tweeter, mid and woofer are even")
         // Distortion is read from 80 Hz (the DSP's trusted band for the second harmonic) to under half the sweep's
-        // end; rattle is not measured from a sweep, so it is not mentioned.
-        #expect(even.detail == "Distortion stayed under 10 % from 80 Hz to 9.2 kHz.")
+        // end; rattle is not measured from a sweep, so it is not mentioned. The woofer is in the statement, so the
+        // words say distortion was not checked under 80 Hz.
+        #expect(even.detail == "It stays within 3 dB from 50 Hz to 14 kHz. Distortion stayed under 10 % from 80 Hz to 9.2 kHz. I couldn't check for distortion below 80 Hz.")
         #expect(even.tagLine == "Measured")
         #expect(even.basis == Finding.Basis(runsAgreeing: 3, runsCompared: 3))
     }
@@ -159,20 +160,21 @@ func deviations(_ report: SpeakerReport) -> [Finding] {
     /// The mockup's words, with the numbers the DSP's trusted band allows: the mockup's "70–110 Hz" and "around
     /// 90 Hz" are now "80–110 Hz" and "around 100 Hz", since no THD is read under 80 Hz; and the even statement says
     /// over which frequencies distortion was measured instead of "No distortion or rattle found." (rattle is not
-    /// measured).
+    /// measured). The headline and sentence hedge ("Possible buzz"), where the mockups state it flatly: a buzz is a
+    /// suspected defect, never stated as confirmed.
     @Test func `the buzz reads as the mockups show it`() throws {
         let report = Self.threeOfThree
         let buzz = try #require(report.findings.first { $0.kind == .distortion })
-        #expect(buzz.headline == "Buzz at 80–110 Hz")
+        #expect(buzz.headline == "Possible buzz at 80–110 Hz")
         #expect(buzz.tagLine == "Inferred · 3 of 3 runs")
-        #expect(buzz.sentence == "A buzz around 100 Hz.")
+        #expect(buzz.sentence == "A possible buzz around 100 Hz.")
         #expect(buzz.confidenceStatement == "Inferred, medium confidence. It repeats every run, but from one microphone position I can't rule out something near the speaker vibrating.")
         #expect(buzz.repeatability == "Same place every time")
         #expect(buzz.listenFrequency == 100)
         #expect(report.verdict == "Sounds healthy, except the woofer may be buzzing.")
         let even = try #require(report.findings.first { $0.kind == .even })
         #expect(even.headline == "Tweeter and mid are even")
-        #expect(even.detail == "Distortion stayed under 10 % from 310 Hz to 9.2 kHz.")
+        #expect(even.detail == "It stays within 3 dB from 310 Hz to 14 kHz. Distortion stayed under 10 % from 310 Hz to 9.2 kHz.")
         #expect(even.tagLine == "Measured")
     }
 
@@ -277,7 +279,7 @@ func deviations(_ report: SpeakerReport) -> [Finding] {
         #expect(report.findings.first?.kind == .topEndDip)
     }
 
-    @Test func `the mockup's result: top-end dip, even tweeter and mid, buzz`() {
+    @Test func `the mockup's result: top-end dip, even tweeter and mid, buzz`() throws {
         let speaker: SimulatedSpeaker = {
             var speaker = Bench.buzzing
             speaker.filters.append(Biquad.lowPass(frequency: 14000, q: 0.707, sampleRate: Bench.sampleRate))
@@ -286,8 +288,13 @@ func deviations(_ report: SpeakerReport) -> [Finding] {
         let report = SpeakerDiagnosis.diagnose(runs: Bench.runs(speaker), counterpart: nil)
         #expect(report.verdict == "Sounds healthy, except the woofer may be buzzing.")
         #expect(report.findings.map(\.tagLine) == ["Inconclusive", "Measured", "Inferred · 3 of 3 runs"])
-        #expect(report.findings.map(\.headline) == ["Very top notes dip", "Tweeter and mid are even", "Buzz at 80–110 Hz"])
+        #expect(report.findings.map(\.headline) == ["Very top notes dip", "Tweeter and mid are even", "Possible buzz at 80–110 Hz"])
         #expect(report.findings.map(\.detail).first == "Above 14 kHz. Could be the phone's angle.")
+        // Both stand only because the even statement's stretch ends where the top-end dip begins, and says so.
+        let even = try #require(report.findings.first { $0.kind == .even }?.frequencyRange)
+        let top = try #require(report.findings.first { $0.kind == .topEndDip }?.frequencyRange)
+        #expect(even.upper <= top.lower)
+        #expect(report.findings[1].detail.hasPrefix("It stays within 3 dB from 310 Hz to "))
     }
 }
 
@@ -448,11 +455,10 @@ enum Handmade {
         #expect(unclear.confidenceStatement.hasPrefix("Inconclusive."))
         #expect(!unclear.kind.isDeviation)
         #expect(report.verdict == "Sounds healthy.")
-        // The even statement stops short of the unclear band.
+        // The middle driver, which holds the unclear band, is left out of the even statement.
         let even = try #require(report.findings.first { $0.kind == .even })
-        let below = try #require(ResponseGrid.frequencies.last { $0 < 1000 })
-        let from = try #require(ResponseGrid.frequencies.first { $0 >= 80 })
-        #expect(even.detail == "Distortion stayed under 10 % from \(DiagnosisText.frequency(from)) to \(DiagnosisText.frequency(below)).")
+        #expect(even.bands == [.tweeter, .woofer])
+        #expect(even.detail == "It stays within 3 dB from 50 Hz to 300 Hz and from 3.1 kHz to 14 kHz. Distortion stayed under 10 % from 80 Hz to 300 Hz. I couldn't check for distortion below 80 Hz.")
     }
 
     @Test func `the same distortion clear of the noise is a buzz`() throws {
@@ -477,14 +483,14 @@ enum Handmade {
         #expect(!report.findings.contains { $0.kind == .distortion || $0.kind == .distortionUnclear })
         let even = try #require(report.findings.first { $0.kind == .even })
         let below = try #require(ResponseGrid.frequencies.last { $0 < 3000 })
-        #expect(even.detail.hasSuffix("to \(DiagnosisText.frequency(below)).") , "\(even.detail)")
+        #expect(even.detail.contains("to \(DiagnosisText.frequency(below)).") , "\(even.detail)")
     }
 
     @Test func `with distortion measured nowhere, the even statement says so`() throws {
         let unknown = Handmade.Reading(percent: 3, measurable: false, floorPercent: nil)
         let report = SpeakerDiagnosis.diagnose(runs: (0..<3).map { _ in Handmade.run(thd: { _ in unknown }) }, counterpart: nil)
         let even = try #require(report.findings.first { $0.kind == .even })
-        #expect(even.detail == "I couldn't measure distortion over the room's noise.")
+        #expect(even.detail == "It stays within 3 dB from 50 Hz to 14 kHz. I couldn't measure distortion over the room's noise.")
         #expect(even.headline == "Tweeter, mid and woofer are even")
     }
 

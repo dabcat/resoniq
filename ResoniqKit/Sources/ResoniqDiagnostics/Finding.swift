@@ -23,12 +23,19 @@ public struct Finding: Sendable, Codable, Identifiable, Equatable {
         /// Distortion read above the buzz threshold but did not stand clear of the room's noise: inconclusive, it
         /// could be the noise.
         case distortionUnclear
+        /// A driver's band far quieter than the others (`DiagnosisThresholds.quietBandDecibels`): "I could barely hear
+        /// the woofer". The level difference is `measured`; its cause (the driver, its connection, the phone's
+        /// position) is not known.
+        case quietBand
+        /// A driver's band whose signal over the room's noise was too low to assess (`inconclusive`): "Couldn't check
+        /// the woofer". Nothing is said about it, healthy or not.
+        case notAssessed
 
         /// Whether the finding is a suspected defect (drawn as a deviation, named in the verdict).
         public var isDeviation: Bool {
             switch self {
-            case .responseDip, .responsePeak, .distortion, .leftRightDifference: true
-            case .topEndDip, .even, .invalidRecording, .distortionUnclear: false
+            case .responseDip, .responsePeak, .distortion, .leftRightDifference, .quietBand: true
+            case .topEndDip, .even, .invalidRecording, .distortionUnclear, .notAssessed: false
             }
         }
     }

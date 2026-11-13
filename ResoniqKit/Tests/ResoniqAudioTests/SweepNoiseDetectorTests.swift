@@ -35,7 +35,7 @@ func blocks(_ samples: [Float], length: Int = 4800) -> [[Float]] {
     /// A floor, then a sweep played through `speaker`.
     func record(speaker: SimulatedSpeaker = .bookshelf, bursts: [NoiseBurst] = []) async throws -> (floor: [Float], run: [Float]) {
         let io = Fixture.io(bursts: bursts, speaker: speaker)
-        let samples = try await capture(io, seconds: Self.floorSeconds + 3.5, schedule: [(Self.floorSeconds, Fixture.sweep.samples())])
+        let samples = try await capture(io, seconds: Self.floorSeconds + Fixture.sweep.duration + 0.5, schedule: [(Self.floorSeconds, Fixture.sweep.samples())])
         let split = Int(Self.floorSeconds * Fixture.sampleRate)
         return (Array(samples[0..<split]), Array(samples[split...]))
     }
@@ -62,7 +62,8 @@ func blocks(_ samples: [Float], length: Int = 4800) -> [[Float]] {
         let offset = 0.05 + 0.02
         for (index, block) in blocks(run).enumerated() {
             let centre = (Double(index) + 0.5) * 0.1 - offset
-            guard centre > 0.8, centre < 2.9 else { continue }
+            // From about 60 Hz (a bin is 5.9 Hz wide) to about 17 kHz, short of the sweep's fade-out.
+            guard centre > 1.0, centre < 3.9 else { continue }
             let expected = Fixture.sweep.frequency(at: centre)
             let found = try #require(detector.assess(block).sweepFrequency)
             #expect(abs(log2(found / expected)) < 0.05, "block \(index): \(found) Hz, expected \(expected) Hz")

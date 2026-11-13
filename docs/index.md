@@ -28,7 +28,7 @@ Markdown links, so they work in both. Design files live outside the vault, in [`
 [ResoniqRoom](modules/ResoniqRoom.md) ·
 [ResoniqStore](modules/ResoniqStore.md)
 
-**Plans:** [Phase 0 · Setup](plans/phase-0-setup.md)
+**Plans:** [Phase 0 · Setup](plans/phase-0-setup.md) · [Phase 1 · DSP core](plans/phase-1-dsp.md)
 
 **Research:** [Audio datasets for testing the AI models](research/2026-11-13-audio-datasets.md)
 

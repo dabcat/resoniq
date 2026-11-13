@@ -50,7 +50,7 @@ struct SeatRunDisplay: Equatable {
         state: SeatMeasurementSession.State,
         progress: SeatMeasurementProgress?,
         channels: [SpeakerChannel],
-        building: SeatReport?
+        building: SeatBuilding?
     ) {
         let total = SeatSpot.allCases.count
         var captured = progress?.spotsCaptured ?? 0
@@ -104,7 +104,7 @@ struct SeatRunDisplay: Equatable {
         )
         capturedCount = captured
         progressLabel = MeasureText.progress(captured: captured, of: total)
-        instruction = MeasureText.instruction(for: state, isSteady: progress?.isPhoneSteady ?? true, channels: channels)
+        instruction = MeasureText.instruction(for: state, wait: progress?.wait, channels: channels)
         pausedTitle = MeasureText.pausedTitle(spot: current ?? .seat, channel: pausedChannel, of: channels)
         resumeFrequency = resume.map { SeatText.frequency(Float($0)) }
         self.note = note
@@ -116,10 +116,10 @@ struct SeatRunDisplay: Equatable {
         }
         footerLine = isWaiting ? MeasureText.waitingLine : MeasureText.playingLine
 
-        // The curves: the Kit's own, from the spots analysed so far.
-        let curves = (building?.spotCurves ?? []).compactMap { $0 }.map { $0.map(Double.init) }
+        // The curves: the Kit's own, from the spots analysed so far, as far as they may be drawn.
+        let curves = (building?.spotCurves ?? []).map { SeatReport.heldAtEdges($0).map(Double.init) }
         traces = curves
-        average = building?.curveLevels ?? []
+        average = building?.average.map { SeatReport.heldAtEdges($0).map(Double.init) } ?? []
         curveLabel = MeasureText.curveLabel(captured: captured, drawn: curves.count, of: total)
 
         // The readings.
@@ -182,9 +182,8 @@ struct SeatRunDisplay: Equatable {
 /// spots off the main actor and diagnoses them with the room's size when it is known. It keeps nothing: the caller
 /// takes the report from `step` and decides whether to save it.
 ///
-/// The curve panel grows from `building`, the Kit's own report of the spots analysed so far. The session hands over
-/// its recordings only when it ends, so nothing is analysed before: the panel shows how many spots are in, and the
-/// curves once the report exists. (Kit gap: `SeatMeasurementSession` has no way to read a captured spot mid-run.)
+/// The curve panel grows from `building`, the Kit's running average (`SeatDiagnosis.building`) of the spots analysed
+/// so far: each spot is analysed off the main actor as soon as the session has captured it (`capturedSpots`).
 @MainActor
 @Observable
 final class SeatFlow {
@@ -246,10 +245,14 @@ final class SeatFlow {
     @ObservationIgnored private let roomHint: RoomHint?
     @ObservationIgnored private let configuration: MeasurementConfiguration
     @ObservationIgnored private var runTask: Task<Void, Never>?
+    @ObservationIgnored private var spotsTask: Task<Void, Never>?
+    /// Each captured spot's analysis, by its place in the order; and how many spots have been sent to be analysed.
+    @ObservationIgnored private var analyses: [Int: SpotAnalysis] = [:]
+    @ObservationIgnored private var requested = 0
 
     private var phase: Phase = .guide
-    /// The report of the spots analysed so far, for the curve panel.
-    private var building: SeatReport?
+    /// The running average of the spots analysed so far, for the curve panel.
+    private var building: SeatBuilding?
 
     /// - Parameters:
     ///   - kind: The selected system's kind: it decides which channels play.
@@ -329,8 +332,13 @@ final class SeatFlow {
             stillness: seat.stillness,
             configuration: configuration
         )
+        let updates = session.progressUpdates()
         phase = .running(session)
         session.start()
+        // A spot is captured between two progress updates; each update checks for new ones.
+        spotsTask = Task { [weak self] in
+            for await _ in updates { self?.analyseNewSpots(of: session) }
+        }
         runTask = Task { [weak self] in
             await session.run()
             await self?.finish(session)
@@ -363,29 +371,58 @@ final class SeatFlow {
     private func stopWork() {
         if case .running(let session) = phase { session.cancel() }
         runTask?.cancel()
+        spotsTask?.cancel()
         runTask = nil
+        spotsTask = nil
+        analyses = [:]
+        requested = 0
+    }
+
+    /// Analyses each spot the session has captured since the last look, off the main actor, and grows the running
+    /// average from the spots analysed so far, in order.
+    private func analyseNewSpots(of session: SeatMeasurementSession) {
+        guard case .running(let current) = phase, current === session, let captured = session.captured else { return }
+        while requested < captured.spots.count {
+            let index = requested
+            requested += 1
+            let spot = captured.spots[index]
+            Task { [weak self] in
+                let analysis = await Self.analyse(spot, channels: captured.channels, sweep: captured.sweep, floor: captured.noiseFloor)
+                guard let self, case .running(let current) = self.phase, current === session, let analysis else { return }
+                self.analyses[index] = analysis
+                let inOrder = (0..<self.requested).prefix { self.analyses[$0] != nil }.compactMap { self.analyses[$0] }
+                self.building = SeatDiagnosis.building(spots: inOrder)
+            }
+        }
     }
 
     private func finish(_ session: SeatMeasurementSession) async {
         guard case .finished(let result) = session.state else { return }
-        let report = await Self.analyse(result, room: roomHint)
+        let report = await Self.analyse(result, room: roomHint, known: analyses)
         guard !Task.isCancelled, case .running(let current) = phase, current === session else { return }
-        building = report
         phase = .finished(report)
     }
 
-    /// Each spot's response, distortion and decay (about a second a spot), the spots side by side, then the
-    /// diagnosis of the seat. Off the main actor.
-    @concurrent nonisolated private static func analyse(_ result: SeatMeasurementResult, room: RoomHint?) async -> SeatReport {
+    /// One spot's response, distortion and decay (about a second). Off the main actor.
+    @concurrent nonisolated private static func analyse(
+        _ spot: SeatSpotRecording, channels: [SpeakerChannel], sweep: LogSweep, floor: NoiseFloorReport
+    ) async -> SpotAnalysis? {
+        guard let left = spot.recording(for: channels[0]) else { return nil }
+        let right = channels.count > 1 ? spot.recording(for: channels[1]) : nil
+        return SpotAnalyzer.analyze(left: left.samples, right: right?.samples, sweep: sweep, noiseFloor: floor)
+    }
+
+    /// Each spot not analysed yet (`known` holds those that are), the spots side by side, then the diagnosis of the
+    /// seat. Off the main actor.
+    @concurrent nonisolated private static func analyse(
+        _ result: SeatMeasurementResult, room: RoomHint?, known: [Int: SpotAnalysis]
+    ) async -> SeatReport {
         let channels = result.channels
         let analyses = await withTaskGroup(of: (Int, SpotAnalysis?).self) { group in
             for (index, spot) in result.spots.enumerated() {
                 group.addTask {
-                    guard let left = spot.recording(for: channels[0]) else { return (index, nil) }
-                    let right = channels.count > 1 ? spot.recording(for: channels[1]) : nil
-                    return (index, SpotAnalyzer.analyze(
-                        left: left.samples, right: right?.samples, sweep: result.sweep, noiseFloor: result.noiseFloor
-                    ))
+                    if let analysis = known[index] { return (index, analysis) }
+                    return (index, await analyse(spot, channels: channels, sweep: result.sweep, floor: result.noiseFloor))
                 }
             }
             var collected: [(Int, SpotAnalysis)] = []

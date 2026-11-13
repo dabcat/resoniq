@@ -5,11 +5,11 @@ import ResoniqDiagnostics
 import ResoniqDSP
 import ResoniqStore
 
-/// The words and figures the Diagnose flow shows that the Kit does not format yet.
+/// The words and figures the Diagnose flow shows that the Kit does not format yet, and thin forwarding to the Kit's
+/// readings (`ResoniqAudio.ReadingText`, `ResoniqDiagnostics.InputLevel`).
 ///
 /// Everything here is display only: it turns a value the Kit has already decided into text. Anything that decides
-/// something (a threshold, a conversion) is read from the Kit. These small formatters should move into
-/// `ResoniqDiagnostics.DiagnosisText` / `ResoniqAudio`; each is marked.
+/// something (a threshold, a conversion) is read from the Kit.
 enum DiagnoseText {
     // MARK: Names
 
@@ -29,53 +29,27 @@ enum DiagnoseText {
 
     // MARK: Readings
 
-    /// The "Playing now" figure and its unit: "1.02" "kHz", "14.5" "kHz", "90" "Hz". (Kit candidate.)
-    static func frequencyReading(_ hertz: Double) -> (value: String, unit: String) {
-        if hertz < 1_000 { return (String(Int(hertz.rounded())), "Hz") }
-        let kilohertz = hertz / 1_000
-        let digits = kilohertz < 10 ? 2 : 1
-        return (kilohertz.formatted(.number.precision(.fractionLength(digits))), "kHz")
-    }
+    /// The "Playing now" figure and its unit: "1.02" "kHz", "14.5" "kHz", "90" "Hz" (`ReadingText`).
+    static func frequencyReading(_ hertz: Double) -> (value: String, unit: String) { ReadingText.frequencyReading(hertz) }
 
-    /// "Quiet · 34 dB" or "Noisy · 52 dB". The figure is the Kit's approximate level; the word is the Kit's
-    /// quiet-enough decision (`MeasurementProgress.isRoomQuiet`).
-    static func room(_ level: SoundLevel, isQuiet: Bool) -> String {
-        "\(isQuiet ? "Quiet" : "Noisy") · \(decibels(level))"
-    }
+    /// "Quiet · 34 dB" or "Noisy · 52 dB" (`ReadingText`).
+    static func room(_ level: SoundLevel, isQuiet: Bool) -> String { ReadingText.room(level, isQuiet: isQuiet) }
 
     /// "34 dB".
-    static func decibels(_ level: SoundLevel) -> String {
-        "\(Int(level.approximateDecibels.rounded())) dB"
-    }
+    static func decibels(_ level: SoundLevel) -> String { ReadingText.decibels(level) }
 
-    /// How far along the room-noise bar a level sits, 0...1. The bar runs from 0 to `roomNoiseScaleDecibels`.
-    /// (Kit candidate.)
-    static func barFraction(_ level: SoundLevel) -> Double {
-        min(max(Double(level.approximateDecibels / roomNoiseScaleDecibels), 0), 1)
-    }
+    /// How far along the room-noise bar a level sits, 0...1 (`ReadingText.barFraction`, its 70 dB scale).
+    static func barFraction(_ level: SoundLevel) -> Double { ReadingText.barFraction(level) }
 
-    /// The approximate decibels at the right end of the room-noise bar. Chosen so the mockup's 52 dB sits at 78 %
-    /// and its mark at 55 %, that is a mark near 37 dB, just above a quiet living room.
-    static let roomNoiseScaleDecibels: Float = 70
-
-    /// The input level in words. Clipping is the Kit's `isClipping`. "Too quiet" is judged only above the woofer's
-    /// range, where a speaker is not rolling off, against the Kit's own minimum peak for a recording.
+    /// The input level in words: the Kit's `InputLevel`, in Listening's words.
     static func level(_ progress: MeasurementProgress) -> String {
-        if progress.isClipping { return "Too loud, clipping" }
-        if let frequency = progress.frequency,
-           Float(frequency) > DriverBand.wooferUpperFrequency,
-           progress.inputPeakDecibels < QualityThresholds.standard.minimumPeakDecibels {
-            return "Too quiet"
-        }
-        return "Good, no clipping"
+        InputLevel(isClipping: progress.isClipping, frequency: progress.frequency, peakDecibels: progress.inputPeakDecibels).label
     }
 
-    static func phone(isSteady: Bool) -> String { isSteady ? "Steady" : "Moving" }
+    static func phone(isSteady: Bool) -> String { ReadingText.phone(isSteady: isSteady) }
 
     /// The sentence VoiceOver reads for the room reading: "Room: quiet, about 34 decibels."
-    static func spokenRoom(_ level: SoundLevel, isQuiet: Bool) -> String {
-        "Room: \(isQuiet ? "quiet" : "noisy"), about \(Int(level.approximateDecibels.rounded())) decibels."
-    }
+    static func spokenRoom(_ level: SoundLevel, isQuiet: Bool) -> String { ReadingText.spokenRoom(level, isQuiet: isQuiet) }
 
     // MARK: Portrait
 

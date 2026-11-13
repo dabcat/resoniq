@@ -366,4 +366,21 @@ public enum DiagnosisText {
         guard suspected.isEmpty, !checked.isEmpty else { return "\(base) \(missing)." }
         return "The \(bandList(checked)) \(checked.count == 1 ? "sounds" : "sound") healthy; \(missing)."
     }
+
+    /// What a report says when the phone moved while a run played (`SpeakerReport.phoneMovedRuns`), the same words
+    /// the live result shows (`ReadingText.phoneMovedNote` in the audio module): the run was kept, so the line asks
+    /// for a little care. Nil when no run moved. `runs` are 1-based.
+    public static func phoneMovedNote(runs: [Int]) -> String? {
+        let moved = Array(Set(runs)).sorted()
+        switch moved.count {
+        case 0:
+            return nil
+        case 1:
+            return "The phone moved while run \(moved[0]) played. I kept that run, so read its details with a little care."
+        default:
+            let numbers = moved.map(String.init)
+            let list = numbers.dropLast().joined(separator: ", ") + " and " + numbers[numbers.count - 1]
+            return "The phone moved while runs \(list) played. I kept them, so read the details with a little care."
+        }
+    }
 }

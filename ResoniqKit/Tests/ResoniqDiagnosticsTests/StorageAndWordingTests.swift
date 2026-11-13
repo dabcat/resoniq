@@ -198,3 +198,31 @@ enum StoredFixtures {
         #expect(decoded == fixture)
     }
 }
+
+@Suite struct PhoneMovedTests {
+    @Test func `a report keeps the runs the phone moved in, with the sentence, and a reopened report still says it`() throws {
+        let report = SpeakerDiagnosis.diagnose(runs: Bench.healthyRuns(seed: 1), counterpart: nil, phoneMovedRuns: [3, 1, 3])
+        #expect(report.phoneMovedRuns == [1, 3])
+        #expect(report.phoneMovedNote == "The phone moved while runs 1 and 3 played. I kept them, so read the details with a little care.")
+        let reopened = try JSONDecoder().decode(SpeakerReport.self, from: JSONEncoder().encode(report))
+        #expect(reopened == report)
+        #expect(reopened.phoneMovedNote == report.phoneMovedNote)
+        // Nothing else changes.
+        let still = SpeakerDiagnosis.diagnose(runs: Bench.healthyRuns(seed: 1), counterpart: nil)
+        #expect(report.findings == still.findings && report.verdict == still.verdict)
+    }
+
+    @Test func `no run moved: nothing is kept or said`() throws {
+        let report = SpeakerDiagnosis.diagnose(runs: Bench.healthyRuns(seed: 1), counterpart: nil, phoneMovedRuns: [])
+        #expect(report.phoneMovedRuns == nil && report.phoneMovedNote == nil)
+        #expect(!String(decoding: try JSONEncoder().encode(report), as: UTF8.self).contains("phoneMoved"))
+    }
+
+    @Test func `the sentence for one run, and for several`() {
+        #expect(DiagnosisText.phoneMovedNote(runs: [2])
+            == "The phone moved while run 2 played. I kept that run, so read its details with a little care.")
+        #expect(DiagnosisText.phoneMovedNote(runs: [1, 2, 3])
+            == "The phone moved while runs 1, 2 and 3 played. I kept them, so read the details with a little care.")
+        #expect(DiagnosisText.phoneMovedNote(runs: []) == nil)
+    }
+}

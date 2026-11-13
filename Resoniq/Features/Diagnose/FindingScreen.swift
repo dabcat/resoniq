@@ -138,7 +138,11 @@ struct FindingScreen: View {
                         comparisonPanel(comparison)
                     }
                     if finding.hasSomethingToHear, let frequency = finding.listenFrequency {
-                        holdToHear(frequency: frequency)
+                        if report.source == .anotherDevice {
+                            holdToHearUnavailable(frequency: frequency)
+                        } else {
+                            holdToHear(frequency: frequency)
+                        }
                     }
                     confidenceAndSteps
                 }
@@ -246,6 +250,23 @@ struct FindingScreen: View {
     }
 
     // MARK: Hold to hear
+
+    /// The test sound came from another device, so the phone cannot play the tone: instead of a control that would
+    /// fail, the Kit's sentence says how to hear it (play the file again and listen as it passes the frequency).
+    private func holdToHearUnavailable(frequency: Float) -> some View {
+        VStack(alignment: .leading, spacing: ResoniqSpace.s1) {
+            Text("Hear it yourself")
+                .font(ResoniqFont.headline)
+                .foregroundStyle(ResoniqColor.ivory)
+            Text(DiagnosisText.holdToHearUnavailable(frequency: DiagnosisText.frequency(frequency)))
+                .font(ResoniqFont.bodySmall)
+                .foregroundStyle(ResoniqColor.muted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, ResoniqSpace.s1)
+        .accessibilityElement(children: .combine)
+    }
 
     private func holdToHear(frequency: Float) -> some View {
         let spoken = FrequencyRuler.spokenFrequency(Double(frequency))

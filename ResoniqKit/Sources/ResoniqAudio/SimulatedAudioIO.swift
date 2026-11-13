@@ -132,6 +132,9 @@ public final class SimulatedAudioIO: AudioIO {
         public var schedulingLead: Double
         public var pacing: Pacing
         public var seed: UInt64
+        /// The room between the speakers and the microphone, or nil for none (the speakers straight into the
+        /// microphone). With a room, `SimulatedAudioIO.moveToSpot(_:)` says where the microphone is.
+        public var room: SimulatedRoom?
 
         public init(
             sampleRate: Double = 48000,
@@ -143,7 +146,8 @@ public final class SimulatedAudioIO: AudioIO {
             right: SimulatedSpeaker = .bookshelf,
             schedulingLead: Double = 0.05,
             pacing: Pacing = .realTime,
-            seed: UInt64 = 1
+            seed: UInt64 = 1,
+            room: SimulatedRoom? = nil
         ) {
             self.sampleRate = sampleRate
             self.blockSize = blockSize
@@ -155,6 +159,7 @@ public final class SimulatedAudioIO: AudioIO {
             self.schedulingLead = schedulingLead
             self.pacing = pacing
             self.seed = seed
+            self.room = room
         }
     }
 
@@ -180,6 +185,16 @@ public final class SimulatedAudioIO: AudioIO {
     /// Ends the running stream with `error` at its next block, as an interruption or a route change would.
     public func fail(with error: AudioIOError) {
         state.withLock { $0.pendingError = error }
+    }
+
+    /// The spot of `configuration.room` the microphone is at, 0-based; 0 when the stream starts.
+    public var currentSpot: Int { state.withLock { $0.spot } }
+
+    /// Moves the microphone to spot `index` of `configuration.room` (clamped to the room's spots) from the next
+    /// sample on. A test or the app's simulated stillness monitor calls it when the simulated phone moves; nothing in
+    /// a session does.
+    public func moveToSpot(_ index: Int) {
+        state.withLock { $0.spot = max(0, min(index, (configuration.room?.spotCount ?? 1) - 1)) }
     }
 
     // MARK: AudioIO
@@ -346,6 +361,8 @@ struct SimulationState: Sendable {
     var pendingError: AudioIOError?
     var left: SpeakerChain
     var right: SpeakerChain
+    var room: RoomChain?
+    var spot = 0
     var random: SplitMix
 
     typealias Configuration = SimulatedAudioIO.Configuration
@@ -356,6 +373,7 @@ struct SimulationState: Sendable {
         lead = Int64((configuration.schedulingLead * configuration.sampleRate).rounded())
         left = SpeakerChain(configuration.left, sampleRate: configuration.sampleRate)
         right = SpeakerChain(configuration.right, sampleRate: configuration.sampleRate)
+        room = configuration.room.map { RoomChain($0, sampleRate: configuration.sampleRate) }
         random = SplitMix(state: configuration.seed)
     }
 
@@ -373,6 +391,8 @@ struct SimulationState: Sendable {
         pendingError = nil
         left = SpeakerChain(configuration.left, sampleRate: configuration.sampleRate)
         right = SpeakerChain(configuration.right, sampleRate: configuration.sampleRate)
+        room = configuration.room.map { RoomChain($0, sampleRate: configuration.sampleRate) }
+        spot = 0
         bursts = configuration.bursts.compactMap { burst in
             guard case .at(let seconds) = burst.start else { return nil }
             return resolve(burst, from: Int64((seconds * configuration.sampleRate).rounded()))
@@ -449,7 +469,14 @@ struct SimulationState: Sendable {
                 case .both: leftInput += value; rightInput += value
                 }
             }
-            var value = left.process(Double(leftInput)) + right.process(Double(rightInput))
+            var value: Double
+            if room != nil {
+                let direct = room!.path(left.process(Double(leftInput)), spot: spot, right: false)
+                    + room!.path(right.process(Double(rightInput)), spot: spot, right: true)
+                value = room!.tail(direct)
+            } else {
+                value = left.process(Double(leftInput)) + right.process(Double(rightInput))
+            }
             if configuration.noiseRMS > 0 { value += configuration.noiseRMS * random.gaussian() }
             for burst in bursts where capture >= burst.start && capture < burst.end {
                 value += burst.rms * random.gaussian()

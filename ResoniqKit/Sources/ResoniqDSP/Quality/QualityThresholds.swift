@@ -20,10 +20,11 @@ public struct QualityThresholds: Sendable, Equatable {
     /// samples long.
     public var fullScaleRun: Int
 
-    /// Consecutive samples at the buffer's own extreme value that make a flat top, the mark of an input limiter
-    /// clipping below full scale. *First guess*: 8 samples (0.17 ms at 48 kHz). A clean sine at 20 Hz, quantised
-    /// to 16 bits, repeats its crest value for up to about 7 samples; mild limiting of a high tone gives shorter
-    /// flat tops than this and is missed.
+    /// The fewest consecutive samples at the buffer's own extreme value that can make a flat top, the mark of an
+    /// input limiter clipping below full scale. *First guess*: 8 samples (0.17 ms at 48 kHz). A longer run is a flat
+    /// top only if a clean sine of its level and frequency could not hold it (`ClippingDetector`): the crest of a
+    /// 20 Hz sine quantised to 16 bits repeats one value for eight samples or more and is not clipping. Mild limiting
+    /// of a high tone gives shorter flat tops than this and is missed.
     public var flatTopRun: Int
 
     /// How close to the extreme a sample must be to count as on the flat top, as a fraction of the extreme.

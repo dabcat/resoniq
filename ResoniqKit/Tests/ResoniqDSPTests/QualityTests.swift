@@ -129,6 +129,42 @@ private func kind(of verdict: RecordingVerdict) -> String {
         #expect(abs(report.clippedFraction - 0.570) < 0.02)
     }
 
+    /// `samples` as a 16-bit converter delivers them.
+    private func quantised(_ samples: [Float]) -> [Float] {
+        samples.map { ($0 * 32768).rounded() / 32768 }
+    }
+
+    @Test(arguments: [Float(1), 2, 3.9])
+    func `the app's own sweep, quantised to 16 bits, is not clipped`(gain: Float) {
+        // At 20 Hz a 16-bit crest repeats its value for eight samples or more; that used to read as a limiter's
+        // flat top. A sine of that level and frequency allows such a run, so it is not one.
+        for sweep in [LogSweep.measurement(sampleRate: 48000), LogSweep(startFrequency: 20, endFrequency: 20000, duration: 5, sampleRate: 48000)] {
+            let report = ClippingDetector.detect(quantised(sweep.samples().map { $0 * gain }))
+            #expect(!report.isClipped, "gain \(gain), sweep from \(sweep.startFrequency) Hz: run \(report.longestRun)")
+        }
+    }
+
+    @Test(arguments: [(20.0, Float(0.2)), (30, 0.2), (50, 0.12), (100, 0.5), (40, 0.9), (10, 0.25)])
+    func `a slow clean sine is not clipped, in float or in 16 bits`(frequency: Double, amplitude: Float) {
+        let clean = sine(frequency: frequency, amplitude: amplitude, count: seconds(1), phase: 0.2)
+        #expect(!ClippingDetector.detect(clean).isClipped)
+        #expect(!ClippingDetector.detect(quantised(clean)).isClipped)
+    }
+
+    @Test(arguments: [Float(0.6), 0.3])
+    func `a limited sweep is still clipped, in float and in 16 bits`(limit: Float) {
+        let limited = LogSweep.measurement(sampleRate: 48000).samples().map { min(max($0 * 3.9, -limit), limit) }
+        #expect(ClippingDetector.detect(limited).isClipped)
+        #expect(ClippingDetector.detect(quantised(limited)).isClipped)
+    }
+
+    @Test func `a mildly limited low tone is clipped`() {
+        // 1 % over the limit at 200 Hz: flat for about eleven samples, where a clean crest of that level holds
+        // within a step for at most eight.
+        let limited = clamped(sine(frequency: 200, amplitude: 0.505, count: seconds(0.5)), to: 0.5)
+        #expect(ClippingDetector.detect(limited).isClipped)
+    }
+
     @Test func `silence is not clipped`() {
         #expect(!ClippingDetector.detect([Float](repeating: 0, count: 4800)).isClipped)
         #expect(!ClippingDetector.detect([]).isClipped)

@@ -16,14 +16,34 @@ struct MeasureTab: View {
                 onMeasure: coordinator.startMeasurement,
                 onShowNumbers: coordinator.showNumbers,
                 onWatchLive: coordinator.watchLive,
+                onCompare: coordinator.showEarlier,
                 onOpenOptimize: { switchTab(.optimize) }
             )
             .toolbarVisibility(.hidden, for: .navigationBar)
-            .navigationDestination(for: MeasureCoordinator.Route.self) { _ in
-                if let numbers = coordinator.numbers {
-                    NumbersScreen(report: numbers.report, date: numbers.date, onClose: coordinator.closeNumbers)
-                        .toolbarVisibility(.hidden, for: .navigationBar)
+            .navigationDestination(for: MeasureCoordinator.Route.self) { route in
+                Group {
+                    switch route {
+                    case .numbers:
+                        if let numbers = coordinator.numbers {
+                            NumbersScreen(report: numbers.report, date: numbers.date, onClose: coordinator.closeNumbers)
+                        }
+                    case .earlier:
+                        if let comparing = coordinator.comparing {
+                            EarlierMeasurementsScreen(
+                                earlier: comparing.earlier, onPick: coordinator.pickEarlier, onClose: coordinator.closeComparison
+                            )
+                        }
+                    case .comparison:
+                        if let comparing = coordinator.comparing, let picked = comparing.picked,
+                           let comparison = comparing.comparison {
+                            ComparisonScreen(
+                                comparison: comparison, earlier: picked, latest: comparing.latest,
+                                onClose: coordinator.closeComparison
+                            )
+                        }
+                    }
                 }
+                .toolbarVisibility(.hidden, for: .navigationBar)
             }
         }
         .fullScreenCover(
@@ -75,8 +95,12 @@ private struct MeasurementRoot: View {
             if case .finished(let report) = step { coordinator.measurementFinished(report, from: flow) }
         }
         // VoiceOver starts at the top of each new screen of the flow.
-        .onChange(of: flow.step.screen) {
-            UIAccessibility.post(notification: .screenChanged, argument: nil)
+        .onChange(of: flow.step.screen) { old, new in
+            if old == .paused, new == .running {
+                AccessibilityNotification.Announcement("The room is quiet again. Carrying on.").post()
+            } else {
+                UIAccessibility.post(notification: .screenChanged, argument: nil)
+            }
         }
         #if DEBUG
         .task(id: flow.step.screen) { await autostartIfAsked() }

@@ -79,6 +79,10 @@ struct ThreeSpotsScreen: View {
             guard !instruction.isEmpty else { return }
             AccessibilityNotification.Announcement(instruction).post()
         }
+        .onChange(of: display.level.hint) { _, hint in
+            if let hint { AccessibilityNotification.Announcement("\(display.level.value). \(hint)").post() }
+        }
+        // The haptic marks a spot captured; the headline changes to "Got the seat spot." and is announced above.
         .sensoryFeedback(.impact(flexibility: .rigid), trigger: display.capturedCount) { old, new in new > old }
     }
 
@@ -115,6 +119,12 @@ private struct ReadingTile: View {
                 .font(Metrics.valueFont)
                 .foregroundStyle(ResoniqColor.ivory)
                 .fixedSize(horizontal: false, vertical: true)
+            if let hint = reading.hint {
+                Text(hint)
+                    .font(ResoniqFont.caption)
+                    .foregroundStyle(ResoniqColor.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .padding(.vertical, Metrics.vertical)
         .padding(.horizontal, ResoniqSpace.panelPadding)

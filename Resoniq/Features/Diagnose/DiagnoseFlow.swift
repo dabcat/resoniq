@@ -16,6 +16,8 @@ struct RunDisplay: Equatable {
         var title: String
         var value: String
         var spoken: String
+        /// What to do about it, under the value (a level that is too quiet or clipping); nil when there is nothing to do.
+        var hint: String? = nil
     }
 
     /// "Playing now": the figure, its unit and the driver.
@@ -48,6 +50,9 @@ struct RunDisplay: Equatable {
     /// "1 kHz", when paused.
     var resumeFrequency: String?
     var note: RunNote?
+    /// While paused: what the noise sounded like, from the Kit (`InterferenceAdvisor.note`); nil until it is known and
+    /// when nothing clear was heard.
+    var interference: InterferenceNote? = nil
 
     init(
         state: MeasurementSession.State,
@@ -123,7 +128,12 @@ struct RunDisplay: Equatable {
                 spoken: DiagnoseText.spokenRoom(progress.roomLevel, isQuiet: progress.isRoomQuiet)
             )
             let levelText = DiagnoseText.level(progress)
-            level = Reading(title: "Level", value: levelText, spoken: "Level: \(levelText.lowercased()).")
+            let advice = DiagnoseText.levelAdvice(progress)
+            level = Reading(
+                title: "Level", value: levelText,
+                spoken: ["Level: \(levelText.lowercased()).", advice].compactMap { $0 }.joined(separator: " "),
+                hint: advice
+            )
             let phoneText = DiagnoseText.phone(isSteady: progress.isPhoneSteady)
             phone = Reading(title: "Phone", value: phoneText, spoken: "Phone: \(phoneText.lowercased()).")
             roomNoise = RoomNoise(
@@ -178,6 +188,10 @@ final class DiagnoseFlow {
         let position: SpeakerPosition
         /// A quick check is not kept in a room.
         let isQuickCheck: Bool
+        /// The runs (1-based) in which the phone moved while the sweep played (`RunRecording.phoneMoved`). The runs are
+        /// kept; the Result screen says so with the Kit's sentence (`ReadingText.phoneMovedNote`). Not stored with a kept
+        /// report, so a result opened later does not carry it.
+        var movedRuns: [Int] = []
     }
 
     /// Why a test ended without a report.
@@ -233,6 +247,11 @@ final class DiagnoseFlow {
     /// The speaker to test. Chosen on Aim, fixed once the test starts.
     var position: SpeakerPosition
     let isQuickCheck: Bool
+    /// The speakers Aim offers: those of the selected system's kind (`HomePlan.positions(for:)`): left and right for a
+    /// pair, `.single` alone for a soundbar or a single speaker.
+    let choices: [SpeakerPosition]
+    /// What the one speaker is called when there is no choice: "Soundbar" or "Speaker".
+    let singleName: String
 
     @ObservationIgnored private let audio: AudioEnvironment
     @ObservationIgnored private let counterpart: (SpeakerPosition) -> [RunAnalysis]?
@@ -249,7 +268,7 @@ final class DiagnoseFlow {
 
     /// While a run is paused for noise: what the noise sounded like ("It sounds like someone talking." and its tag
     /// line), from the Kit's sound classifier on the session's paused audio; nil until it is known, when nothing
-    /// clear was heard, and once the run plays again. The Paused screen has no place for it yet, so nothing shows it.
+    /// clear was heard, and once the run plays again. The Paused screen shows it under its headline (`RunDisplay.interference`).
     private(set) var noiseNote: InterferenceNote?
     @ObservationIgnored private var noiseNoteTask: Task<Void, Never>?
     /// The classifier wants a few of its windows; asked once a pause holds this much audio, seconds.
@@ -262,12 +281,16 @@ final class DiagnoseFlow {
     init(
         position: SpeakerPosition = .left,
         isQuickCheck: Bool = false,
+        choices: [SpeakerPosition] = [.left, .right],
+        singleName: String = "Speaker",
         counterpart: @escaping (SpeakerPosition) -> [RunAnalysis]? = { _ in nil },
         audio: AudioEnvironment = .current,
         configuration: MeasurementConfiguration = .standard
     ) {
         self.position = position
         self.isQuickCheck = isQuickCheck
+        self.choices = choices
+        self.singleName = singleName
         self.counterpart = counterpart
         self.audio = audio
         self.configuration = configuration
@@ -301,7 +324,7 @@ final class DiagnoseFlow {
             progress = nil
             runCount = configuration.runCount
         }
-        return RunDisplay(
+        var display = RunDisplay(
             state: state,
             progress: progress,
             position: position,
@@ -309,6 +332,8 @@ final class DiagnoseFlow {
             widths: liveWidths,
             heardUpTo: liveHeardUpTo
         )
+        if case .paused = state { display.interference = noiseNote }
+        return display
     }
 
     /// The step a session state is shown as. Pure, so it can be reasoned about (and previewed) without audio.
@@ -410,7 +435,10 @@ final class DiagnoseFlow {
         guard case .finished(let result) = session.state else { return }
         let (report, analyses) = await Self.analyse(result, counterpart: counterpart(position))
         guard !Task.isCancelled, case .running(let current) = phase, current === session else { return }
-        phase = .finished(Completed(report: report, analyses: analyses, position: position, isQuickCheck: isQuickCheck))
+        phase = .finished(Completed(
+            report: report, analyses: analyses, position: position, isQuickCheck: isQuickCheck,
+            movedRuns: result.runs.filter(\.phoneMoved).map(\.run)
+        ))
     }
 
     /// Each run's response and distortion (about a second a run, the runs side by side), then the comparison of the

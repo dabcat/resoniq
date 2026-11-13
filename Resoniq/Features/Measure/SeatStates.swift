@@ -64,6 +64,20 @@ struct SeatPausedScreen: View {
                         .foregroundStyle(ResoniqColor.ivory)
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityAddTraits(.isHeader)
+                    if let note = display.interference {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(note.sentence)
+                                .font(Metrics.noiseFont)
+                                .foregroundStyle(ResoniqColor.ivory)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Text(note.tagLine)
+                                .font(ResoniqFont.caption)
+                                .foregroundStyle(ResoniqColor.muted)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel("\(note.sentence) \(note.tagLine).")
+                    }
                     Text(MeasureText.pausedSentence(resumeFrequency: display.resumeFrequency))
                         .font(Metrics.sentenceFont)
                         .foregroundStyle(ResoniqColor.muted)
@@ -92,35 +106,23 @@ struct SeatPausedScreen: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         } footer: {
             VStack(spacing: ResoniqSpace.s1) {
-                // Not a control: it states what the app is waiting for.
-                Button {} label: {
-                    HStack(spacing: Metrics.waitingGap) {
-                        Circle()
-                            .fill(ResoniqColor.ivory)
-                            .frame(width: Metrics.dot, height: Metrics.dot)
-                            .resoniqWaitingPulse(low: Metrics.dotLow)
-                            .accessibilityHidden(true)
-                        Text("Waiting for quiet, then I continue")
-                    }
-                }
-                .buttonStyle(ResoniqSecondaryButtonStyle(.outlined))
-                .allowsHitTesting(false)
-                .accessibilityRemoveTraits(.isButton)
-
+                WaitingForQuietLine()
                 Button("Stop and start over", action: onStop)
                     .buttonStyle(ResoniqTextLinkStyle())
             }
         }
         .onAppear { AccessibilityNotification.Announcement(MeasureText.pausedHeadline).post() }
+        .onChange(of: display.interference) { _, note in
+            guard let note else { return }
+            AccessibilityNotification.Announcement(note.sentence).post()
+        }
     }
 
     private enum Metrics {
         static let headlineSize: CGFloat = 27
         static let headlineFont = ResoniqFont.font(.sansSemibold, size: headlineSize, relativeTo: .title)
         static let sentenceFont = ResoniqFont.font(.sansRegular, size: 14, relativeTo: .callout)
-        static let dot: CGFloat = 8
-        static let dotLow = 0.35
-        static let waitingGap: CGFloat = 10
+        static let noiseFont = ResoniqFont.font(.sansMedium, size: 15, relativeTo: .body)
     }
 }
 

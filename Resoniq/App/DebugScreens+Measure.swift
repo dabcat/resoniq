@@ -14,7 +14,7 @@ import SwiftUI
 enum MeasureDebugScreens {
     static let names = [
         "measure", "measure-even", "measure-empty", "measure-inconclusive",
-        "numbers", "numbers-distortion", "numbers-decay",
+        "compare-pick", "compare", "numbers", "numbers-distortion", "numbers-decay",
         "sit-and-aim", "three-spots", "three-spots-paused", "live", "measure-flow",
     ]
 
@@ -30,6 +30,19 @@ enum MeasureDebugScreens {
             AnyView(Home(report: nil, date: .now))
         case "measure-inconclusive":
             AnyView(Home(report: MeasureFixtures.inconclusive, date: .now))
+        case "compare-pick":
+            AnyView(
+                EarlierMeasurementsScreen(
+                    earlier: [
+                        KeptSeat(report: MeasureFixtures.mockup, date: .now.addingTimeInterval(-3 * 86_400)),
+                        KeptSeat(report: MeasureFixtures.even, date: .now.addingTimeInterval(-12 * 86_400)),
+                    ],
+                    onPick: { _ in }, onClose: {}
+                )
+                .preferredColorScheme(.dark)
+            )
+        case "compare":
+            AnyView(CompareHost())
         case "numbers":
             AnyView(NumbersScreen(report: MeasureFixtures.mockup, date: .now, onClose: {}))
         case "numbers-distortion":
@@ -48,6 +61,22 @@ enum MeasureDebugScreens {
             AnyView(MeasureFlowHost())
         default:
             nil
+        }
+    }
+
+    /// The mockup's room three days ago against an even room today, compared by the Kit.
+    private struct CompareHost: View {
+        private let earlier = KeptSeat(report: MeasureFixtures.mockup, date: .now.addingTimeInterval(-3 * 86_400))
+        private let latest = KeptSeat(report: MeasureFixtures.even, date: .now)
+
+        var body: some View {
+            ComparisonScreen(
+                comparison: SeatComparison.compare(
+                    before: earlier.report, after: latest.report, targeting: earlier.report.extremes
+                ),
+                earlier: earlier, latest: latest, onClose: {}
+            )
+            .preferredColorScheme(.dark)
         }
     }
 

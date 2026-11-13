@@ -1,6 +1,7 @@
 #if DEBUG
 import ResoniqAudio
 import ResoniqDesign
+import ResoniqDiagnostics
 import ResoniqDSP
 import ResoniqStore
 import SwiftUI
@@ -10,7 +11,7 @@ import SwiftUI
 /// on simulated audio (add `-simulatedNoise YES` to see Paused). Debug builds only.
 enum FlowDebugScreens {
     static let names = [
-        "aim", "listening", "paused", "denied", "repeating", "failed", "failed-noisy", "failed-not-connected", "flow",
+        "aim", "aim-soundbar", "listening", "listening-level", "paused", "paused-named", "denied", "repeating", "failed", "failed-noisy", "failed-not-connected", "flow",
     ]
 
     @MainActor
@@ -18,6 +19,12 @@ enum FlowDebugScreens {
         switch name {
         case "aim":
             AnyView(AimHost())
+        case "aim-soundbar":
+            AnyView(SoundbarAimHost())
+        case "listening-level":
+            AnyView(ListeningScreen(display: .previewLevelAndMoving, onStop: {}).preferredColorScheme(.dark))
+        case "paused-named":
+            AnyView(PausedScreen(display: .previewPausedNamed, onStop: {}).preferredColorScheme(.dark))
         case "listening":
             AnyView(ListeningScreen(display: .previewListening, onStop: {}).preferredColorScheme(.dark))
         case "paused":
@@ -57,6 +64,15 @@ private struct AimHost: View {
 
     var body: some View {
         AimScreen(position: $position, onStart: {}, onClose: {})
+            .preferredColorScheme(.dark)
+    }
+}
+
+private struct SoundbarAimHost: View {
+    @State private var position = SpeakerPosition.single
+
+    var body: some View {
+        AimScreen(position: $position, choices: [.single], singleName: "Soundbar", onStart: {}, onClose: {})
             .preferredColorScheme(.dark)
     }
 }
@@ -129,6 +145,27 @@ extension RunDisplay {
     static let previewRepeating: RunDisplay = {
         var display = previewListening
         display.note = .repeating(.unusable(.tooQuiet(level: Level(peak: 0.005, rms: 0.001, dcOffset: 0))))
+        return display
+    }()
+
+    /// Too quiet, and the phone moving: what each says to do, and the readings' hints.
+    static let previewLevelAndMoving: RunDisplay = {
+        var display = previewListening
+        display.level = Reading(
+            title: "Level", value: "Too quiet",
+            spoken: "Level: too quiet. Turn the volume up or hold the phone closer.",
+            hint: "Turn the volume up or hold the phone closer."
+        )
+        display.phone = Reading(title: "Phone", value: "Moving", spoken: "Phone: moving.")
+        return display
+    }()
+
+    /// Paused, with what the sound classifier heard in the pause.
+    static let previewPausedNamed: RunDisplay = {
+        var display = previewPaused
+        display.interference = InterferenceNote(
+            sentence: "It sounds like someone talking.", tagLine: "Inferred · sound classifier, 82 %"
+        )
         return display
     }()
 

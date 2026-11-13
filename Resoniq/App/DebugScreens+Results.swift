@@ -1,4 +1,5 @@
 #if DEBUG
+import ResoniqAudio
 import ResoniqDesign
 import ResoniqDiagnostics
 import ResoniqStore
@@ -8,7 +9,7 @@ import SwiftUI
 /// The launch argument `-screen <name>` shows one; the names are listed in `names`. Debug builds only.
 enum ResultsDebugScreens {
     static let names = [
-        "result", "result-healthy", "result-inconclusive", "result-quiet-woofer", "result-not-assessed",
+        "result", "result-moved", "result-healthy", "result-inconclusive", "result-quiet-woofer", "result-not-assessed",
         "finding", "home", "home-empty", "home-single",
     ]
 
@@ -18,6 +19,14 @@ enum ResultsDebugScreens {
         switch name {
         case "result":
             AnyView(result(DiagnoseFixtures.buzzing, primary: "Now the right speaker", keptIn: Self.keptIn))
+        case "result-moved":
+            AnyView(
+                ResultScreen(
+                    report: DiagnoseFixtures.buzzing, speaker: .left, keptIn: Self.keptIn,
+                    phoneMovedNote: ReadingText.phoneMovedNote(runs: [2]), primaryTitle: "Now the right speaker",
+                    onPrimary: {}, onOpenFinding: { _ in }, onRename: {}, onDontKeep: {}, onClose: {}
+                )
+            )
         case "result-healthy":
             AnyView(result(DiagnoseFixtures.healthy, primary: "Now the right speaker", keptIn: Self.keptIn))
         case "result-inconclusive":

@@ -59,6 +59,13 @@ struct ListeningScreen: View {
                 .resoniqWaitingPulse()
                 .frame(maxWidth: .infinity, minHeight: Metrics.footerHeight, alignment: .leading)
         }
+        // Said once when it changes, not on every reading: a level to fix, and the phone starting to move.
+        .onChange(of: display.level.hint) { _, hint in
+            if let hint { AccessibilityNotification.Announcement("\(display.level.value). \(hint)").post() }
+        }
+        .onChange(of: display.phone.value) { _, value in
+            if value == DiagnoseText.phone(isSteady: false) { AccessibilityNotification.Announcement(display.phone.spoken).post() }
+        }
     }
 
     private enum Metrics {
@@ -126,6 +133,12 @@ private struct ReadingsPanel: View {
                         .font(Metrics.valueFont)
                         .foregroundStyle(ResoniqColor.ivory)
                         .fixedSize(horizontal: false, vertical: true)
+                    if let hint = reading.hint {
+                        Text(hint)
+                            .font(ResoniqFont.caption)
+                            .foregroundStyle(ResoniqColor.muted)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
                 .padding(.vertical, Metrics.rowPadding)
                 .frame(maxWidth: .infinity, alignment: .leading)

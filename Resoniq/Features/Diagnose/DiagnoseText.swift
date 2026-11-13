@@ -46,6 +46,11 @@ enum DiagnoseText {
         InputLevel(isClipping: progress.isClipping, frequency: progress.frequency, peakDecibels: progress.inputPeakDecibels).label
     }
 
+    /// What to do when the level is not good (`InputLevel.advice`); nil when it is.
+    static func levelAdvice(_ progress: MeasurementProgress) -> String? {
+        InputLevel(isClipping: progress.isClipping, frequency: progress.frequency, peakDecibels: progress.inputPeakDecibels).advice
+    }
+
     static func phone(isSteady: Bool) -> String { ReadingText.phone(isSteady: isSteady) }
 
     /// The sentence VoiceOver reads for the room reading: "Room: quiet, about 34 decibels."

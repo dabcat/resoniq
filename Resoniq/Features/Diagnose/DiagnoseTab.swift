@@ -155,8 +155,13 @@ private struct TestRoot: View {
             if case .finished(let completed) = step { coordinator.testFinished(completed) }
         }
         // VoiceOver starts at the top of each new screen of the flow.
-        .onChange(of: flow.step.screen) {
-            UIAccessibility.post(notification: .screenChanged, argument: nil)
+        .onChange(of: flow.step.screen) { old, new in
+            if old == .paused, new == .listening {
+                // A run carrying on is a change worth hearing: say it instead of only moving focus.
+                AccessibilityNotification.Announcement("The room is quiet again. Carrying on.").post()
+            } else {
+                UIAccessibility.post(notification: .screenChanged, argument: nil)
+            }
         }
         #if DEBUG
         .task(id: flow.step.screen) { await autostartIfAsked() }
@@ -186,6 +191,7 @@ private struct ResultRoot: View {
                 report: outcome.report,
                 speaker: outcome.position,
                 keptIn: coordinator.keptIn,
+                phoneMovedNote: ReadingText.phoneMovedNote(runs: outcome.movedRuns),
                 primaryTitle: outcome.next.title,
                 onPrimary: coordinator.primary,
                 onOpenFinding: coordinator.openFinding,

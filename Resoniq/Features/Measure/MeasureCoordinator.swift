@@ -21,6 +21,19 @@ final class MeasureCoordinator {
     /// Pushed on the tab's navigation stack.
     nonisolated enum Route: Hashable {
         case numbers
+        /// The list of earlier measurements to compare the latest with.
+        case earlier
+        /// Two measurements over each other.
+        case comparison
+    }
+
+    /// Two kept measurements being compared: the latest, the earlier ones to pick from, the one picked and the Kit's
+    /// comparison of the two (`SeatComparison.compare`).
+    struct Comparing {
+        var latest: KeptSeat
+        var earlier: [KeptSeat]
+        var picked: KeptSeat?
+        var comparison: ComparisonReport?
     }
 
     /// The report The numbers is showing, and when it was measured.
@@ -34,6 +47,7 @@ final class MeasureCoordinator {
     private(set) var contentID = UUID()
     var path: [Route] = []
     private(set) var numbers: Numbers?
+    private(set) var comparing: Comparing?
     /// A measurement that finished but is not kept: one that could not conclude. Measure home shows it with what went
     /// wrong, until the next measurement.
     private(set) var unsaved: MeasureSummary?
@@ -60,6 +74,7 @@ final class MeasureCoordinator {
         let current = system?.persistentModelID
         guard current != shownSystem else { return }
         shownSystem = current
+        comparing = nil
         unsaved = nil
         numbers = nil
         path = []
@@ -105,6 +120,30 @@ final class MeasureCoordinator {
 
     func closeNumbers() {
         path = []
+    }
+
+    /// "Compare with an earlier one": the list of earlier measurements, with `latest` to compare them with.
+    func showEarlier(latest: KeptSeat, earlier: [KeptSeat]) {
+        guard !earlier.isEmpty else { return }
+        comparing = Comparing(latest: latest, earlier: earlier)
+        path = [.earlier]
+    }
+
+    /// An earlier measurement was picked: the Kit compares it with the latest. With no problem named as a target, the
+    /// earlier report's own extremes are the targets, so every one of its problems is looked for in the latest.
+    func pickEarlier(_ picked: KeptSeat) {
+        guard var comparing else { return }
+        comparing.picked = picked
+        comparing.comparison = SeatComparison.compare(
+            before: picked.report, after: comparing.latest.report, targeting: picked.report.extremes
+        )
+        self.comparing = comparing
+        path = [.earlier, .comparison]
+    }
+
+    /// Back from the comparison to the list, or from the list to home.
+    func closeComparison() {
+        if !path.isEmpty { path.removeLast() }
     }
 
     private func show(_ content: Content) {

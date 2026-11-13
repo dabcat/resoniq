@@ -167,6 +167,8 @@ final class DiagnoseCoordinator {
         var test: SpeakerTest?
         var system: SoundSystem?
         var next: DiagnoseRules.NextStep
+        /// The runs in which the phone moved (`Completed.movedRuns`); empty for a stored result.
+        var movedRuns: [Int] = []
     }
 
     private(set) var content: Content?
@@ -278,9 +280,12 @@ final class DiagnoseCoordinator {
 
     private func makeFlow(_ position: SpeakerPosition, isQuickCheck: Bool) -> DiagnoseFlow {
         let systemID = system?.persistentModelID
+        let kind = system?.kind ?? .stereoPair
         return DiagnoseFlow(
             position: position,
             isQuickCheck: isQuickCheck,
+            choices: HomePlan.positions(for: kind),
+            singleName: kind == .soundbar ? "Soundbar" : "Speaker",
             counterpart: { [memory] position in
                 systemID.flatMap { memory.counterpart(for: position, in: $0) }
             },
@@ -320,7 +325,8 @@ final class DiagnoseCoordinator {
             next: DiagnoseRules.nextStep(
                 after: completed.position, isConclusive: report.isConclusive, kind: system?.kind ?? .stereoPair,
                 heard: heard(in: system, isQuickCheck: completed.isQuickCheck)
-            )
+            ),
+            movedRuns: completed.movedRuns
         )
     }
 

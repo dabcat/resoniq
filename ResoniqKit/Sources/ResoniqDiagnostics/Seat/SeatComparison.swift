@@ -95,6 +95,12 @@ public struct ComparisonReport: Sendable, Codable, Equatable {
 /// - **Only the second measurement** can say "improved"; every row is `measured`. An incomplete measurement on
 ///   either side compares nothing.
 public enum SeatComparison {
+    /// The line under a comparison of two measurements made on different occasions, in place of `ComparisonReport.note`
+    /// (whose "All measured just now." is about a move measured straight after): they are two measurements, not the
+    /// before and after of a move, and a change counts only above the measurement's own repeatability.
+    public static let occasionsNote =
+        "These are two measurements, not a before and after of a move. I only call something a change when it is bigger than the usual difference between two measurements of the same room."
+
     public static func compare(
         before: SeatReport,
         after: SeatReport,

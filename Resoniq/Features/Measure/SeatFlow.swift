@@ -43,6 +43,9 @@ struct SeatRunDisplay: Equatable {
     /// "1 kHz", when paused.
     var resumeFrequency: String?
     var note: RunNote?
+    /// While paused: what the noise sounded like, from the Kit (`InterferenceAdvisor.note`); nil until it is known and
+    /// when nothing clear was heard.
+    var interference: InterferenceNote? = nil
     /// "I'll start by myself once the phone is still." or "Stay quiet while the tones play."
     var footerLine: String
 
@@ -132,7 +135,14 @@ struct SeatRunDisplay: Equatable {
             let levelText = MeasureText.level(
                 isClipping: progress.isClipping, frequency: progress.frequency, peakDecibels: progress.inputPeakDecibels
             )
-            level = RunDisplay.Reading(title: "Level", value: levelText, spoken: "Level: \(levelText.lowercased()).")
+            let advice = InputLevel(
+                isClipping: progress.isClipping, frequency: progress.frequency, peakDecibels: progress.inputPeakDecibels
+            ).advice
+            level = RunDisplay.Reading(
+                title: "Level", value: levelText,
+                spoken: ["Level: \(levelText.lowercased()).", advice].compactMap { $0 }.joined(separator: " "),
+                hint: advice
+            )
             roomNoise = RunDisplay.RoomNoise(
                 value: DiagnoseText.decibels(progress.roomLevel),
                 level: DiagnoseText.barFraction(progress.roomLevel),
@@ -254,6 +264,14 @@ final class SeatFlow {
     /// The running average of the spots analysed so far, for the curve panel.
     private var building: SeatBuilding?
 
+    /// While a sweep is paused for noise: what the noise sounded like ("It sounds like someone talking." and its tag
+    /// line), from the Kit's sound classifier on the session's paused audio; nil until it is known, when nothing clear
+    /// was heard, and once the sweep plays again. The same rule as Diagnose's `DiagnoseFlow.noiseNote`.
+    private(set) var noiseNote: InterferenceNote?
+    @ObservationIgnored private var noiseNoteTask: Task<Void, Never>?
+    /// The classifier wants a few of its windows; asked once a pause holds this much audio, seconds.
+    private static let noiseNoteAudio = 2.0
+
     /// - Parameters:
     ///   - kind: The selected system's kind: it decides which channels play.
     ///   - roomHint: The room's size from its stored layout, when there is one; it lets the diagnosis say the room
@@ -284,7 +302,11 @@ final class SeatFlow {
     /// Three spots' and Paused's content.
     var display: SeatRunDisplay {
         if case .running(let session) = phase {
-            return SeatRunDisplay(state: session.state, progress: session.progress, channels: channels, building: building)
+            var display = SeatRunDisplay(
+                state: session.state, progress: session.progress, channels: channels, building: building
+            )
+            if case .paused = session.state { display.interference = noiseNote }
+            return display
         }
         return SeatRunDisplay(state: .idle, progress: nil, channels: channels, building: building)
     }
@@ -337,7 +359,10 @@ final class SeatFlow {
         session.start()
         // A spot is captured between two progress updates; each update checks for new ones.
         spotsTask = Task { [weak self] in
-            for await _ in updates { self?.analyseNewSpots(of: session) }
+            for await _ in updates {
+                self?.analyseNewSpots(of: session)
+                self?.listenToNoise(session)
+            }
         }
         runTask = Task { [weak self] in
             await session.run()
@@ -371,6 +396,9 @@ final class SeatFlow {
     private func stopWork() {
         if case .running(let session) = phase { session.cancel() }
         runTask?.cancel()
+        noiseNoteTask?.cancel()
+        noiseNoteTask = nil
+        noiseNote = nil
         spotsTask?.cancel()
         runTask = nil
         spotsTask = nil
@@ -393,6 +421,25 @@ final class SeatFlow {
                 let inOrder = (0..<self.requested).prefix { self.analyses[$0] != nil }.compactMap { self.analyses[$0] }
                 self.building = SeatDiagnosis.building(spots: inOrder)
             }
+        }
+    }
+
+    /// Asks the Kit what the noise sounds like once a pause holds enough audio, once per pause.
+    private func listenToNoise(_ session: SeatMeasurementSession) {
+        guard case .paused = session.state else {
+            noiseNoteTask?.cancel()
+            noiseNoteTask = nil
+            noiseNote = nil
+            return
+        }
+        guard noiseNoteTask == nil, let audio = session.pausedAudio(), audio.duration >= Self.noiseNoteAudio else { return }
+        noiseNoteTask = Task { [weak self] in
+            let note = await InterferenceAdvisor.note(
+                heard: audio.samples, sampleRate: audio.sampleRate, sweepPlaying: audio.sweepPlaying,
+                classifier: SystemSoundClassifier()
+            )
+            guard !Task.isCancelled else { return }
+            self?.noiseNote = note
         }
     }
 

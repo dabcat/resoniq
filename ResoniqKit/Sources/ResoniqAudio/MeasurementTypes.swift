@@ -38,6 +38,9 @@ public enum MeasurementFailure: Error, Sendable, Equatable {
     case audioUnavailable(String)
     /// The room stayed too loud to resume for `MeasurementConfiguration.maximumPauseWait`.
     case tooNoisy
+    /// The sound would come out of the phone itself (`route`), not the user's speakers; nothing was played. The
+    /// screen explains how to connect the speakers.
+    case speakersNotConnected(AudioOutputRoute)
 }
 
 /// One run's recording, ready for `RunAnalyzer`.

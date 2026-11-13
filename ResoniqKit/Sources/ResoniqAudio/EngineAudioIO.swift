@@ -95,6 +95,22 @@ public final class EngineAudioIO: AudioIO {
         return CaptureStream(sampleRate: sampleRate, blocks: stream)
     }
 
+    /// The session's current output, from `AVAudioSession.currentRoute`. With nothing connected `.playAndRecord`
+    /// plays through the receiver, which a measurement must refuse. Check on a phone: the port types a car, a dock
+    /// and an AirPlay group report.
+    public var outputRoute: AudioOutputRoute? {
+        guard let output = AVAudioSession.sharedInstance().currentRoute.outputs.first else { return nil }
+        let kind: AudioOutputRoute.Kind = switch output.portType {
+        case .builtInReceiver: .builtInReceiver
+        case .builtInSpeaker: .builtInSpeaker
+        case .headphones, .lineOut, .usbAudio, .HDMI: .wired
+        case .bluetoothA2DP, .bluetoothLE, .bluetoothHFP: .bluetooth
+        case .airPlay: .airPlay
+        default: .other
+        }
+        return AudioOutputRoute(kind: kind, name: output.portName)
+    }
+
     public func schedule(_ samples: [Float], on channel: SpeakerChannel, mode: PlaybackMode) throws -> Int64 {
         try state.withLock { state throws(AudioIOError) in try state.schedule(samples, on: channel, mode: mode) }
     }

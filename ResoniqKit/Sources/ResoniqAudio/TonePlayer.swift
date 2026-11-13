@@ -5,6 +5,8 @@ import ResoniqDSP
 public enum TonePlayerError: Error, Sendable, Equatable {
     /// The audio could not start, or stopped before the tone could be scheduled: "I couldn't start the sound."
     case audioUnavailable
+    /// The tone would come out of the phone itself, not the user's speakers; nothing was played.
+    case speakersNotConnected
 }
 
 /// "Hold to hear": a steady sine on one channel at the safe level, faded in and out so it never clicks.
@@ -58,6 +60,10 @@ public final class TonePlayer {
             stream = try await io.start()
         } catch {
             throw TonePlayerError.audioUnavailable
+        }
+        if io.outputRoute?.isPhone == true {
+            await io.stop()
+            throw TonePlayerError.speakersNotConnected
         }
         let sampleRate = stream.sampleRate
         self.sampleRate = sampleRate

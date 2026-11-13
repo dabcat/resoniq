@@ -305,8 +305,8 @@ enum MeasurementOpening {
         return access == .granted
     }
 
-    /// Starts `io`; fails, with the stream stopped, when it cannot start or runs under
-    /// `MeasurementConfiguration.minimumSampleRate`.
+    /// Starts `io`; fails, with the stream stopped and nothing played, when it cannot start, runs under
+    /// `MeasurementConfiguration.minimumSampleRate`, or plays through the phone itself.
     static func open(_ io: any AudioIO) async -> Result<CaptureStream, MeasurementFailure> {
         let stream: CaptureStream
         do {
@@ -319,6 +319,10 @@ enum MeasurementOpening {
             return .failure(.audioUnavailable(
                 "the input runs at \(Int(stream.sampleRate)) Hz; the measurement sweep needs \(Int(MeasurementConfiguration.minimumSampleRate)) Hz"
             ))
+        }
+        if let route = io.outputRoute, route.isPhone {
+            await io.stop()
+            return .failure(.speakersNotConnected(route))
         }
         return .success(stream)
     }

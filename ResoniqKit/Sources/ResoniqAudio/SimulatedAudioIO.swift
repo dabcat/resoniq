@@ -151,6 +151,8 @@ public final class SimulatedAudioIO: AudioIO {
         /// The room between the speakers and the microphone, or nil for none (the speakers straight into the
         /// microphone). With a room, `SimulatedAudioIO.moveToSpot(_:)` says where the microphone is.
         public var room: SimulatedRoom?
+        /// The output route the IO reports.
+        public var outputRoute: AudioOutputRoute
 
         public init(
             sampleRate: Double = 48000,
@@ -163,7 +165,8 @@ public final class SimulatedAudioIO: AudioIO {
             schedulingLead: Double = 0.05,
             pacing: Pacing = .realTime,
             seed: UInt64 = 1,
-            room: SimulatedRoom? = nil
+            room: SimulatedRoom? = nil,
+            outputRoute: AudioOutputRoute = .simulatedSpeakers
         ) {
             self.sampleRate = sampleRate
             self.blockSize = blockSize
@@ -176,6 +179,7 @@ public final class SimulatedAudioIO: AudioIO {
             self.pacing = pacing
             self.seed = seed
             self.room = room
+            self.outputRoute = outputRoute
         }
     }
 
@@ -256,6 +260,8 @@ public final class SimulatedAudioIO: AudioIO {
     public func stop() async {
         state.withLock { $0.end() }
     }
+
+    public var outputRoute: AudioOutputRoute? { configuration.outputRoute }
 }
 
 // MARK: - The simulation

@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Measure: three spots</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#F0EBE1;text-decoration:underline;text-underline-offset:3px}a:hover{color:#A9A398}
+@keyframes slide{0%,15%{transform:translateX(0)}60%,100%{transform:translateX(-56px)}}
+@keyframes ring{0%{transform:scale(1);opacity:.8}100%{transform:scale(2.6);opacity:0}}
+@keyframes drawline{0%{stroke-dashoffset:70}80%,100%{stroke-dashoffset:0}}
+@keyframes wait{0%,100%{opacity:.4}50%{opacity:1}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important}}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #151412; color: #F0EBE1; font-family: 'Instrument Sans', system-ui, sans-serif; display: flex; flex-direction: column; padding: 60px 24px 34px; gap: 16px; overflow: hidden">
+
+<div style="display: flex; align-items: center; justify-content: space-between; height: 44px">
+<div style="display: flex; align-items: center; gap: 8px">
+<div style="height: 30px; padding: 0 10px; border-radius: 15px; background: #D8F27A; color: #151412; display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700">
+<svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="#151412" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6.500l2.500 2.500L10 3.500"/></svg>
+<div>Seat</div>
+</div>
+<div style="height: 30px; padding: 0 10px; border-radius: 15px; border: 1.5px solid #D8F27A; box-sizing: border-box; display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700">
+<div style="width: 7px; height: 7px; border-radius: 4px; background: #D8F27A; animation: wait 1s ease-in-out infinite"></div>
+<div>Left</div>
+</div>
+<div style="height: 30px; padding: 0 10px; border-radius: 15px; border: 1.5px solid #3B3731; box-sizing: border-box; display: flex; align-items: center; font-size: 13px; color: #A9A398">Right</div>
+</div>
+<a href="V3MGuide.dc.html" aria-label="Stop measuring" style="width: 44px; height: 44px; border-radius: 22px; background: #1F1D1A; display: flex; align-items: center; justify-content: center; color: #F0EBE1">
+<svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14"><rect width="14" height="14" rx="2" fill="currentColor"/></svg>
+</a>
+</div>
+
+<h1 style="margin: 0; font-size: 34px; line-height: 1.05; font-weight: 600; letter-spacing: -0.03em">Now move the phone 30 cm to your left.</h1>
+
+<div style="position: relative; height: 132px; flex-shrink: 0; background: #1F1D1A; border: 1px solid #3B3731; border-radius: 18px; box-sizing: border-box; overflow: hidden">
+<svg role="img" aria-label="Three spots in a row. The middle one is done; the phone slides to the left one" width="340" height="130" viewBox="0 0 340 130" fill="none" stroke-linecap="round" stroke-linejoin="round">
+<circle cx="170" cy="78" r="26" stroke="#A9A398" stroke-width="1.5" stroke-dasharray="3 5"/>
+<circle cx="170" cy="56" r="9" fill="#D8F27A"/>
+<path d="M165.500 56l3 3 5.500-6" stroke="#151412" stroke-width="2"/>
+<circle cx="114" cy="56" r="9" stroke="#D8F27A" stroke-width="2" style="transform-box: fill-box; transform-origin: center; animation: ring 1.6s ease-out infinite"/>
+<circle cx="114" cy="56" r="9" stroke="#D8F27A" stroke-width="2"/>
+<circle cx="226" cy="56" r="9" stroke="#9CC9E8" stroke-width="2" stroke-dasharray="3 4"/>
+<path d="M150 30h-22M134 24l-6 6 6 6" stroke="#F0EBE1" stroke-width="2"/>
+<rect x="158" y="38" width="24" height="42" rx="5" stroke="#F0EBE1" stroke-width="2" fill="#1F1D1A" fill-opacity="0.6" style="animation: slide 2.6s cubic-bezier(.3,1.2,.5,1) infinite"/>
+</svg>
+<div style="position: absolute; left: 14px; bottom: 10px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #A9A398">Your head, from above</div>
+</div>
+
+<div style="background: #1F1D1A; border: 1px solid #3B3731; border-radius: 18px; padding: 14px 14px 12px; display: flex; flex-direction: column; gap: 8px">
+<div style="display: flex; justify-content: space-between; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #A9A398">
+<div>Building the average</div>
+<div>1 of 3 in</div>
+</div>
+<svg role="img" aria-label="The first spot's line is drawn faintly; the second spot's line will be laid over it" width="312" height="140" viewBox="0 0 342 154" fill="none" stroke-linecap="round" stroke-linejoin="round">
+<defs><linearGradient id="hfreq" x1="0" y1="0" x2="342" y2="0" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#5B6CFF"/><stop offset=".55" stop-color="#37C8C0"/><stop offset="1" stop-color="#D8F27A"/></linearGradient></defs>
+<rect x="0" y="54" width="342" height="46" fill="#2E2B26"/>
+<path d="M80 0v154M193 0v154M307 0v154M0 0h342M0 154h342" stroke="#3B3731" stroke-width="1"/>
+<path d="M0 126C10 108 22 24 35 24S46 140 55 140 70 84 82 80 110 70 130 76 170 86 200 78 250 72 280 78 320 84 342 112" stroke="#A9A398" stroke-width="1.6" stroke-opacity="0.7"/>
+<path pathLength="100" d="M0 122C10 108 24 34 37 34S48 128 58 128 72 86 84 82 112 74 132 80 172 84 202 80 252 76 282 80 322 88 342 110" stroke="url(#hfreq)" stroke-width="3" stroke-dasharray="100" style="animation: drawline 4s ease-in-out infinite"/>
+</svg>
+<div style="display: flex; justify-content: space-between; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; color: #A9A398">
+<div>20 Hz</div>
+<div>100</div>
+<div>1k</div>
+<div>10k</div>
+<div>20k</div>
+</div>
+</div>
+
+<div style="display: flex; gap: 10px; flex-grow: 1; align-items: flex-start">
+<div style="flex: 1; display: flex; flex-direction: column; gap: 2px; padding: 10px 14px; background: #1F1D1A; border-radius: 14px">
+<div style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #A9A398">Room</div>
+<div style="font-size: 15px; font-weight: 500">Quiet · 33 dB</div>
+</div>
+<div style="flex: 1; display: flex; flex-direction: column; gap: 2px; padding: 10px 14px; background: #1F1D1A; border-radius: 14px">
+<div style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #A9A398">Level</div>
+<div style="font-size: 15px; font-weight: 500">Good</div>
+</div>
+</div>
+
+<div style="display: flex; align-items: center; gap: 12px; min-height: 52px; border-top: 1px solid #3B3731">
+<div style="width: 8px; height: 8px; border-radius: 4px; background: #D8F27A; animation: wait 1.2s ease-in-out infinite"></div>
+<div style="font-size: 16px; line-height: 1.35">I'll start by myself once the phone is still. <a href="V3Measure.dc.html" style="color: #A9A398">Skip to result</a></div>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

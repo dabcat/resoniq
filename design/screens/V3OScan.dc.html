@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Optimize: scan the room</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#F0EBE1;text-decoration:underline;text-underline-offset:3px}a:hover{color:#A9A398}
+@keyframes pulse{0%,100%{opacity:.3}50%{opacity:1}}
+@keyframes sweep{0%,100%{transform:rotate(20deg)}50%{transform:rotate(70deg)}}
+@keyframes hint{0%,100%{transform:translateX(0)}50%{transform:translateX(8px)}}
+.press{transition:transform .14s cubic-bezier(.3,1.4,.5,1)}.press:active{transform:scale(.97)}
+@media (prefers-reduced-motion:reduce){*{animation:none!important}}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #151412; color: #F0EBE1; font-family: 'Instrument Sans', system-ui, sans-serif; display: flex; flex-direction: column; overflow: hidden">
+
+<div style="position: relative; height: 548px; background: #2E2B26; flex-shrink: 0">
+<svg role="img" aria-label="Camera view placeholder with the scanned room outlined in blue: back wall, left wall, a window, a door and a sofa. The right wall is still dashed" width="390" height="548" viewBox="0 0 390 548" fill="none" stroke-linejoin="round" stroke-linecap="round">
+<path d="M295 160L390 70M295 340L390 480" stroke="#A9A398" stroke-width="1.5" stroke-dasharray="5 7" style="animation: pulse 1.4s ease-in-out infinite"/>
+<path d="M95 160h200v180H95zM95 160L0 70M95 340L0 480" stroke="#9CC9E8" stroke-width="2.5"/>
+<path d="M95 160h200v180H95z" fill="#9CC9E8" fill-opacity="0.10"/>
+<path d="M0 70L95 160v180L0 480z" fill="#9CC9E8" fill-opacity="0.06"/>
+<rect x="150" y="196" width="90" height="72" stroke="#F0EBE1" stroke-width="2"/>
+<path d="M30 436V225l35 20v139z" stroke="#F0EBE1" stroke-width="2"/>
+<path d="M132 382h126v44H132zM132 382l14-22h98l14 22" stroke="#F0EBE1" stroke-width="2"/>
+</svg>
+<div style="position: absolute; left: 164px; top: 276px; height: 24px; padding: 0 10px; border-radius: 12px; background: #151412; font-size: 12px; font-weight: 500; display: flex; align-items: center">Window</div>
+<div style="position: absolute; left: 22px; top: 192px; height: 24px; padding: 0 10px; border-radius: 12px; background: #151412; font-size: 12px; font-weight: 500; display: flex; align-items: center">Door</div>
+<div style="position: absolute; left: 176px; top: 434px; height: 24px; padding: 0 10px; border-radius: 12px; background: #151412; font-size: 12px; font-weight: 500; display: flex; align-items: center">Sofa</div>
+<div style="position: absolute; left: 160px; top: 126px; height: 26px; padding: 0 10px; border-radius: 13px; background: #9CC9E8; color: #151412; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px; font-weight: 500; display: flex; align-items: center">4.20 m</div>
+
+<div style="position: absolute; left: 20px; top: 60px; right: 20px; display: flex; align-items: center; justify-content: space-between">
+<a href="V3Optimize.dc.html" aria-label="Cancel scan" style="width: 44px; height: 44px; border-radius: 22px; background: #151412; display: flex; align-items: center; justify-content: center; color: #F0EBE1">
+<svg aria-hidden="true" width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 4l10 10M14 4L4 14"/></svg>
+</a>
+<div style="height: 44px; padding: 0 16px; border-radius: 22px; background: #151412; display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 500">
+<div style="width: 8px; height: 8px; border-radius: 4px; background: #9CC9E8; animation: pulse 1.2s ease-in-out infinite"></div>
+<div>3 of 4 walls</div>
+</div>
+</div>
+
+<div style="position: absolute; right: 16px; bottom: 40px; width: 104px; height: 132px; background: #151412; border-radius: 14px; padding: 10px; box-sizing: border-box; display: flex; flex-direction: column; gap: 6px">
+<div style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: #A9A398">Floor plan</div>
+<svg role="img" aria-label="Small floor plan: three walls drawn, the right wall still missing, a wedge shows where the camera points" width="84" height="94" viewBox="0 0 84 94" fill="none" stroke-linecap="round" stroke-linejoin="round">
+<path d="M74 6H10v82h64" stroke="#9CC9E8" stroke-width="3"/>
+<path d="M74 6v82" stroke="#A9A398" stroke-width="2" stroke-dasharray="3 5" style="animation: pulse 1.4s ease-in-out infinite"/>
+<circle cx="40" cy="60" r="4" fill="#F0EBE1"/>
+<path d="M40 60l22-12v24z" fill="#D8F27A" fill-opacity="0.5" style="transform-box: fill-box; transform-origin: left center; animation: sweep 3s ease-in-out infinite"/>
+</svg>
+</div>
+<div style="position: absolute; left: 20px; bottom: 40px; font-size: 11px; color: #A9A398">Camera view placeholder</div>
+</div>
+
+<div style="background: #151412; border-radius: 28px 28px 0 0; margin-top: -24px; position: relative; flex-grow: 1; padding: 22px 24px 30px; display: flex; flex-direction: column; gap: 12px">
+<div style="display: flex; align-items: center; gap: 14px">
+<svg aria-hidden="true" width="34" height="34" viewBox="0 0 34 34" fill="none" stroke="#D8F27A" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0; animation: hint 1.2s ease-in-out infinite"><path d="M6 17h22M19 8l9 9-9 9"/></svg>
+<h1 style="margin: 0; font-size: 26px; line-height: 1.08; font-weight: 600; letter-spacing: -0.03em">Turn right to catch the last wall.</h1>
+</div>
+<div style="font-size: 15px; line-height: 1.4; color: #A9A398">Walk slowly. Walls, doors and big furniture are picked up on their own.</div>
+
+<div style="display: flex; flex-direction: column; gap: 0; margin-top: auto">
+<a class="press" href="V3OLayout.dc.html" style="height: 58px; border-radius: 29px; background: #D8F27A; color: #151412; text-decoration: none; display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 600">Finish scan</a>
+<a href="V3OLayout.dc.html" style="min-height: 44px; display: flex; align-items: center; justify-content: center; font-size: 15px; color: #A9A398">No LiDAR? Enter the room by hand</a>
+</div>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

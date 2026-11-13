@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Diagnose</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#F0EBE1;text-decoration:underline;text-underline-offset:3px}a:hover{color:#A9A398}
+@keyframes jitter{0%,100%{transform:translateX(-1.4px)}50%{transform:translateX(1.4px)}}
+@keyframes breathe{0%,100%{opacity:.55}50%{opacity:1}}
+.press{transition:transform .14s cubic-bezier(.3,1.4,.5,1)}.press:active{transform:scale(.97)}
+@media (prefers-reduced-motion:reduce){*{animation:none!important}}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #151412; color: #F0EBE1; font-family: 'Instrument Sans', system-ui, sans-serif; display: flex; flex-direction: column; overflow: hidden">
+
+<div style="flex-grow: 1; display: flex; flex-direction: column; padding: 60px 24px 12px; gap: 14px">
+
+<div style="display: flex; align-items: center; justify-content: space-between">
+<a href="#" style="display: flex; flex-direction: column; gap: 1px; text-decoration: none; min-height: 48px; justify-content: center">
+<div style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #A9A398">Living room</div>
+<div style="display: flex; align-items: center; gap: 6px; font-size: 21px; font-weight: 600; letter-spacing: -0.01em">
+<div>Stereo pair</div>
+<svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#F0EBE1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5l4 4 4-4"/></svg>
+</div>
+</a>
+<a href="#" aria-label="Settings" style="width: 44px; height: 44px; border-radius: 22px; background: #1F1D1A; display: flex; align-items: center; justify-content: center; color: #F0EBE1">
+<svg aria-hidden="true" width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M2 5h7M13 5h3M2 13h3M9 13h7"/><circle cx="11" cy="5" r="2"/><circle cx="7" cy="13" r="2"/></svg>
+</a>
+</div>
+
+<div style="position: relative; flex-grow: 1; background: #1F1D1A; border: 1px solid #3B3731; border-radius: 18px; box-sizing: border-box; overflow: hidden; display: flex; flex-direction: column; align-items: center; padding: 16px 0 14px; gap: 10px">
+<svg role="img" aria-label="Left and right speaker portraits on either side of a shared frequency ruler. The left has a rough orange patch low down; the right is a dashed outline, not heard yet" width="300" height="372" viewBox="0 0 300 440" fill="none" stroke-linecap="round" stroke-linejoin="round">
+<path d="M136 436h-8M164 436h8M136 336h-8M164 336h8M136 192h-8M164 192h8M136 49h-8M164 49h8M136 6h-8M164 6h8" stroke="#A9A398" stroke-width="1.2"/>
+<path d="M146 379h8M146 293h8M146 236h8M146 149h8M146 92h8" stroke="#3B3731" stroke-width="1.2"/>
+<g font-family="IBM Plex Mono, monospace" font-size="12" fill="#A9A398" text-anchor="middle"><text x="150" y="440">20</text><text x="150" y="340">100</text><text x="150" y="196">1k</text><text x="150" y="53">10k</text><text x="150" y="14">20k</text></g>
+<g transform="translate(0 0)">
+<defs><linearGradient id="freq" x1="0" y1="436" x2="0" y2="6" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#5B6CFF"/><stop offset=".55" stop-color="#37C8C0"/><stop offset="1" stop-color="#D8F27A"/></linearGradient></defs>
+<g fill="url(#freq)">
+<path d="M59 6C70 10 80 25 82 40S88 65 88 80 85 105 86 120 90 145 90 160 86 185 87 200 91 225 91 240 88 265 89 280 93 305 94 320 98 340 98 350 100 370 100 380 96 398 90 405 78 420 74 425 64 434 59 436Z"/>
+<path d="M59 6C70 10 80 25 82 40S88 65 88 80 85 105 86 120 90 145 90 160 86 185 87 200 91 225 91 240 88 265 89 280 93 305 94 320 98 340 98 350 100 370 100 380 96 398 90 405 78 420 74 425 64 434 59 436Z" transform="matrix(-1 0 0 1 120 0)"/>
+</g>
+<rect x="16" y="326" width="88" height="30" fill="#1F1D1A"/>
+<path d="M22 326l8 4-9 4 9 4-8 4 9 4-8 4 8 4h66l8-4-8-4 9-4-8-4 9-4-9-4 8-4z" fill="#FF5B2E" style="animation: jitter .09s linear infinite"/>
+</g>
+<g transform="translate(180 0)" stroke="#F0EBE1" stroke-width="2.5" stroke-dasharray="4 9" style="animation: breathe 2.6s ease-in-out infinite">
+<path d="M60 6C70 10 80 25 82 40S88 65 88 80 85 105 86 120 90 145 90 160 86 185 87 200 91 225 91 240 88 265 89 280 93 305 94 320 98 340 98 350 100 370 100 380 96 398 90 405 78 420 74 425 64 434 60 436"/>
+<path d="M60 6C70 10 80 25 82 40S88 65 88 80 85 105 86 120 90 145 90 160 86 185 87 200 91 225 91 240 88 265 89 280 93 305 94 320 98 340 98 350 100 370 100 380 96 398 90 405 78 420 74 425 64 434 60 436" transform="matrix(-1 0 0 1 120 0)"/>
+</g>
+</svg>
+<div style="display: flex; width: 300px; justify-content: space-between">
+<a href="V3Result.dc.html" style="width: 120px; display: flex; flex-direction: column; align-items: center; gap: 2px; text-decoration: none; min-height: 44px">
+<div style="font-size: 17px; font-weight: 600">Left</div>
+<div style="font-size: 13px; font-weight: 600; color: #FF8157">Woofer may buzz</div>
+</a>
+<a href="V3Start.dc.html" style="width: 120px; display: flex; flex-direction: column; align-items: center; gap: 2px; text-decoration: none; min-height: 44px">
+<div style="font-size: 17px; font-weight: 600">Right</div>
+<div style="font-size: 13px; color: #A9A398">Not heard yet</div>
+</a>
+</div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 2px">
+<a class="press" href="V3Start.dc.html" style="height: 58px; border-radius: 29px; background: #D8F27A; color: #151412; text-decoration: none; display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 600">Listen to the right speaker</a>
+<a href="V3Start.dc.html" style="min-height: 44px; display: flex; align-items: center; justify-content: center; font-size: 15px; color: #A9A398">Checking speakers somewhere else? Quick check</a>
+</div>
+
+</div>
+
+<nav aria-label="Main" style="display: flex; background: #1F1D1A; border-top: 1px solid #3B3731; padding: 0 24px 30px">
+<a href="V3Diagnose.dc.html" aria-current="page" style="flex: 1; min-height: 60px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; color: #F0EBE1; text-decoration: none; font-size: 12px; font-weight: 700; box-shadow: inset 0 3px 0 #D8F27A">
+<svg aria-hidden="true" width="22" height="22" viewBox="0 0 22 22" fill="currentColor"><path d="M11 1.500c4 3 5.500 6 5.500 9.500S15 17.500 11 20.500C7 17.500 5.500 14.500 5.500 11S7 4.500 11 1.500z"/></svg>
+<div>Diagnose</div>
+</a>
+<a href="V3Measure.dc.html" style="flex: 1; min-height: 60px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; color: #A9A398; text-decoration: none; font-size: 12px; font-weight: 500">
+<svg aria-hidden="true" width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 14c3 0 3-8 6-8s3 6 5 6 3-3 7-3M2 19h18"/></svg>
+<div>Measure</div>
+</a>
+<a href="V3Optimize.dc.html" style="flex: 1; min-height: 60px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; color: #A9A398; text-decoration: none; font-size: 12px; font-weight: 500">
+<svg aria-hidden="true" width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="3" y="3" width="16" height="16" rx="1.500"/><circle cx="11" cy="14" r="1.800"/><path d="M6.500 6.500h2v2h-2zM13.500 6.500h2v2h-2z"/></svg>
+<div>Optimize</div>
+</a>
+</nav>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

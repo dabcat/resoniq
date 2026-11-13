@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Optimize: AR guidance</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#F0EBE1;text-decoration:underline;text-underline-offset:3px}a:hover{color:#A9A398}
+@keyframes approach{0%,20%{transform:translate(34px,-46px)}70%,100%{transform:translate(12px,-16px)}}
+@keyframes fill{0%,20%{transform:scaleX(.2)}70%,100%{transform:scaleX(.62)}}
+@keyframes pulse{0%,100%{opacity:.45}50%{opacity:1}}
+@keyframes march{to{stroke-dashoffset:-22}}
+.press{transition:transform .14s cubic-bezier(.3,1.4,.5,1)}.press:active{transform:scale(.97)}
+@media (prefers-reduced-motion:reduce){*{animation:none!important}}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #151412; color: #F0EBE1; font-family: 'Instrument Sans', system-ui, sans-serif; display: flex; flex-direction: column; overflow: hidden">
+
+<div style="position: relative; height: 520px; background: #2E2B26; flex-shrink: 0">
+<svg role="img" aria-label="Camera view placeholder. On the floor, a blue outline marks where the right speaker should stand. The speaker's current footprint slides toward it, and an arc shows how far to turn it toward the seat" width="390" height="520" viewBox="0 0 390 520" fill="none" stroke-linecap="round" stroke-linejoin="round">
+<path d="M0 200h390" stroke="#A9A398" stroke-width="1.5"/>
+<path d="M195 200L-150 520M195 200L10 520M195 200L135 520M195 200L255 520M195 200L380 520M195 200L540 520M0 250h390M0 322h390M0 430h390" stroke="#3B3731" stroke-width="1.2"/>
+<path d="M150 380l96-8 22 58-112 10z" fill="#9CC9E8" fill-opacity="0.18"/>
+<path d="M150 380l96-8 22 58-112 10z" stroke="#9CC9E8" stroke-width="3" stroke-dasharray="7 4" style="animation: march 1s linear infinite"/>
+<path d="M209 406l-58 72" stroke="#9CC9E8" stroke-width="2" stroke-dasharray="4 6"/>
+<path d="M209 446a40 40 0 01-25-9" stroke="#9CC9E8" stroke-width="2.5"/>
+<g style="animation: approach 4s cubic-bezier(.3,1.2,.5,1) infinite">
+<path d="M150 380l96-8 22 58-112 10z" stroke="#F0EBE1" stroke-width="2.5"/>
+<path d="M150 380v-150l96-8v150M246 222l22 50v158" stroke="#F0EBE1" stroke-width="2" stroke-opacity="0.55"/>
+</g>
+<path d="M286 312l-34 46" stroke="#D8F27A" stroke-width="3.5"/>
+<path d="M250 342l1 17 16-5" stroke="#D8F27A" stroke-width="3.5"/>
+</svg>
+<div style="position: absolute; left: 120px; top: 452px; height: 26px; padding: 0 10px; border-radius: 13px; background: #151412; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px; color: #9CC9E8; display: flex; align-items: center">turn 12°</div>
+
+<div style="position: absolute; left: 20px; top: 60px; right: 20px; display: flex; align-items: center; justify-content: space-between">
+<a href="V3Optimize.dc.html" aria-label="Close AR guide" style="width: 44px; height: 44px; border-radius: 22px; background: #151412; display: flex; align-items: center; justify-content: center; color: #F0EBE1">
+<svg aria-hidden="true" width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 4l10 10M14 4L4 14"/></svg>
+</a>
+<div style="height: 44px; padding: 0 16px; border-radius: 22px; background: #151412; display: flex; align-items: center; font-size: 14px; font-weight: 500">Right speaker · step 1 of 2</div>
+</div>
+
+<div style="position: absolute; left: 20px; top: 124px; background: #151412; border-radius: 18px; padding: 12px 16px; display: flex; flex-direction: column; gap: 2px">
+<div style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #A9A398">To go</div>
+<div style="display: flex; align-items: baseline; gap: 6px">
+<div style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 46px; line-height: 1; font-weight: 500; letter-spacing: -0.05em; color: #D8F27A">18</div>
+<div style="font-size: 17px; font-weight: 600">cm</div>
+</div>
+</div>
+<div style="position: absolute; left: 20px; bottom: 36px; font-size: 11px; color: #A9A398">Camera view placeholder</div>
+</div>
+
+<div style="background: #151412; border-radius: 28px 28px 0 0; margin-top: -24px; position: relative; flex-grow: 1; padding: 22px 24px 30px; display: flex; flex-direction: column; gap: 14px">
+<h1 style="margin: 0; font-size: 26px; line-height: 1.08; font-weight: 600; letter-spacing: -0.03em">Slide it toward you until it fills the blue outline.</h1>
+
+<div style="display: flex; flex-direction: column; gap: 8px">
+<div style="position: relative; height: 10px; border-radius: 5px; background: #3B3731; overflow: hidden">
+<div style="position: absolute; left: 0; top: 0; width: 100%; height: 10px; border-radius: 5px; background: #D8F27A; transform-origin: left center; animation: fill 4s cubic-bezier(.3,1.2,.5,1) infinite"></div>
+</div>
+<div style="display: flex; justify-content: space-between; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; color: #A9A398">
+<div>35 cm in total</div>
+<div>then turn 12° toward your seat</div>
+</div>
+</div>
+
+<div style="display: flex; align-items: center; gap: 10px; font-size: 14px; color: #A9A398">
+<div style="width: 8px; height: 8px; border-radius: 4px; background: #D8F27A; animation: pulse .5s ease-in-out infinite"></div>
+<div>Taps in your hand speed up as you get closer.</div>
+</div>
+
+<div style="display: flex; gap: 10px; margin-top: auto">
+<a href="V3Optimize.dc.html" style="height: 58px; padding: 0 22px; border-radius: 29px; background: #1F1D1A; color: #F0EBE1; text-decoration: none; display: flex; align-items: center; justify-content: center; font-size: 17px; font-weight: 600">Can't move it</a>
+<a class="press" href="V3OVerify.dc.html" style="flex-grow: 1; height: 58px; border-radius: 29px; background: #D8F27A; color: #151412; text-decoration: none; display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 600">It's in place</a>
+</div>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Intro: diagnose a speaker</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#F0EBE1;text-decoration:underline;text-underline-offset:3px}a:hover{color:#A9A398}
+@keyframes reveal{0%{transform:scaleY(.7)}65%,100%{transform:scaleY(0)}}
+@keyframes jitter{0%,100%{transform:translateX(-1.4px)}50%{transform:translateX(1.4px)}}
+@keyframes rise{0%{transform:translateY(12px)}100%{transform:translateY(0)}}
+.press{transition:transform .14s cubic-bezier(.3,1.4,.5,1)}.press:active{transform:scale(.97)}
+@media (prefers-reduced-motion:reduce){*{animation:none!important}}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #151412; color: #F0EBE1; font-family: 'Instrument Sans', system-ui, sans-serif; display: flex; flex-direction: column; padding: 60px 24px 34px; gap: 18px; overflow: hidden">
+
+<div style="display: flex; align-items: center; justify-content: space-between; height: 44px">
+<div style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px; color: #A9A398">01 / 03</div>
+<a href="V3Start.dc.html" style="min-height: 44px; display: flex; align-items: center; font-size: 15px; color: #A9A398">Skip intro</a>
+</div>
+
+<div style="position: relative; height: 340px; flex-shrink: 0; background: #1F1D1A; border: 1px solid #3B3731; border-radius: 18px; box-sizing: border-box; overflow: hidden">
+<svg role="img" aria-label="A speaker's portrait drawing itself from the bass upward along a frequency ruler, with one rough orange patch low down" width="116" height="300" viewBox="0 0 170 440" fill="none" stroke-linecap="round" stroke-linejoin="round" style="position: absolute; left: 16px; top: 20px">
+<path d="M40 6v430M28 436h12M34 379h6M28 336h12M34 293h6M34 236h6M28 192h12M34 149h6M34 92h6M28 49h12M28 6h12" stroke="#A9A398" stroke-width="1.5"/>
+<g font-family="IBM Plex Mono, monospace" font-size="15" fill="#A9A398" text-anchor="end"><text x="22" y="440">20</text><text x="22" y="341">100</text><text x="22" y="197">1k</text><text x="22" y="54">10k</text><text x="22" y="16">20k</text></g>
+<g transform="translate(48 0)">
+<defs><linearGradient id="freq" x1="0" y1="436" x2="0" y2="6" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#5B6CFF"/><stop offset=".55" stop-color="#37C8C0"/><stop offset="1" stop-color="#D8F27A"/></linearGradient></defs>
+<g fill="url(#freq)">
+<path d="M59 6C70 10 80 25 82 40S88 65 88 80 85 105 86 120 90 145 90 160 86 185 87 200 91 225 91 240 88 265 89 280 93 305 94 320 98 340 98 350 100 370 100 380 96 398 90 405 78 420 74 425 64 434 59 436Z"/>
+<path d="M59 6C70 10 80 25 82 40S88 65 88 80 85 105 86 120 90 145 90 160 86 185 87 200 91 225 91 240 88 265 89 280 93 305 94 320 98 340 98 350 100 370 100 380 96 398 90 405 78 420 74 425 64 434 59 436Z" transform="matrix(-1 0 0 1 120 0)"/>
+</g>
+<rect x="16" y="326" width="88" height="30" fill="#1F1D1A"/>
+<path d="M22 326l8 4-9 4 9 4-8 4 9 4-8 4 8 4h66l8-4-8-4 9-4-8-4 9-4-9-4 8-4z" fill="#FF5B2E" style="animation: jitter .09s linear infinite"/>
+<rect x="8" y="0" width="104" height="440" fill="#1F1D1A" style="transform-box: fill-box; transform-origin: top; animation: reveal 5s ease-in-out infinite"/>
+</g>
+</svg>
+
+<div style="position: absolute; left: 150px; top: 26px; right: 16px; display: flex; flex-direction: column; gap: 22px">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<div style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #A9A398">1 · Play</div>
+<div style="font-size: 15px; line-height: 1.3">A tone rises from the deepest bass to the highest treble.</div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 4px">
+<div style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #A9A398">2 · Listen</div>
+<div style="font-size: 15px; line-height: 1.3">Your iPhone hears how the speaker answers each note.</div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 4px">
+<div style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #FF8157">3 · Read</div>
+<div style="font-size: 15px; line-height: 1.3">A smooth shape is healthy. A rough patch shows where it rattles or buzzes.</div>
+</div>
+</div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 10px; flex-grow: 1; animation: rise .5s cubic-bezier(.2,.8,.2,1)">
+<div style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: #FF8157">Diagnose</div>
+<h1 style="margin: 0; font-size: 34px; line-height: 1.05; font-weight: 600; letter-spacing: -0.03em">Find out if a speaker is healthy.</h1>
+<div style="font-size: 16px; line-height: 1.45; color: #A9A398">Useful before you buy a used pair, or when something at home starts to sound off.</div>
+</div>
+
+<div style="display: flex; align-items: center; gap: 16px">
+<div style="display: flex; gap: 6px; width: 84px">
+<div style="width: 26px; height: 6px; border-radius: 3px; background: #F0EBE1"></div>
+<div style="width: 6px; height: 6px; border-radius: 3px; background: #3B3731"></div>
+<div style="width: 6px; height: 6px; border-radius: 3px; background: #3B3731"></div>
+</div>
+<a class="press" href="V3Onb2.dc.html" style="flex-grow: 1; height: 58px; border-radius: 29px; background: #D8F27A; color: #151412; text-decoration: none; display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 600">Next</a>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

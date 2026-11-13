@@ -104,9 +104,10 @@ struct SpeakerGlyphView: View {
 /// fill and dash as well as colour.
 public struct RoomPlanLegend: View {
     private let measured: String
-    private let suggested: String
+    private let suggested: String?
 
-    public init(measured: String = "Measured here", suggested: String = "Suggested, not yet tested") {
+    /// - Parameter suggested: nil leaves the suggestion's entry out, for a plan with no suggestion on it.
+    public init(measured: String = "Measured here", suggested: String? = "Suggested, not yet tested") {
         self.measured = measured
         self.suggested = suggested
     }
@@ -117,17 +118,19 @@ public struct RoomPlanLegend: View {
                 Circle().fill(ResoniqColor.ivory).frame(width: Metrics.dot, height: Metrics.dot)
                 Text(measured)
             }
-            HStack(spacing: Metrics.itemGap) {
-                RoundedRectangle(cornerRadius: Metrics.swatchRadius)
-                    .strokeBorder(ResoniqColor.guide, style: StrokeStyle(lineWidth: Metrics.swatchStroke, dash: Metrics.swatchDash))
-                    .frame(width: Metrics.swatch, height: Metrics.swatch)
-                Text(suggested)
+            if let suggested {
+                HStack(spacing: Metrics.itemGap) {
+                    RoundedRectangle(cornerRadius: Metrics.swatchRadius)
+                        .strokeBorder(ResoniqColor.guide, style: StrokeStyle(lineWidth: Metrics.swatchStroke, dash: Metrics.swatchDash))
+                        .frame(width: Metrics.swatch, height: Metrics.swatch)
+                    Text(suggested)
+                }
             }
         }
         .font(Metrics.font)
         .foregroundStyle(ResoniqColor.muted)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(measured). \(suggested).")
+        .accessibilityLabel(suggested.map { "\(measured). \($0)." } ?? "\(measured).")
     }
 
     private enum Metrics {

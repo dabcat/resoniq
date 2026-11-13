@@ -8,7 +8,7 @@ tags:
 ---
 # ResoniqRoom
 
-The room as plain values, and every decision about it: the model (walls, doors and windows, furniture, speakers, seats), a room entered by hand, the first guess at speakers and seat after a scan, distances and the listening triangle, edits that keep things inside the walls, what the room's size predicts (axial modes, boundary dips), where a speaker should go, and, for AR, how far a move has left and how model coordinates map to the world. No RoomPlan, ARKit or SwiftUI: it depends on nothing and is tested on the Mac. Plans: [phase-4-room.md](../plans/phase-4-room.md) (task 1), [phase-5-ar.md](../plans/phase-5-ar.md) (task 1). Conventions come from [the RoomScan reference](../reference/iosar-roomplan-arkit.md).
+The room as plain values, and every decision about it: the model (walls, doors and windows, furniture, speakers, seats), a room entered by hand, the first guess at speakers and seat after a scan, distances and the listening triangle, edits that keep things inside the walls, what the room's size predicts (axial modes, boundary dips), where a speaker should go, and, for AR, how far a move has left and how model coordinates map to the world. No ARKit or SwiftUI, and RoomPlan in one file only (`RoomPlan/RoomPlanConverter.swift`, behind `#if canImport(RoomPlan)`, so the macOS build and tests never see it): it depends on nothing and is tested on the Mac. Plans: [phase-4-room.md](../plans/phase-4-room.md) (task 1), [phase-5-ar.md](../plans/phase-5-ar.md) (task 1). Conventions come from [the RoomScan reference](../reference/iosar-roomplan-arkit.md).
 
 Paths below are relative to `ResoniqKit/Sources/ResoniqRoom/`.
 
@@ -48,6 +48,24 @@ Paths below are relative to `ResoniqKit/Sources/ResoniqRoom/`.
 | `LayoutGuess.place(in:)` | `Model/LayoutGuess.swift:37` | Seat on the largest sofa (or the centre), facing a television, the sofa's open side or the long axis; a symmetric pair for a 60° triangle `defaultWallDistance` from the wall ahead; fixed ids `seatID`, `leftID`, `rightID` (:33–35); keeps items already there |
 | `RoomPlanMapping` | `Model/RoomPlanMapping.swift:9` | For the converter (phase 4 task 2), on 16 column-major numbers: `centre(of:)`, `localX`, `localZ`, `wall(id:transform:width:height:openings:)` (:30), `opening(id:kind:transform:width:on:)` (:40), `furniture(id:categoryName:transform:width:height:depth:)` (:52), `category(named:)` (:62), `floorOutline(corners:transform:)` (:68) |
 | `RoomModel.applying(_:)` | `Model/RoomPlanMapping.swift:82` | The whole model through a `WorldAlignment` |
+
+### RoomPlan scan (phase 4 task 2)
+
+`RoomPlanConverter` only destructures `CapturedRoom` into primitive inputs (RoomScan's `CapturedRoomAdapter`); every rule is in `RoomPlanMapping.assemble` and tested on the Mac. The screen, the RoomPlan session and the scripted simulator scan are in the app, `Resoniq/Features/Optimize/Scan/`.
+
+| Symbol | Where | Holds |
+|---|---|---|
+| `RoomPlanConverter` | `RoomPlan/RoomPlanConverter.swift:11` | iOS only. `conversion(from:)` (:14, the room plus `LayoutGuess`), `room(from:)` (:21), `partial(from:)` (:24, cheap, no guess, for each delegate update), `markers(from:)` (:27) |
+| `RoomPlanMapping.SurfaceInput`, `ObjectInput`, `FloorInput` | `RoomPlan/RoomPlanMapping+Scan.swift:15`, `:50`, `:73` | A surface, object or floor on 16 column-major numbers and its dimensions; `Confidence` (:8) high, medium, low (an unknown value is low) |
+| `RoomPlanMapping.assemble(walls:openings:objects:floors:)` | `RoomPlan/RoomPlanMapping+Scan.swift:129` | Walls through `wall(...)`; doors, windows and doorless openings on their parent wall, else the nearest wall, else dropped; a doorless opening is kept as a door; furniture by category name; the largest floor polygon (≥ 3 corners) as the outline |
+| `RoomPlanMapping.Conversion`, `Dropped` | `RoomPlan/RoomPlanMapping+Scan.swift:105`, `:84` | The room, `lowConfidence` ids (kept in the room: the model has no confidence field), and what was dropped with the reason (`invalidGeometry`, `noWall`) |
+| `RoomPlanMapping.markers(walls:openings:objects:)`, `ScanMarker` | `RoomPlan/RoomPlanMapping+Scan.swift:194`, `:243` | Where the labels over the camera go, in ARKit world metres: a wall's centre with its length, an opening's centre, the top of an object the model names |
+| `CameraPermission`, `ScanReadiness` | `RoomPlan/ScanState.swift:5`, `:14` | `init(isSupported:camera:)`: no LiDAR → `unsupported` (manual entry), not asked → `needsPermission`, denied or restricted → `denied`, else `ready` |
+| `ScanInstruction`, `ScanDirection`, `ScanFailure` | `RoomPlan/ScanState.swift:39`, `:49`, `:58` | RoomPlan's instruction and capture errors as plain values, plus `noWalls` (an empty scan) |
+| `ScanProgress` | `RoomPlan/ScanState.swift:70` | `missingWalls(of:)` (:75, the dashed segment between an open chain's free ends, for the inset), `insetFacing(planAngle:)` (:112) |
+| `ScanText`, `ScanGuidance` | `RoomPlan/ScanText.swift:18`, `:4` | Every string of the Scan screen: `guidance(for:coverage:)` (:26, the sentence, the line under it, the arrow), `wallCount` (:58), `insetSummary` (:63), `label(for:)` (:72), buttons (:92), the states without a mockup, `failureHeadline` (:126), `failureBody` (:137) |
+
+What the conversion does not keep, because the model has no place for it: confidence (returned in `Conversion.lowConfidence`), whether a door is open, wall thickness and curve (a curved wall becomes its chord), opening and sill heights, object attributes and storage subtypes, stories and sections. Objects the model has no category for (a refrigerator, a stove) are kept as `.other` with their footprint and get no label.
 
 ### Geometry and edits
 
@@ -177,6 +195,8 @@ Every public static constant. "First guess" is said in the doc comment, and ever
 - `GuidanceTests`: progress halfway, toward the viewer and to the side, arrival needs both position and turn, the fraction stays in 0…1, taps strictly faster as the distance shrinks and none outside the range; `WorldAlignment` recovers a known rotation and translation from two and four points and from a point and a heading, flags an inconsistent point by its residual, refuses degenerate input, and carries a room there and back.
 - `ModelTests` (without `@testable`): a full model and a full advice round-trip through JSON; the RoomPlan helpers on hand-built transforms (a wall along its local x through its centre, an opening's offset, furniture heading, unknown categories, floor corners through the transform).
 
+- `ScanTests`: a wall turned 0.1 rad from a plausible scan against its ends worked out by hand; four walls close the 4.20 × 5.60 m room; openings on the parent wall, the nearest wall when the parent is missing or unknown, a doorless opening as a door, low confidence flagged; furniture kept, `.other` for a refrigerator, non-finite values and a zero-length wall dropped; an opening with no wall dropped; the largest floor polygon chosen; label markers; the missing wall between free ends; the inset's facing; readiness for every device and permission pair; every instruction and failure has copy.
+
 All of this is constructed geometry. Nothing here has met a real scan or a real room.
 
 ## Limits
@@ -196,3 +216,12 @@ What the doc comments say the models cannot tell you.
 - Is RoomPlan's local +z an object's front? The converter task should check on a real scan and, if so, `LayoutGuess` can trust the sofa's heading.
 - Should a move of one speaker of a symmetric pair suggest moving both (keeping symmetry), as the plan's rule "it does not break the symmetry of a pair unless that is the point" hints?
 - Every first-guess constant above needs before-and-after measurements in real rooms; the advisor's weights in particular are untested.
+- **Only a LiDAR device can verify the scan** (phase 4 task 2; nothing below was run, the device build only compiled):
+  - that `RoomCaptureView(frame:arSession:)` on the app's own `ARSession` scans and processes as in RoomScan;
+  - that the forwarding session-delegate proxy keeps the outlines and processing (RoomScan measured that it hides Apple's coaching overlay, which the screen replaces with its own instruction), that `didProvide` instructions arrive at all with `isCoachingEnabled`, and from which thread;
+  - that `viewDidAppear` runs RoomPlan once, Close and leaving the screen discard the scan, Finish processes it, and a second `didPresent` is ignored;
+  - that a capture error arrives through `captureView(shouldPresent:error:)` (where it is reported) and how `worldTrackingFailure`, `exceedSceneSizeLimit` and `deviceTooHot` look in practice;
+  - that the labels from `ARCamera.projectPoint(_:orientation:viewportSize:)` with the view's bounds sit on the things in RoomCaptureView's picture (aspect fill), and are cheap enough at 10 Hz;
+  - the camera's plan pose and heading on the inset, and whether the missing-wall guess looks right while walking a room;
+  - real scans through the converter: whether doors and windows carry `parentIdentifier`, whether RoomPlan's local +z is an object's front (see above), floor polygons, low-confidence rates, and how long `export(to:exportOptions: .parametric)` takes;
+  - the permission prompt on first use, the denied state and the return from Settings.

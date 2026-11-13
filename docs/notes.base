@@ -1,0 +1,24 @@
+filters:
+  and:
+    - 'file.ext == "md"'
+
+properties:
+  type:
+    displayName: "Type"
+  status:
+    displayName: "Status"
+  phase:
+    displayName: "Phase"
+
+views:
+  - type: table
+    name: "All notes"
+    groupBy:
+      property: type
+      direction: ASC
+    order:
+      - file.name
+      - type
+      - phase
+      - status
+      - file.mtime

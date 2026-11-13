@@ -3,7 +3,7 @@
 Resoniq is a native iOS app that diagnoses speakers, measures how a system sounds at the seat, and guides
 speaker placement with RoomPlan and AR. Everything runs on the device: no accounts, no backend, no network.
 
-Read first: `docs/index.md` (map of the notes), `docs/ARCHITECTURE.md` (modules and decisions), `docs/PLAN.md`
+Read first: `docs/index.md` (map of the notes), the `resoniq-stack` skill (the tools and how we use them), `docs/ARCHITECTURE.md` (modules and decisions), `docs/PLAN.md`
 (phases and status). The product is defined in `docs/PRODUCT_SPEC.md`, the look in `design/DESIGN_SYSTEM.md`,
 the screens in `design/DESIGN_SPEC.md`.
 
@@ -36,9 +36,9 @@ files it names, and port the pattern instead of inventing one. Never edit iosar 
 - `docs/` is an Obsidian vault. New knowledge goes there as a note with frontmatter (`docs/index.md` lists the
   types): a module's interface in `docs/modules/`, a measurement in `docs/research/`. Update the note in the
   same PR as the code it describes.
-- At most 3 agents at a time. Opus for hard work (DSP algorithms, concurrency, audio sessions, RoomPlan, AR,
-  Core ML, multi-file design), Sonnet for simple work (screens from mockups, docs, mechanical edits, small
-  tests), Haiku for lookups. Parallel agents work in worktrees under `.claude/worktrees/`, removed once merged.
+- At most 3 agents at a time. The strongest model does architecture and checks, cheaper models build: the
+  table is in the `resoniq-stack` skill ("Agents and models"). Parallel agents work in worktrees under
+  `.claude/worktrees/`, removed once merged.
 - Write the test first for Kit code. Run `make test` (Mac, seconds) while working and `make build` before a PR.
   Anything that needs a microphone, LiDAR or AR is verified on a device; say in the PR what was and was not.
 - The Xcode project is generated: edit `project.yml`, run `make project`, never commit `*.xcodeproj`.

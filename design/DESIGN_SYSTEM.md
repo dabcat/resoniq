@@ -1,7 +1,7 @@
 # Resoniq Design System
 
 Version 0.2 · precision-instrument direction. Values live in [`tokens.json`](./tokens.json) and, for SwiftUI,
-in [`swift/ResoniqTheme.swift`](./swift/ResoniqTheme.swift). Screens and flows are in
+in the [`ResoniqDesign`](../ResoniqKit/Sources/ResoniqDesign) module. Screens and flows are in
 [`DESIGN_SPEC.md`](./DESIGN_SPEC.md). Brand assets are in [`brand/`](./brand).
 
 ## What it should feel like

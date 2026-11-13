@@ -36,7 +36,7 @@ enum TrackerStepState: Sendable, Equatable {
 ///
 /// A done step is `lime` with a check, the current step `guide` with a dot that pulses (and stays when Reduce Motion
 /// is on), an upcoming one `muted` with `line` rules. The marks differ as well as the colours. VoiceOver reads each
-/// step as "Step 3 of 4, Move, current". At accessibility text sizes the steps stack in a column.
+/// step as "Step 3 of 4, Move, current". The labels are never truncated: the rules give way first, and at accessibility text sizes (or when the labels still do not fit) the steps stack in a column.
 ///
 /// `current` is the index of the current step; pass `steps.count` when every step is done (V3OVerify).
 public struct ResoniqProgressTracker: View {
@@ -53,22 +53,31 @@ public struct ResoniqProgressTracker: View {
     public var body: some View {
         Group {
             if typeSize.isAccessibilitySize {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(steps.indices, id: \.self) { index in
-                        if index > 0 { rule(before: index, vertical: true) }
-                        step(index)
-                    }
-                }
+                stacked
             } else {
-                HStack(spacing: Metrics.gap) {
-                    ForEach(steps.indices, id: \.self) { index in
-                        if index > 0 { rule(before: index, vertical: false) }
-                        step(index)
+                // The labels keep their full width and the rules take what is left (a flexible rule would otherwise
+                // be offered the same share as a label and squeeze it). When even that does not fit, the steps stack.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: Metrics.gap) {
+                        ForEach(steps.indices, id: \.self) { index in
+                            if index > 0 { rule(before: index, vertical: false) }
+                            step(index)
+                        }
                     }
+                    stacked
                 }
             }
         }
         .accessibilityElement(children: .contain)
+    }
+
+    private var stacked: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(steps.indices, id: \.self) { index in
+                if index > 0 { rule(before: index, vertical: true) }
+                step(index)
+            }
+        }
     }
 
     private func color(_ state: TrackerStepState) -> Color {
@@ -99,8 +108,7 @@ public struct ResoniqProgressTracker: View {
                 .font(ResoniqFont.capsLabel)
                 .tracking(ResoniqFont.capsLabelSize * Metrics.tracking)
                 .textCase(.uppercase)
-                .lineLimit(1)
-                .minimumScaleFactor(Metrics.minimumScale)
+                .fixedSize(horizontal: true, vertical: false)
         }
         .foregroundStyle(color(state))
         .frame(minHeight: Metrics.stepHeight)
@@ -120,7 +128,7 @@ public struct ResoniqProgressTracker: View {
             Rectangle()
                 .fill(colour)
                 .frame(width: vertical ? Metrics.rule : nil, height: vertical ? Metrics.verticalRule : Metrics.rule)
-                .frame(maxWidth: vertical ? nil : .infinity, alignment: .leading)
+                .frame(minWidth: vertical ? nil : Metrics.minimumRule, maxWidth: vertical ? nil : .infinity, alignment: .leading)
                 .opacity(isActive && !phase ? Metrics.ruleLow : 1)
         }
         .padding(.leading, vertical ? Metrics.verticalRuleInset : 0)
@@ -140,7 +148,8 @@ public struct ResoniqProgressTracker: View {
         static let ruleLow: Double = 0.4
         /// V3Optimize: the current rule pulses over 1.6 s.
         static let rulePulse = Animation.easeInOut(duration: 0.8).repeatForever(autoreverses: true)
-        static let minimumScale: CGFloat = 0.7
+        /// The shortest a rule gets before the steps stack instead.
+        static let minimumRule: CGFloat = 8
         static let stepHeight: CGFloat = 20
     }
 }

@@ -277,12 +277,14 @@ private func kind(of verdict: RecordingVerdict) -> String {
         #expect(abs(SignalToNoise.ratio(signal: signal, noise: noise) - 56.99) < 0.05)
     }
 
-    @Test func `ratio of two buffers matches the ratio of their levels`() {
+    @Test func `ratio of two buffers is the ratio of their RMS, computed independently`() {
+        // The RMS of each buffer worked out here in double precision, not by LevelMeter: a 1 kHz sine of 0.1 over
+        // 4800 samples (a whole number of periods) has RMS 0.1/√2 exactly.
         let signal = sine(frequency: 1000, amplitude: 0.1, count: 4800)
         let noise = whiteNoise(rms: 0.001, count: 4800)
-        let fromBuffers = SignalToNoise.ratio(signal: signal, noise: noise)
-        let fromLevels = SignalToNoise.ratio(signal: LevelMeter.measure(signal), noise: LevelMeter.measure(noise))
-        #expect(fromBuffers == fromLevels)
+        let noiseRMS = (noise.reduce(0.0) { $0 + Double($1) * Double($1) } / Double(noise.count)).squareRoot()
+        let expected = 20 * log10(0.1 / 2.squareRoot() / noiseRMS)
+        #expect(abs(Double(SignalToNoise.ratio(signal: signal, noise: noise)) - expected) < 0.001)
     }
 
     @Test func `the same noise ten times louder is 20 dB up in every band`() {
@@ -377,6 +379,35 @@ private func kind(of verdict: RecordingVerdict) -> String {
         let loudRoom = NoiseFloor.measure(whiteNoise(rms: 0.01, count: seconds(1)), sampleRate: sampleRate)
         let recording = sine(frequency: 1000, amplitude: Decibels.toAmplitude(-50), count: seconds(1))
         #expect(kind(of: RecordingQuality.assess(recording: recording, noiseFloor: loudRoom)) == "tooQuiet")
+    }
+
+    @Test func `a real sweep recording in a quiet room is valid, with the ratio its parts give`() throws {
+        // The measurement sweep through a speaker that rolls off below 80 Hz, recorded 0.15 s late with 0.5 s of
+        // tail and room noise at −60 dBFS, against a second of that room alone. The ratio is worked out here from
+        // the two buffers' RMS in double precision.
+        let sweep = LogSweep.measurement(sampleRate: sampleRate)
+        let speaker = SimulatedSpeaker(
+            delaySamples: 7200,
+            filters: [Biquad.highPass(frequency: 80, q: 0.707, sampleRate: sampleRate)],
+            noiseRMS: 0.001,
+            seed: 5
+        )
+        let recording = speaker.record(sweep)
+        var generator = SeededGenerator(state: 6)
+        let room = generator.noise(count: seconds(1), rms: 0.001).map(Float.init)
+        let floor = NoiseFloor.measure(room, sampleRate: sampleRate)
+        #expect(floor.isSteady)
+        guard case let .valid(level, signalToNoise) = RecordingQuality.assess(recording: recording, noiseFloor: floor) else {
+            Issue.record("expected valid")
+            return
+        }
+        func rms(_ samples: [Float]) -> Double {
+            (samples.reduce(0.0) { $0 + Double($1) * Double($1) } / Double(samples.count)).squareRoot()
+        }
+        #expect(abs(Double(signalToNoise) - 20 * log10(rms(recording) / rms(room))) < 0.01)
+        // The sweep plays at 0.25; the high-pass's resonance lifts its peak a little above that.
+        #expect(level.peak > 0.24 && level.peak < 0.3)
+        #expect(!ClippingDetector.detect(recording).isClipped)
     }
 
     @Test func `thresholds are a parameter`() {

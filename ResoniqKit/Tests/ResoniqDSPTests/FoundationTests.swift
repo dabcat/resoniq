@@ -43,11 +43,14 @@ import Testing
         #expect(rest < 0.01)
     }
 
-    @Test func `inverse undoes forward`() {
-        var generator = SystemRandomNumberGenerator()
-        let signal = (0..<512).map { _ in Float.random(in: -1...1, using: &generator) }
+    @Test(arguments: [16, 512, 65536])
+    func `inverse undoes forward`(size: Int) {
+        // Seeded, so a failure reproduces.
+        var generator = SeededGenerator(state: 3)
+        let signal = (0..<size).map { _ in Float.random(in: -1...1, using: &generator) }
         let back = FFT.inverse(FFT.forward(signal))
-        #expect(zip(signal, back).allSatisfy { abs($0 - $1) < 1e-4 })
+        let worst = zip(signal, back).map { abs($0 - $1) }.max() ?? 1
+        #expect(worst < 1e-5 * Float(size).squareRoot(), "worst \(worst)")
     }
 
     @Test func `forward pads to a power of two`() {

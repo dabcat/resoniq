@@ -50,6 +50,12 @@ public struct QualityThresholds: Sendable, Equatable {
     /// The least broadband signal-to-noise ratio, recording RMS over noise-floor RMS, a valid recording has.
     /// *First guess*: 20 dB. Sweep deconvolution recovers much more than this, but the broadband figure is
     /// dominated by low-frequency rumble, where the sweep's advantage is smallest.
+    ///
+    /// It is a gate for the frequency response, not for distortion. With white noise 20 dB under a sweep
+    /// recording the response is within 0.06 dB once smoothed to a sixth of an octave (0.5 dB in a single bin),
+    /// while sweep THD reads 2 to 5 % from the noise alone. That is why it was not raised: whether a THD figure is
+    /// a measurement is decided per frequency by `SweepDistortion.isMeasurable(at:)`, against a floor measured on
+    /// the recording itself, and a higher broadband gate would reject recordings whose response is fine.
     public var minimumSignalToNoiseDecibels: Float
 
     // MARK: Noise floor

@@ -48,8 +48,37 @@ extension Finding {
         frequencyRange.map { FrequencyRuler.fraction(forFrequency: Double($0.centre)) }
     }
 
+    /// What a finding's row beside the portrait offers.
+    enum NoteAction: Equatable {
+        /// "Hear it yourself": the Finding screen with a tone to play.
+        case hear
+        /// "See the runs": the Finding screen with the runs and numbers, nothing to hear.
+        case showRuns
+        /// The row says what it says (headline, detail) and leads nowhere: there is nothing to show or play.
+        case informational
+    }
+
+    /// Decided here for each kind, so a new kind cannot slip into the wrong behaviour.
+    ///
+    /// - A finding about the speaker's sound that has a frequency to play: hear it.
+    /// - A quiet band: its runs and numbers are worth showing, but a tone through a driver that makes little sound
+    ///   has nothing to teach the ear, so there is no hold-to-hear even though the Kit gives a frequency.
+    /// - An even statement, an unusable run, a band that could not be checked and distortion that could not be told
+    ///   from the noise are inconclusive or plain statements: informational. The last has numbers, but a screen
+    ///   built to check a defect by ear would suggest a defect was found.
+    var noteAction: NoteAction {
+        switch kind {
+        case .responseDip, .responsePeak, .distortion, .topEndDip, .leftRightDifference:
+            listenFrequency == nil ? .informational : .hear
+        case .quietBand:
+            context == nil || numbers == nil ? .informational : .showRuns
+        case .even, .invalidRecording, .notAssessed, .distortionUnclear:
+            .informational
+        }
+    }
+
     /// Whether the Finding screen has a tone to play for it.
-    var hasSomethingToHear: Bool { listenFrequency != nil }
+    var hasSomethingToHear: Bool { noteAction == .hear }
 }
 
 // MARK: - Portrait
@@ -75,11 +104,14 @@ extension PortraitProfile {
 
 /// What the Finding screen's run comparison draws, ready for `RunOverlay`.
 struct RunComparison {
-    /// One trace per usable run, each 0...1 across the context.
-    var traces: [[Double]]
+    /// One trace per usable run, each 0...1 across the context. A nil is a stretch the Kit did not measure: a gap,
+    /// never a value.
+    var traces: [[Double?]]
     /// The finding's frequencies as fractions of the width.
     var marked: ClosedRange<Double>
-    /// The axis under the traces: "40 Hz", "70–110 Hz", "200 Hz".
+    /// Whether any trace has a gap, so the screen can say what a gap is.
+    var hasGaps: Bool { traces.contains { $0.contains { $0 == nil } } }
+    /// The axis under the traces: "80 Hz", "100–160 Hz", "300 Hz".
     var lowerLabel: String
     var rangeLabel: String
     var upperLabel: String
@@ -106,10 +138,14 @@ struct RunComparison {
         traces = measurements.map { measurement in
             (first...last).map { index in
                 if let distortionThreshold {
-                    let percent = Double(measurement.thdPercent(atIndex: index) ?? 0)
-                    let scaled = min(percent / (distortionThreshold * DisplayScale.distortionFullScaleThresholds), 1)
+                    // Only a measurement is drawn: where distortion was not read, or was not clear of the noise,
+                    // the trace has a gap, not a zero.
+                    guard case .measured(let percent) = measurement.distortion(atIndex: index) else { return nil }
+                    let scaled = min(Double(percent) / (distortionThreshold * DisplayScale.distortionFullScaleThresholds), 1)
                     return DisplayScale.distortionBaseline + DisplayScale.distortionReach * scaled
                 }
+                // A response held at the edge of what was measured is not a measurement either.
+                guard measurement.isResponseMeasured(atIndex: index) else { return nil }
                 return 0.5 + Double(measurement.normalizedResponse[index]) / (2 * DisplayScale.traceDecibelsEachWay)
             }
         }
@@ -122,8 +158,16 @@ struct RunComparison {
             FrequencyRuler.spokenFrequency(Double(DiagnosisText.rounded(frequency)))
         }
         let repeatability = finding.repeatability.map { "\($0), " } ?? ""
+        let gaps = traces.contains { $0.contains { $0 == nil } } ? " \(Words.gaps)" : ""
         accessibilityLabel =
-            "\(measurements.count) test runs one above the other. \(repeatability)between \(spoken(range.lower)) and \(spoken(range.upper))."
+            "\(measurements.count) test runs one above the other. \(repeatability)between \(spoken(range.lower)) and \(spoken(range.upper)).\(gaps)"
+    }
+}
+
+extension RunComparison {
+    enum Words {
+        /// What a break in a trace means.
+        static let gaps = "Gaps are where I couldn't measure."
     }
 }
 
@@ -167,7 +211,7 @@ struct SpeakerSummary: Equatable {
     var name: String
     /// The portrait to draw; `PortraitProfile.notHeard` when there is none.
     var profile: PortraitProfile
-    /// The line under the name: "Buzz at 70–110 Hz", "Not heard yet".
+    /// The line under the name: "Possible buzz at 100–160 Hz", "Not heard yet".
     var status: String
     /// The status is a suspected defect, so it is drawn in the deviation colour and semibold.
     var isDeviation: Bool

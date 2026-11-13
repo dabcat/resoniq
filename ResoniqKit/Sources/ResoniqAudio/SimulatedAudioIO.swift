@@ -296,9 +296,14 @@ struct Biquad: Sendable, Hashable {
         let section: Biquad
         var x1 = 0.0, x2 = 0.0, y1 = 0.0, y2 = 0.0
 
+        // Per sample, so written for a debug build too: plain assignments rather than a tuple (which an
+        // unoptimised build looks up as generic metadata every call).
         mutating func process(_ x: Double) -> Double {
             let y = section.b0 * x + section.b1 * x1 + section.b2 * x2 - section.a1 * y1 - section.a2 * y2
-            (x2, x1, y2, y1) = (x1, x, y1, y)
+            x2 = x1
+            x1 = x
+            y2 = y1
+            y1 = y
             return y
         }
     }
@@ -335,7 +340,11 @@ struct SpeakerChain: Sendable {
     /// rattle leaves the room's noise exactly as it was.
     mutating func process(_ input: Double, random: inout SplitMix) -> Double {
         var y = gain * input
-        for index in filters.indices { y = filters[index].process(y) }
+        var index = 0
+        while index < filters.count {
+            y = filters[index].process(y)
+            index += 1
+        }
         if defectFilter != nil {
             let band = defectFilter!.process(y)
             y += cubic * band * band * band
@@ -505,13 +514,26 @@ struct SimulationState: Sendable {
             throw error
         }
         let count = configuration.blockSize
+        let noiseRMS = configuration.noiseRMS
         var samples = [Float](repeating: 0, count: count)
-        for offset in 0..<count {
+        // What can sound in this block, in order, found once rather than per sample. The arithmetic per sample, and
+        // the order the noise is drawn in, are the same as testing every item and burst at every sample; the loops
+        // are plain `while` loops because this runs per sample in debug builds too.
+        let firstSent = position - delay
+        let lastSent = firstSent + Int64(count)
+        let active = items.filter { $0.start < lastSent && $0.end > firstSent }
+        let sounding = bursts.filter { $0.start < position + Int64(count) && $0.end > position }
+        var offset = 0
+        while offset < count {
             let capture = position + Int64(offset)
             let sent = capture - delay
             var leftInput: Float = 0
             var rightInput: Float = 0
-            for item in items where sent >= item.start && sent < item.end {
+            var itemIndex = 0
+            while itemIndex < active.count {
+                let item = active[itemIndex]
+                itemIndex += 1
+                guard sent >= item.start && sent < item.end else { continue }
                 let value = item.sample(at: sent)
                 switch item.channel {
                 case .left: leftInput += value
@@ -527,12 +549,16 @@ struct SimulationState: Sendable {
             } else {
                 value = left.process(Double(leftInput), random: &random) + right.process(Double(rightInput), random: &random)
             }
-            if configuration.noiseRMS > 0 { value += configuration.noiseRMS * random.gaussian() }
-            for burst in bursts where capture >= burst.start && capture < burst.end {
-                value += burst.rms * random.gaussian()
+            if noiseRMS > 0 { value += noiseRMS * random.gaussian() }
+            var burstIndex = 0
+            while burstIndex < sounding.count {
+                let burst = sounding[burstIndex]
+                burstIndex += 1
+                if capture >= burst.start && capture < burst.end { value += burst.rms * random.gaussian() }
             }
             // The converter clips at full scale.
             samples[offset] = Float(min(max(value, -1), 1))
+            offset += 1
         }
         let block = CapturedBlock(position: position, samples: samples)
         position += Int64(count)

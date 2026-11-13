@@ -59,6 +59,20 @@ public final class MeasurementSession {
     /// Whether the test's task is still running. False once `run()` has returned.
     public var isRunning: Bool { task != nil }
 
+    /// The audio to classify when noise ended the test or spoiled a recording: the latest audio kept while the run
+    /// was paused when the room never quietened (`failed(.tooNoisy)`, `sweepPlaying` false), or the recording itself
+    /// when its check judged it too noisy (repeated, or failed as `recordingUnusable`; `sweepPlaying` true). Nil when
+    /// neither happened. The latest one wins.
+    public private(set) var noisyRecording: CapturedAudio?
+
+    /// While the test is `paused` for noise: the latest captured audio of the pause, at most
+    /// `CapturedAudio.pausedDuration`, for naming the noise. Nil in any other state.
+    public func pausedAudio() -> CapturedAudio? {
+        guard case .paused = state else { return nil }
+        return paused?.audio
+    }
+
+    @ObservationIgnored private var paused: PausedAudioKeeper?
     @ObservationIgnored private let io: any AudioIO
     @ObservationIgnored private let permission: any MicrophonePermission
     @ObservationIgnored private let stillness: any StillnessMonitor
@@ -151,6 +165,7 @@ public final class MeasurementSession {
         }
         stillness.start()
         defer { stillness.stop() }
+        paused = PausedAudioKeeper(sampleRate: stream.sampleRate)
 
         var test = TestRun(
             sampleRate: stream.sampleRate,
@@ -267,6 +282,8 @@ public final class MeasurementSession {
             sampleRate: test.sampleRate,
             io: io
         )
+        if case .paused = step { paused?.pauseBegan() }
+        if test.performer.isPaused { paused?.keep(block.samples) }
         report(block, assessment: assessment, quiet: quiet, steady: steady, clipped: clipped, test: test)
 
         switch step {
@@ -281,6 +298,7 @@ public final class MeasurementSession {
         case .failed(let problem):
             return .failed(.recordingUnusable(problem))
         case .tooNoisy:
+            noisyRecording = paused?.audio
             return .failed(.tooNoisy)
         case .recorded(let recording):
             return await check(recording, in: &test)
@@ -342,6 +360,9 @@ public final class MeasurementSession {
         state = .checking(run: test.run)
         let (verdict, problem, measuredDelay) = await RunPerformer.inspect(recording.samples, sweep: test.sweep, floor: floor, thresholds: thresholds)
         guard !Task.isCancelled else { return nil }
+        if case .tooNoisy = verdict {
+            noisyRecording = CapturedAudio(samples: recording.samples, sampleRate: test.sampleRate, sweepPlaying: true)
+        }
         let conclusion = test.performer.conclude(
             recording,
             verdict: verdict,

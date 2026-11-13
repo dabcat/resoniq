@@ -37,6 +37,10 @@ public struct SpeakerReport: Sendable, Codable, Equatable {
 ///   `inconclusive` ("too noisy to tell"), never a buzz.
 /// - A statement that drivers are even is `measured`, and what it says about distortion covers only the stretch
 ///   where every run ruled a buzz out; it says nothing about rattle, which a sweep does not measure.
+/// - Sound tied to the sweep (`RunRecord.sweepTiedSound`, the session's observation) at the same place in at least
+///   `minimumAgreeingRuns` valid runs is a possible rattle, `inferred` with the runs as its basis; in one run it is
+///   dropped. Over a measured buzz it is not a second finding but the buzz's second piece of evidence
+///   (`Finding.sweepTied`). Either way the drivers it overlaps are left out of the even statement.
 /// - Nothing is read outside a run's `responseBand`, where its response holds the edge value.
 /// - An invalid run is reported as such, and nothing is drawn from it; with fewer than `minimumValidRuns` valid
 ///   runs nothing is concluded at all.
@@ -105,8 +109,17 @@ public enum SpeakerDiagnosis {
         let distortion = distortionClusters(measurements, audible: audible, thresholds: thresholds)
         func inQuietBand(_ cluster: Cluster) -> Bool { quietRanges.contains { $0.contains(cluster.range.centre) } }
         let buzzes = distortion.measured.filter { $0.runs >= thresholds.minimumAgreeingRuns && !inQuietBand($0) }
+        // Sound tied to the sweep where it recurs: over a measured buzz it is that buzz's second piece of evidence,
+        // so the two never contradict each other; elsewhere it is a possible rattle.
+        let tied = sweepTiedClusters(records, valid: Set(measurements.keys), thresholds: thresholds)
         for cluster in buzzes {
-            findings.append(deviationFinding(.distortion, cluster, compared: compared, runCount: records.count, thresholds: thresholds))
+            let alsoHeard = tied.first { $0.range.overlaps(cluster.range) }
+            findings.append(deviationFinding(
+                .distortion, cluster, compared: compared, runCount: records.count, thresholds: thresholds, sweepTied: alsoHeard
+            ))
+        }
+        for cluster in tied where !buzzes.contains(where: { $0.range.overlaps(cluster.range) }) {
+            findings.append(rattleFinding(cluster, compared: compared, thresholds: thresholds))
         }
         // Where THD read above the threshold but did not stand clear of the noise, no buzz is claimed; the report
         // says it could not tell, unless a measured buzz is already at the same place (its noisy skirt).
@@ -359,18 +372,64 @@ public enum SpeakerDiagnosis {
 
     // MARK: Building findings
 
+    /// Where valid runs heard sound tied to the sweep (`RunRecord.sweepTiedSound`), grouped across runs as deviations
+    /// are, kept only where at least `minimumAgreeingRuns` runs agree: in one run it is dropped, like any deviation
+    /// seen once. An invalid run's observation does not count.
+    static func sweepTiedClusters(_ records: [RunRecord], valid: Set<Int>, thresholds: DiagnosisThresholds) -> [Cluster] {
+        var regions: [Int: [Region]] = [:]
+        for (index, record) in records.enumerated() where valid.contains(index) {
+            guard let range = record.sweepTiedSound?.range else { continue }
+            regions[index] = [Region(
+                range: range, coreLower: range.lower, extreme: 0, extremeFrequency: range.centre,
+                touchesLower: false, touchesUpper: false
+            )]
+        }
+        return Cluster.group(regions, toleranceOctaves: thresholds.samePlaceOctaves)
+            .filter { $0.runs >= thresholds.minimumAgreeingRuns }
+    }
+
+    /// A possible rattle: `inferred`, with the runs it rests on and a confidence statement that names the room or
+    /// something near the speaker vibrating. Nothing was measured, so it carries no numbers.
+    static func rattleFinding(_ cluster: Cluster, compared: Int, thresholds: DiagnosisThresholds) -> Finding {
+        let range = cluster.range
+        let basis = Finding.Basis(runsAgreeing: cluster.runs, runsCompared: compared)
+        let confidence: Finding.Confidence =
+            cluster.runs == compared && cluster.runs >= thresholds.mediumConfidenceRuns ? .medium : .low
+        let words = DiagnosisText.rattle(range: range)
+        return Finding(
+            id: identifier(.rattle, range),
+            kind: .rattle,
+            frequencyRange: range,
+            bands: [DriverBand(frequency: range.centre)],
+            tag: .inferred,
+            basis: basis,
+            confidence: confidence,
+            headline: words.headline,
+            detail: words.detail,
+            sentence: words.sentence,
+            tagLine: DiagnosisText.tagLine(tag: .inferred, basis: basis),
+            confidenceStatement: DiagnosisText.rattleConfidence(confidence, basis: basis),
+            repeatability: DiagnosisText.repeatability(basis),
+            listenFrequency: DiagnosisText.rounded(range.centre),
+            context: range.widened(octaves: 0.85),
+            numbers: nil,
+            recordingProblem: nil
+        )
+    }
+
     static func deviationFinding(
         _ kind: Finding.Kind,
         _ cluster: Cluster,
         compared: Int,
         runCount: Int,
-        thresholds: DiagnosisThresholds
+        thresholds: DiagnosisThresholds,
+        sweepTied: Cluster? = nil
     ) -> Finding {
         let range = cluster.range
         let basis = Finding.Basis(runsAgreeing: cluster.runs, runsCompared: compared)
         let confidence: Finding.Confidence =
             cluster.runs == compared && cluster.runs >= thresholds.mediumConfidenceRuns ? .medium : .low
-        let words: DiagnosisText.Words
+        var words: DiagnosisText.Words
         let numbers: Finding.Numbers
         switch kind {
         case .distortion:
@@ -386,7 +445,14 @@ public enum SpeakerDiagnosis {
             words = DiagnosisText.dip(range: range, depth: cluster.extreme)
             numbers = Self.numbers(cluster, unit: .decibels, threshold: thresholds.deviationDecibels, runCount: runCount)
         }
-        return Finding(
+        let evidence = sweepTied.map { tied in
+            let heard = Finding.Basis(runsAgreeing: tied.runs, runsCompared: compared)
+            return Finding.SweepTiedEvidence(
+                range: tied.range, runsHeard: tied.runs, runsCompared: compared, statement: DiagnosisText.sweepTiedAlso(heard)
+            )
+        }
+        if let evidence { words.detail += " " + evidence.statement }
+        var finding = Finding(
             id: identifier(kind, range),
             kind: kind,
             frequencyRange: range,
@@ -405,6 +471,8 @@ public enum SpeakerDiagnosis {
             numbers: numbers,
             recordingProblem: nil
         )
+        finding.sweepTied = evidence
+        return finding
     }
 
     static func topEndFinding(_ cluster: Cluster, compared: Int, runCount: Int, thresholds: DiagnosisThresholds) -> Finding {

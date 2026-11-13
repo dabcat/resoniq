@@ -78,6 +78,27 @@ public final class SeatMeasurementSession {
     /// Whether the measurement's task is still running. False once `run()` has returned.
     public var isRunning: Bool { task != nil }
 
+    /// The spots captured so far with what they are measured against, updated as each spot is captured (at
+    /// `spotCaptured`), so the app can analyse a spot (`SpotAnalyzer`) while the next one is measured and grow the
+    /// running average. Nil until the room's floor is known; then its `spots` start empty. At the end it equals the
+    /// `finished` result.
+    public private(set) var captured: SeatMeasurementResult?
+
+    /// The recordings of the spots captured so far (`captured`), in order; empty before the first.
+    public var capturedSpots: [SeatSpotRecording] { captured?.spots ?? [] }
+
+    /// The audio to classify when noise ended the measurement or spoiled a recording; as
+    /// `MeasurementSession.noisyRecording`.
+    public private(set) var noisyRecording: CapturedAudio?
+
+    /// While a sweep is `paused` for noise: the latest captured audio of the pause, at most
+    /// `CapturedAudio.pausedDuration`. Nil in any other state.
+    public func pausedAudio() -> CapturedAudio? {
+        guard case .paused = state else { return nil }
+        return paused?.audio
+    }
+
+    @ObservationIgnored private var paused: PausedAudioKeeper?
     @ObservationIgnored private let io: any AudioIO
     @ObservationIgnored private let permission: any MicrophonePermission
     @ObservationIgnored private let stillness: any StillnessMonitor
@@ -188,6 +209,7 @@ public final class SeatMeasurementSession {
         }
         stillness.start()
         defer { stillness.stop() }
+        paused = PausedAudioKeeper(sampleRate: stream.sampleRate)
 
         var seat = SeatRun(sampleRate: stream.sampleRate, configuration: configuration, thresholds: thresholds)
         var outcome: State?
@@ -299,6 +321,7 @@ public final class SeatMeasurementSession {
             if let (floor, detector) = seat.listener.listen(block) {
                 seat.floor = floor
                 seat.detector = detector
+                captured = SeatMeasurementResult(channels: channels, sweep: seat.sweep, noiseFloor: floor, spots: [])
                 waitForSpot(&seat)
             }
             return nil
@@ -393,6 +416,8 @@ public final class SeatMeasurementSession {
             io: io
         )
         seat.performer = performer
+        if case .paused = step { paused?.pauseBegan() }
+        if performer.isPaused { paused?.keep(block.samples) }
         report(block, assessment: assessment, quiet: quiet, steady: steady, clipped: clipped, seat: seat)
 
         switch step {
@@ -407,6 +432,7 @@ public final class SeatMeasurementSession {
         case .failed(let problem):
             return .failed(.recordingUnusable(problem))
         case .tooNoisy:
+            noisyRecording = paused?.audio
             return .failed(.tooNoisy)
         case .recorded(let recording):
             return await check(recording, in: &seat)
@@ -419,6 +445,9 @@ public final class SeatMeasurementSession {
         state = .checking(spot: seat.spot, channel: channel)
         let (verdict, problem, measuredDelay) = await RunPerformer.inspect(recording.samples, sweep: seat.sweep, floor: floor, thresholds: thresholds)
         guard !Task.isCancelled else { return nil }
+        if case .tooNoisy = verdict {
+            noisyRecording = CapturedAudio(samples: recording.samples, sampleRate: seat.sampleRate, sweepPlaying: true)
+        }
         let conclusion = performer.conclude(
             recording,
             verdict: verdict,
@@ -449,6 +478,7 @@ public final class SeatMeasurementSession {
             phoneMoved: seat.recordings.values.contains { $0.phoneMoved },
             movementDetected: seat.movementDetected
         ))
+        captured = SeatMeasurementResult(channels: channels, sweep: seat.sweep, noiseFloor: floor, spots: seat.spots)
         seat.performer = nil
         seat.moved = false
         seat.phase = .captured(remaining: seat.count(Self.capturedHold))
@@ -491,8 +521,10 @@ public final class SeatMeasurementSession {
         // While nothing plays, the room is the whole block.
         let room = paused || performer?.isRecording != true ? assessment.blockLevel : assessment.roomLevel
         var stillnessFraction: Double?
+        var wait: SeatWaitPhase?
         if case .waiting = seat.phase {
             stillnessFraction = min(1, Double(seat.stillSamples) / Double(max(seat.count(Self.stillnessHold), 1)))
+            wait = SeatWaitPhase(firstSpot: seat.spotIndex == 0, moved: seat.moved, steady: steady)
         }
         progress = SeatMeasurementProgress(
             spot: seat.spot,
@@ -509,6 +541,7 @@ public final class SeatMeasurementSession {
             isClipping: clipped,
             isPhoneSteady: steady,
             stillness: stillnessFraction,
+            wait: wait,
             routeDelay: delay.map { Double($0) / seat.sampleRate }
         )
     }

@@ -73,7 +73,7 @@ final class ToneAudioIO: AudioIO {
         for await update in LiveSpectrum(io: io).bands() {
             latest = update
             count += 1
-            if count == 30 { break }
+            if count == 10 { break }
         }
         let bands = try #require(latest)
         #expect(bands.count == 31)
@@ -98,7 +98,7 @@ final class ToneAudioIO: AudioIO {
             return count
         }
         // Let it run a little, counted in blocks rather than time.
-        while io.recorded.blocksDelivered < 20 { await Task.yield() }
+        while io.recorded.blocksDelivered < 8 { await Task.yield() }
         listener.cancel()
         let count = await listener.value
         #expect(count > 0)
@@ -120,7 +120,7 @@ final class ToneAudioIO: AudioIO {
     @Test func `there are fifteen updates a second of audio, whatever the block size`() {
         for blockSize in [4800, 1031, 48000] {
             var analyzer = LiveSpectrumAnalyzer(sampleRate: 48000)
-            let samples = Self.tone(seconds: 2)
+            let samples = Self.tone(seconds: 1)
             var updates = 0
             var offset = 0
             while offset < samples.count {
@@ -128,7 +128,7 @@ final class ToneAudioIO: AudioIO {
                 updates += analyzer.append(Array(samples[offset..<end])).count
                 offset = end
             }
-            #expect(updates == 30, "blocks of \(blockSize)")
+            #expect(updates == 15, "blocks of \(blockSize)")
         }
     }
 

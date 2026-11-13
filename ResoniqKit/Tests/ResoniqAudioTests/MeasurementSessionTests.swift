@@ -96,8 +96,8 @@ import Testing
                 blocksWhilePaused += 1
                 #expect(!progress.isRoomQuiet)
                 #expect(!io.isPlaying)
-                // 20 s of noise.
-                if blocksWhilePaused == 200 { break }
+                // 5 s of noise, ten times the quiet a resume needs.
+                if blocksWhilePaused == 50 { break }
             }
         }
         #expect(session.state.isPaused)
@@ -215,18 +215,22 @@ import Testing
         #expect(abs(delay - 0.3) < 0.05)
     }
 
+    /// Two runs: the first learns the route's delay, the second starts with it known, which is all a third would add.
+    static let twoRuns = MeasurementConfiguration(runCount: 2)
+
     @Test func `blocks of any size are accepted`() async throws {
         let io = Fixture.io(blockSize: 1031)
-        let final = await Fixture.session(io: io).run()
-        #expect(final.result?.runs.count == 3)
+        let final = await Fixture.session(io: io, configuration: Self.twoRuns).run()
+        #expect(final.result?.runs.count == 2)
     }
 
     @Test func `odd blocks, a long route and a loud burst do not trap the noise detector`() async throws {
         // This trapped in `SweepNoiseDetector.assess` (crossed range bounds) before its peak interpolation was bounded.
-        let burst = NoiseBurst(start: .afterScheduling(buffer: 2, offset: 3.0), duration: 0.4, rms: 0.05)
+        // The burst comes 3 s into a run after the first, as it did in the third of three.
+        let burst = NoiseBurst(start: .afterScheduling(buffer: 1, offset: 3.0), duration: 0.4, rms: 0.05)
         let io = Fixture.io(routeDelay: 0.7, bursts: [burst], blockSize: 1031)
-        let final = await Fixture.session(io: io).run()
-        #expect(final.result?.runs.count == 3, "ended \(final)")
+        let final = await Fixture.session(io: io, configuration: Self.twoRuns).run()
+        #expect(final.result?.runs.count == 2, "ended \(final)")
     }
 
     @Test func `a stream slower than 44.1 kHz fails before any sound`() async {

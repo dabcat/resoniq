@@ -247,6 +247,14 @@ final class DiagnoseFlow {
     private var liveWidths: [Double] = []
     private var liveHeardUpTo: Double?
 
+    /// While a run is paused for noise: what the noise sounded like ("It sounds like someone talking." and its tag
+    /// line), from the Kit's sound classifier on the session's paused audio; nil until it is known, when nothing
+    /// clear was heard, and once the run plays again. The Paused screen has no place for it yet, so nothing shows it.
+    private(set) var noiseNote: InterferenceNote?
+    @ObservationIgnored private var noiseNoteTask: Task<Void, Never>?
+    /// The classifier wants a few of its windows; asked once a pause holds this much audio, seconds.
+    private static let noiseNoteAudio = 2.0
+
     /// - Parameters:
     ///   - position: The speaker Aim starts on.
     ///   - counterpart: The other speaker's analysed runs for the speaker being tested, for a left/right comparison,
@@ -339,7 +347,10 @@ final class DiagnoseFlow {
         let updates = session.progressUpdates()
         phase = .running(session)
         progressTask = Task { [weak self] in
-            for await progress in updates { self?.ingest(progress) }
+            for await progress in updates {
+                self?.ingest(progress)
+                self?.listenToNoise(session)
+            }
         }
         session.start()
         runTask = Task { [weak self] in
@@ -369,8 +380,30 @@ final class DiagnoseFlow {
         if case .running(let session) = phase { session.cancel() }
         runTask?.cancel()
         progressTask?.cancel()
+        noiseNoteTask?.cancel()
         runTask = nil
         progressTask = nil
+        noiseNoteTask = nil
+        noiseNote = nil
+    }
+
+    /// Asks the Kit what the noise sounds like once a pause holds enough audio, once per pause.
+    private func listenToNoise(_ session: MeasurementSession) {
+        guard case .paused = session.state else {
+            noiseNoteTask?.cancel()
+            noiseNoteTask = nil
+            noiseNote = nil
+            return
+        }
+        guard noiseNoteTask == nil, let audio = session.pausedAudio(), audio.duration >= Self.noiseNoteAudio else { return }
+        noiseNoteTask = Task { [weak self] in
+            let note = await InterferenceAdvisor.note(
+                heard: audio.samples, sampleRate: audio.sampleRate, sweepPlaying: audio.sweepPlaying,
+                classifier: SystemSoundClassifier()
+            )
+            guard !Task.isCancelled else { return }
+            self?.noiseNote = note
+        }
     }
 
     private func finish(_ session: MeasurementSession) async {
@@ -389,7 +422,10 @@ final class DiagnoseFlow {
         let analyses = await withTaskGroup(of: (Int, RunAnalysis).self) { group in
             for (index, run) in result.runs.enumerated() {
                 group.addTask {
-                    (index, RunAnalyzer.analyze(recording: run.samples, sweep: result.sweep, noiseFloor: result.noiseFloor))
+                    let tied = run.sweepTiedSound.flatMap { SweepTiedSound(lower: $0.lowerBound, upper: $0.upperBound) }
+                    return (index, RunAnalyzer.analyze(
+                        recording: run.samples, sweep: result.sweep, noiseFloor: result.noiseFloor, sweepTiedSound: tied
+                    ))
                 }
             }
             var collected: [(Int, RunAnalysis)] = []

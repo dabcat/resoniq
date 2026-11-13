@@ -20,7 +20,8 @@ import Testing
         #expect(await running.run() == .failed(.cancelled))
         #expect(!io.isRunning && !io.isPlaying && !running.isRunning)
 
-        let finished = Fixture.session(io: Fixture.io())
+        // One run is enough to have finished.
+        let finished = Fixture.session(io: Fixture.io(), configuration: MeasurementConfiguration(runCount: 1))
         let final = await finished.run()
         #expect(final.result != nil)
         finished.cancel()

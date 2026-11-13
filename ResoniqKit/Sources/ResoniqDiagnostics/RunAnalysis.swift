@@ -163,6 +163,29 @@ public struct RunMeasurement: Sendable, Codable, Equatable {
     }
 }
 
+/// Sound tied to the sweep's position that the audio session heard during a run: noise that came back at the same
+/// point of the sweep after the run paused for it and resumed, so a rattle, a buzz that is not a harmonic, or the
+/// room's strong reverberation rather than the room's background. A plain value, so this module does not depend on
+/// the audio module; the app maps the session's `RunRecording.sweepTiedSound` onto it.
+///
+/// It is not a measurement: the session only knows that something came back there, not how loud it was, and it is
+/// noticed only where it paused the run once. `SpeakerDiagnosis` raises an `inferred` finding from it only when it
+/// recurs at the same place in at least two runs.
+public struct SweepTiedSound: Sendable, Codable, Equatable {
+    /// Where in the sweep it was heard, hertz.
+    public let range: FrequencyRange
+
+    public init(range: FrequencyRange) {
+        self.range = range
+    }
+
+    /// From the session's range in hertz; nil when it is not a positive, rising, finite range.
+    public init?(lower: Double, upper: Double) {
+        guard lower > 0, upper >= lower, upper.isFinite else { return nil }
+        self.range = FrequencyRange(lower: Float(lower), upper: Float(upper))
+    }
+}
+
 /// One run as kept in a report: the recording check, and the measurement when the recording was valid.
 public struct RunRecord: Sendable, Codable, Equatable {
     public let check: RecordingCheck
@@ -170,12 +193,26 @@ public struct RunRecord: Sendable, Codable, Equatable {
     /// What a sound classifier heard while the run was noisy (`InterferenceAdvisor`), `inferred`; nil when nothing
     /// was classified or nothing clear was heard. Optional, so records stored before it still decode.
     public let interference: InterferenceReport?
+    /// Sound tied to the sweep that the session heard during the run; nil when there was none. Optional and encoded
+    /// only when set, so records stored before it still decode and a record without it is stored as before.
+    public let sweepTiedSound: SweepTiedSound?
 
-    public init(check: RecordingCheck, measurement: RunMeasurement?, interference: InterferenceReport? = nil) {
+    public init(
+        check: RecordingCheck,
+        measurement: RunMeasurement?,
+        interference: InterferenceReport? = nil,
+        sweepTiedSound: SweepTiedSound? = nil
+    ) {
         precondition(check.isValid == (measurement != nil), "only a valid recording has a measurement")
         self.check = check
         self.measurement = measurement
         self.interference = interference
+        self.sweepTiedSound = sweepTiedSound
+    }
+
+    /// This record with the session's observation of sound tied to the sweep.
+    public func adding(sweepTiedSound: SweepTiedSound?) -> RunRecord {
+        RunRecord(check: check, measurement: measurement, interference: interference, sweepTiedSound: sweepTiedSound)
     }
 }
 
@@ -209,6 +246,11 @@ public struct RunAnalysis: Sendable, Equatable {
 
     public var isValid: Bool { record.check.isValid }
     public var measurement: RunMeasurement? { record.measurement }
+
+    /// This run with the session's observation of sound tied to the sweep (see `RunRecord.sweepTiedSound`).
+    public func adding(sweepTiedSound: SweepTiedSound?) -> RunAnalysis {
+        RunAnalysis(verdict: verdict, record: record.adding(sweepTiedSound: sweepTiedSound))
+    }
 }
 
 /// Turns one run's recording into its numbers.
@@ -216,20 +258,36 @@ public struct RunAnalysis: Sendable, Equatable {
 /// **What is not measured.** The plan lists the non-harmonic residue (rub and buzz that is not a harmonic of the
 /// sweep) among a run's numbers. It is not computed: the DSP measures it only on a steady tone
 /// (`ToneDistortionResult.nonHarmonicResidue`), and a sweep's deconvolution offers no such figure
-/// (`HarmonicDistortion` does not see rattles). Nothing in a report may therefore claim that rattle was looked for.
+/// (`HarmonicDistortion` does not see rattles). What a run keeps instead is the session's observation that sound tied
+/// to the sweep came back (`SweepTiedSound`): evidence, not a measurement. Nothing in a report may claim that rattle
+/// was measured, or that a run without the observation had none.
 public enum RunAnalyzer {
     /// Analyses one recording of `sweep`, made at the same microphone gain as `noiseFloor`.
     ///
     /// The recording must start no later than the sweep's playback and run past its end by the route's delay, the
     /// room's decay and `HarmonicDistortion.minimumTail` (see `Deconvolution.impulseResponse(recording:sweep:)`).
     /// One that fails `RecordingQuality.assess`, or holds less than the whole sweep (`RecordingCheck.incomplete`),
-    /// is not analysed. Without the tail, distortion is never measurable.
+    /// is not analysed. Without the tail, distortion is never measurable. `sweepTiedSound` is the session's
+    /// observation for this run (`RunRecording.sweepTiedSound`, mapped by the app); it is kept on the record, valid or
+    /// not, and the diagnosis weighs it only for valid runs.
     public static func analyze(
         recording: [Float],
         sweep: LogSweep,
         noiseFloor: NoiseFloorReport,
         thresholds: DiagnosisThresholds = .standard,
-        quality: QualityThresholds = .standard
+        quality: QualityThresholds = .standard,
+        sweepTiedSound: SweepTiedSound? = nil
+    ) -> RunAnalysis {
+        measure(recording: recording, sweep: sweep, noiseFloor: noiseFloor, thresholds: thresholds, quality: quality)
+            .adding(sweepTiedSound: sweepTiedSound)
+    }
+
+    private static func measure(
+        recording: [Float],
+        sweep: LogSweep,
+        noiseFloor: NoiseFloorReport,
+        thresholds: DiagnosisThresholds,
+        quality: QualityThresholds
     ) -> RunAnalysis {
         let verdict = RecordingQuality.assess(recording: recording, noiseFloor: noiseFloor, thresholds: quality)
         guard case .valid = verdict else {

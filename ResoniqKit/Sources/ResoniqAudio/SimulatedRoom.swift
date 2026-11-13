@@ -179,14 +179,17 @@ struct RoomChain: Sendable {
         }
     }
 
-    /// `[spot][0 left, 1 right]`.
-    var paths: [[[Mode]]]
+    /// Every path's modes in one flat array, path by path: spot by spot, left then right (`[spot][side][mode]`
+    /// flattened, so the per-sample loop does not walk nested arrays).
+    var modes: [Mode]
+    let modesPerPath: Int
+    let spotCount: Int
     var combs: [Comb]
     let level: Double
 
     init(_ room: SimulatedRoom, sampleRate: Double) {
-        paths = (0..<room.spotCount).map { spot in
-            [SpeakerChannel.left, .right].map { channel in
+        modes = (0..<room.spotCount).flatMap { spot in
+            [SpeakerChannel.left, .right].flatMap { channel in
                 room.modes.map { mode in
                     Mode(
                         band: Biquad.Running(section: .resonator(frequency: mode.frequency, q: mode.q, sampleRate: sampleRate)),
@@ -195,17 +198,21 @@ struct RoomChain: Sendable {
                 }
             }
         }
+        modesPerPath = room.modes.count
+        spotCount = room.spotCount
         combs = room.combs(sampleRate: sampleRate).map { Comb(buffer: [Double](repeating: 0, count: $0.delay), feedback: $0.feedback) }
         level = room.reverberationLevel
     }
 
     /// One speaker's direct sound through its modes at `spot`.
     mutating func path(_ x: Double, spot: Int, right: Bool) -> Double {
-        let spot = min(max(spot, 0), paths.count - 1)
-        let side = right ? 1 : 0
+        let spot = min(max(spot, 0), spotCount - 1)
+        var index = (spot * 2 + (right ? 1 : 0)) * modesPerPath
+        let end = index + modesPerPath
         var y = x
-        for index in paths[spot][side].indices {
-            y += paths[spot][side][index].gain * paths[spot][side][index].band.process(y)
+        while index < end {
+            y += modes[index].gain * modes[index].band.process(y)
+            index += 1
         }
         return y
     }
@@ -214,7 +221,11 @@ struct RoomChain: Sendable {
     mutating func tail(_ x: Double) -> Double {
         guard level > 0 else { return x }
         var sum = 0.0
-        for index in combs.indices { sum += combs[index].process(x) }
+        var index = 0
+        while index < combs.count {
+            sum += combs[index].process(x)
+            index += 1
+        }
         return x + level * sum
     }
 }

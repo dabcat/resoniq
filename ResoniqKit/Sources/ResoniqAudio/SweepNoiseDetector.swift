@@ -119,11 +119,15 @@ public struct SweepNoiseDetector: Sendable {
         let binWidth = sampleRate / Double(transformSize)
 
         // The strongest tone against the floor.
+        // The loops over bins are `while` loops: thousands of bins every block, and a range's iterator is costly in
+        // the debug builds the tests run.
         var peak = searchBins.lowerBound
         var best: Float = -1
-        for bin in searchBins {
+        var bin = searchBins.lowerBound
+        while bin <= searchBins.upperBound {
             let ratio = power[bin] / floorPower[bin]
             if ratio > best { best = ratio; peak = bin }
+            bin += 1
         }
         let lobe = max(searchBins.lowerBound, peak - 4)...min(searchBins.upperBound, peak + 4)
         let presence = Decibels.fromPower(vDSP.sum(power[lobe])) - Decibels.fromPower(vDSP.sum(floorPower[lobe]))
@@ -138,15 +142,23 @@ public struct SweepNoiseDetector: Sendable {
                 let low = Int(centre * pow(2, -octavesBelow) / binWidth) - Self.mainLobeBins
                 let high = Int((centre * pow(2, octavesAbove) / binWidth).rounded(.up)) + Self.mainLobeBins
                 guard low < power.count else { break }
-                for bin in max(0, low)...min(power.count - 1, high) { excluded[bin] = true }
+                var bin = max(0, low)
+                while bin <= min(power.count - 1, high) {
+                    excluded[bin] = true
+                    bin += 1
+                }
             }
         }
 
         var room: Float = 0
         var floor: Float = 0
-        for bin in analysisBins where !excluded[bin] {
-            room += power[bin]
-            floor += floorPower[bin]
+        bin = analysisBins.lowerBound
+        while bin <= analysisBins.upperBound {
+            if !excluded[bin] {
+                room += power[bin]
+                floor += floorPower[bin]
+            }
+            bin += 1
         }
         let rise = room > 0 && floor > 0 ? Decibels.fromPower(room) - Decibels.fromPower(floor) : 0
         let roomLevel = frequency == nil ? blockLevel : SoundLevel(dBFS: floorDecibels + rise)
@@ -163,7 +175,11 @@ public struct SweepNoiseDetector: Sendable {
     /// |X|² of the windowed frame for bins 0..<size/2.
     static func power(window: [Float], size: Int) -> @Sendable ([Float]) -> [Float] {
         { frame in
-            let spectrum = FFT.forward(vDSP.multiply(frame, window), size: size)
+            // Zero-padded here in one copy, so the transform gets exactly `size` samples: padding element by element
+            // inside it is most of the cost of a block in a debug build. The same transform either way.
+            let windowed = vDSP.multiply(frame, window)
+            let padded = windowed.count < size ? windowed + [Float](repeating: 0, count: size - windowed.count) : windowed
+            let spectrum = FFT.forward(padded, size: size)
             let half = size / 2
             return vDSP.add(vDSP.square(spectrum.real[0..<half]), vDSP.square(spectrum.imaginary[0..<half]))
         }

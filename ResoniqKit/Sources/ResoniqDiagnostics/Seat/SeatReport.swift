@@ -50,6 +50,12 @@ public struct SeatExtreme: Sendable, Codable, Equatable {
     public var valueLabel: String { SeatText.signedDecibelsTenths(deviation) }
 }
 
+/// Where a measured problem is, as far as a seat measurement can say.
+public enum MeasuredPlace: String, Sendable, Codable, CaseIterable {
+    /// At the listening seat: where the spots were measured and averaged. Not an extent.
+    case seat
+}
+
 /// Why the report says the room, not the speakers, is behind the unevenness.
 public enum SeatBasis: String, Sendable, Codable, CaseIterable {
     /// The extremes sit on the room's axial modes, computed from its size.
@@ -246,8 +252,63 @@ public struct SeatReport: Sendable, Codable, Equatable {
     public var displayedFindings: [SeatFinding] { Array(findings.prefix(3)) }
 
     /// The extremes a speaker move can fix: those in the bass, for the placement advisor (frequency, deviation, kind).
+    ///
+    /// **Where they are.** A measured problem has no place in the room of its own: it was measured at the seat (the
+    /// spots around it, `SeatSpot.spacing` either side in the audio module, are averaged), so its location is the
+    /// seat (`location(of:)`). A plan marks it there; nothing here says how far it extends.
     public var placementTargets: [SeatExtreme] {
         extremes.filter { $0.frequency < SeatThresholds.standard.bassUpperFrequency }
+    }
+
+    /// Where `extreme` was measured: always the seat, the only place this report knows.
+    public func location(of extreme: SeatExtreme) -> MeasuredPlace { .seat }
+
+    // MARK: What may be drawn
+
+    /// The grid indices a curve of this report may be drawn over: the stretch from the first to the last point that
+    /// is both assessed (`assessed`) and inside the band the report judges (`SeatThresholds.lowerFrequency` to
+    /// `upperFrequency`, 30 Hz to 10 kHz). Outside it the curves hold values nothing was judged on (the speakers'
+    /// roll-off, the microphone's top octave, a held edge), which drawn in the deviation colour would read as a
+    /// finding. Nil when nothing was assessed. A report stored without `assessed` is drawn over the judged band.
+    public var drawableRange: ClosedRange<Int>? {
+        let t = SeatThresholds.standard
+        let grid = ResponseGrid.frequencies
+        let points = grid.indices.filter { index in
+            grid[index] >= t.lowerFrequency && grid[index] <= t.upperFrequency && (assessed?[index] ?? true)
+        }
+        guard let first = points.first, let last = points.last else { return nil }
+        return first...last
+    }
+
+    /// `curve` with nil outside `drawableRange`, for a chart that can leave a gap.
+    public func drawable(_ curve: [Float]) -> [Float?] {
+        guard let range = drawableRange else { return curve.map { _ in nil } }
+        return curve.indices.map { range.contains($0) ? curve[$0] : nil }
+    }
+
+    /// The seat curve as it may be drawn; nil before any spot is valid.
+    public var drawableCurve: [Float?]? { curve.map(drawable) }
+    public var drawableLeftCurve: [Float?]? { leftCurve.map(drawable) }
+    public var drawableRightCurve: [Float?]? { rightCurve.map(drawable) }
+    /// Indexed like `spots`; nil for an invalid spot.
+    public var drawableSpotCurves: [[Float?]?] { spotCurves.map { $0.map(drawable) } }
+
+    /// For a chart that draws every grid point: `curve` with each missing point holding the nearest drawn value, so
+    /// the line runs flat at the level of the band's edge instead of following what was not judged. All zero when
+    /// nothing may be drawn.
+    public static func heldAtEdges(_ curve: [Float?]) -> [Float] {
+        guard let first = curve.firstIndex(where: { $0 != nil }), let last = curve.lastIndex(where: { $0 != nil }) else {
+            return curve.map { _ in 0 }
+        }
+        var held = [Float](repeating: 0, count: curve.count)
+        var previous = curve[first]!
+        for index in curve.indices {
+            if index < first { held[index] = curve[first]!; continue }
+            if index > last { held[index] = curve[last]!; continue }
+            if let value = curve[index] { previous = value }
+            held[index] = previous
+        }
+        return held
     }
 
     /// "1 of 3 in", for the running average.

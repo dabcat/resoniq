@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import ResoniqAudio
 import ResoniqDesign
 import ResoniqDiagnostics
 import ResoniqRoom
@@ -22,10 +23,9 @@ import SwiftUI
 /// (down), −z (θ = −π/2) is 0 (up).
 nonisolated enum RoomDisplay {
     nonisolated enum Scale {
-        /// The measured spots sit this far either side of the seat, metres, along x. The mockup draws three spots in
-        /// a row across the seat; the Kit does not state the spacing a person used, so this is the plan's drawing
-        /// of "the seat and a little either side".
-        static let spotOffset = 0.30
+        /// The measured spots sit this far either side of the seat, metres, along x: the Kit's one spacing, the
+        /// same the instruction to move the phone states.
+        static let spotOffset = SeatSpot.spacing
         /// The hatched ring around the seat that carries the problem's label, metres. A marker for where the
         /// problem was measured (at the seat), not an extent: the Kit locates no problem on the plan.
         static let problemRadius = 0.8

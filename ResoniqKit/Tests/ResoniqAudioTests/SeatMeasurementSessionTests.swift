@@ -121,13 +121,51 @@ extension SeatMeasurementSession.State {
     }
 }
 
+/// One clean pair measurement in the living room, made once and read by every test that only looks at a clean
+/// run: the states, the progress, the moves and where the microphone was for each sweep. A seat measurement is
+/// about 40 s of audio; making it once instead of once per test is most of what keeps this suite fast.
+@MainActor
+enum CleanSeatRun {
+    struct Record {
+        let io: SimulatedAudioIO
+        let session: SeatMeasurementSession
+        let final: SeatMeasurementSession.State
+        let log: SeatStateLog
+        let progress: [SeatMeasurementProgress]
+        let moves: [SeatSpot]
+        let spotWhenPlaying: [Int]
+        /// `capturedSpots` read at each `spotCaptured`, in order.
+        let capturedAtEachSpot: [[SeatSpot]]
+    }
+
+    static let shared = Task { @MainActor in await record() }
+
+    private static func record() async -> Record {
+        let io = SeatFixture.io()
+        let stillness = SeatFixture.stillness(for: io)
+        let session = SeatFixture.session(io: io, stillness: stillness)
+        var spotWhenPlaying: [Int] = []
+        var captured: [[SeatSpot]] = []
+        let log = SeatStateLog(session) { state, session in
+            if case .playing = state { spotWhenPlaying.append(io.currentSpot) }
+            if case .spotCaptured = state { captured.append(session.capturedSpots.map(\.spot)) }
+        }
+        let updates = session.progressUpdates()
+        let final = await session.run()
+        var progress: [SeatMeasurementProgress] = []
+        for await update in updates { progress.append(update) }
+        return Record(
+            io: io, session: session, final: final, log: log, progress: progress, moves: stillness.moves,
+            spotWhenPlaying: spotWhenPlaying, capturedAtEachSpot: captured
+        )
+    }
+}
+
 @MainActor
 @Suite(.timeLimit(.minutes(3))) struct SeatMeasurementSessionTests {
     @Test func `a clean pair measurement captures three spots of left and right, each the room at that spot`() async throws {
-        let io = SeatFixture.io()
-        let session = SeatFixture.session(io: io)
-        let log = SeatStateLog(session)
-        let final = await session.run()
+        let run = await CleanSeatRun.shared.value
+        let (io, session, log, final) = (run.io, run.session, run.log, run.final)
 
         let result = try #require(final.result, "ended \(final)")
         #expect(result.isComplete)
@@ -160,25 +198,17 @@ extension SeatMeasurementSession.State {
     }
 
     @Test func `the session waits for movement then stillness between spots and captures each in order`() async throws {
-        let io = SeatFixture.io()
-        let stillness = SeatFixture.stillness(for: io)
-        let session = SeatFixture.session(io: io, stillness: stillness)
-        var spotWhenPlaying: [Int] = []
-        let log = SeatStateLog(session) { state, _ in
-            if case .playing = state { spotWhenPlaying.append(io.currentSpot) }
-        }
-        let updates = session.progressUpdates()
-        let final = await session.run()
-        let result = try #require(final.result, "ended \(final)")
+        let run = await CleanSeatRun.shared.value
+        let log = run.log
+        let result = try #require(run.final.result, "ended \(run.final)")
 
         #expect(log.waited == [.seat, .left, .right])
         #expect(log.captured == [.seat, .left, .right])
-        #expect(stillness.moves == [.left, .right])
-        #expect(spotWhenPlaying == [0, 0, 1, 1, 2, 2])
+        #expect(run.moves == [.left, .right])
+        #expect(run.spotWhenPlaying == [0, 0, 1, 1, 2, 2])
         #expect(result.spots.allSatisfy { $0.movementDetected })
         // Each spot is captured only after the phone was seen unsteady (it moved) and then steady for the hold.
-        var seen: [SeatMeasurementProgress] = []
-        for await progress in updates { seen.append(progress) }
+        let seen = run.progress
         for spot in [SeatSpot.left, .right] {
             let waiting = seen.filter { $0.spot == spot && $0.channel == nil && $0.stillness != nil }
             let firstSteady = try #require(waiting.firstIndex { $0.isPhoneSteady })
@@ -194,10 +224,14 @@ extension SeatMeasurementSession.State {
         let burst = NoiseBurst(start: .afterScheduling(buffer: 2, offset: 2.0), duration: 0.6, rms: 0.02)
         let io = SeatFixture.io(bursts: [burst])
         let session = SeatFixture.session(io: io)
-        let log = SeatStateLog(session)
+        // The spliced recording is the second spot's; the third adds nothing to it.
+        let log = SeatStateLog(session) { state, session in
+            if state == .spotCaptured(spot: .left) { session.skipToResult() }
+        }
         let final = await session.run()
 
         let result = try #require(final.result, "ended \(final)")
+        #expect(result.spots.map(\.spot) == [.seat, .left])
         #expect(log.pauses == 1)
         #expect(log.states.contains { if case .paused(.left, .left, _) = $0 { true } else { false } })
         let spliced = try #require(result.spots[1].recording(for: .left))
@@ -208,8 +242,7 @@ extension SeatMeasurementSession.State {
     }
 
     @Test func `the tail is long enough for the bass decay of the room`() async throws {
-        let io = SeatFixture.io()
-        let final = await SeatFixture.session(io: io).run()
+        let final = await CleanSeatRun.shared.value.final
         let result = try #require(final.result, "ended \(final)")
         for spot in result.spots {
             for channel in [SpeakerChannel.left, .right] {
@@ -304,11 +337,14 @@ extension SeatMeasurementSession.State {
         let io = SeatFixture.io()
         let stillness = SeatFixture.stillness(for: io, detectsMovement: false)
         let session = SeatFixture.session(io: io, stillness: stillness)
+        // The second spot shows the rule; the third would only wait the same timeout again.
+        _ = SeatStateLog(session) { state, session in
+            if state == .spotCaptured(spot: .left) { session.skipToResult() }
+        }
         let updates = session.progressUpdates()
         let final = await session.run()
         let result = try #require(final.result, "ended \(final)")
-        #expect(result.spots.map(\.movementDetected) == [true, false, false])
-        #expect(result.isComplete)
+        #expect(result.spots.map(\.movementDetected) == [true, false])
 
         // Waiting at the second spot lasted the movement timeout, counted on the capture timeline.
         var waitingBlocks = 0

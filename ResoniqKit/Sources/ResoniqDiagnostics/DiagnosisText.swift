@@ -208,6 +208,30 @@ public enum DiagnosisText {
         )
     }
 
+    /// Sound tied to the sweep in at least two runs: hedged in every line, and the confidence statement names what
+    /// else would sound the same.
+    static func rattle(range: FrequencyRange) -> Words {
+        Words(
+            headline: "Possible rattle at \(self.range(range))",
+            detail: "Around \(self.range(range)) a sound that wasn't the test tone came back at the same point when I played that part again, so it followed the test sound, not the room's background. I can't measure how loud it was.",
+            sentence: "Something may be rattling around \(frequency(range.centre))."
+        )
+    }
+
+    static func rattleConfidence(_ confidence: Finding.Confidence, basis: Finding.Basis) -> String {
+        switch confidence {
+        case .medium, .high:
+            "Inferred, \(confidence == .high ? "high" : "medium") confidence. It came back at the same place every run, but from one microphone position I can't rule out the room or something near the speaker vibrating."
+        case .low:
+            "Inferred, low confidence. It came back at the same place in \(basis.text), but the room or something near the speaker vibrating would sound the same."
+        }
+    }
+
+    /// The sentence a buzz finding gains when sound tied to the sweep came back at the same place.
+    static func sweepTiedAlso(_ basis: Finding.Basis) -> String {
+        "I also heard sound tied to the test tone there in \(basis.text)."
+    }
+
     static let distortionUnclearConfidence =
         "Inconclusive. The room's noise alone reads almost as much distortion as I found there, so I can't tell a buzz from the noise. A quieter room would settle it."
 
@@ -241,7 +265,8 @@ public enum DiagnosisText {
         let list = bandList(bands)
         let capitalised = list.prefix(1).uppercased() + list.dropFirst()
         let verb = bands.count == 1 ? "is" : "are"
-        // Only harmonic distortion is measured from a sweep, so rattle is never mentioned.
+        // Only harmonic distortion is measured from a sweep. A rattle is only ever inferred from sound tied to the
+        // sweep, and its absence proves nothing, so the even statement never mentions rattle.
         var detail = "It stays within \(decibels(EvenBand.decibels)) dB \(response.map(span).joined(separator: " and "))."
         if let range {
             detail += " Distortion stayed under \(percent(threshold)) % \(span(range))."
@@ -320,6 +345,7 @@ public enum DiagnosisText {
         case .responsePeak: return "\(band) may be too loud around \(around)"
         case .leftRightDifference: return "it may not match the other speaker around \(around)"
         case .quietBand: return "I could barely hear \(band)"
+        case .rattle: return "something may be rattling around \(around)"
         case .topEndDip, .even, .invalidRecording, .distortionUnclear, .notAssessed: return ""
         }
     }

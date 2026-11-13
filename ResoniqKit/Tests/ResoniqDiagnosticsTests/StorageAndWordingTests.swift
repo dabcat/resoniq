@@ -22,6 +22,7 @@ var allSpeakerReports: [SpeakerReport] {
         SpeakerDiagnosis.diagnose(runs: LeftRightTests.right, counterpart: LeftRightTests.left),
         SpeakerDiagnosis.diagnose(runs: UnheardBandTests.noWoofer, counterpart: nil),
         SpeakerDiagnosis.diagnose(runs: DeepBassDistortionTests.runs, counterpart: nil),
+        SweepTiedFindingTests.twoOfThree,
     ] + handmade.map { SpeakerDiagnosis.diagnose(runs: $0, counterpart: nil) }
 }
 

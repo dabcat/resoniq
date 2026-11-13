@@ -163,11 +163,21 @@ public final class SimulatedAudioIO: AudioIO {
         }
     }
 
+    /// Waits until an instant on the continuous clock; injected so a test of real-time pacing need not sleep.
+    typealias Sleeper = @Sendable (ContinuousClock.Instant) async throws -> Void
+
     public let configuration: Configuration
     private let state: Mutex<SimulationState>
+    private let sleep: Sleeper
 
-    public init(configuration: Configuration = Configuration()) {
+    public convenience init(configuration: Configuration = Configuration()) {
+        self.init(configuration: configuration, sleep: { try await Task.sleep(until: $0, clock: .continuous) })
+    }
+
+    /// With real-time pacing, each block waits by calling `sleep` with the instant its time has come.
+    init(configuration: Configuration, sleep: @escaping Sleeper) {
         self.configuration = configuration
+        self.sleep = sleep
         state = Mutex(SimulationState(configuration: configuration))
     }
 
@@ -209,7 +219,7 @@ public final class SimulatedAudioIO: AudioIO {
             if configuration.pacing == .realTime {
                 let index = self.state.withLock { $0.deliveredBlocks }
                 do {
-                    try await Task.sleep(until: began + .seconds(blockSeconds * Double(index + 1)), clock: .continuous)
+                    try await self.sleep(began + .seconds(blockSeconds * Double(index + 1)))
                 } catch {
                     return nil
                 }

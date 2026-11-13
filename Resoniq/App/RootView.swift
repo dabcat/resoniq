@@ -37,6 +37,7 @@ struct RootView: View {
     @State private var selection: AppTab = launchTab
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.appLifecycle) private var lifecycle
+    @Environment(OptimizeCoordinator.self) private var optimize
 
     /// Debug builds open on the tab named by `-initialTab measure`, so `make run TAB=…` can show any tab.
     private static var launchTab: AppTab {
@@ -76,12 +77,7 @@ struct RootView: View {
                         .toolbarVisibility(.hidden, for: .tabBar)
                 }
                 Tab(value: AppTab.optimize) {
-                    // The Optimize flow (scan, confirm, measure, AR, verify) is wired by the next task; until then the
-                    // home shows the right state and its buttons do nothing.
-                    OptimizeHomeContainer(
-                        onScan: {}, onManualEntry: {}, onEditLayout: {}, onMeasure: {}, onGuideInAR: { _ in },
-                        onMoveMyself: { _ in }, onShowVerification: {}, onRescan: {}
-                    )
+                    OptimizeTab()
                         .toolbarVisibility(.hidden, for: .tabBar)
                 }
             }
@@ -89,6 +85,8 @@ struct RootView: View {
         }
         .background(ResoniqColor.ink)
         .environment(\.switchTab, SwitchTabAction { selection = $0 })
+        // Optimize hands over to Measure and comes back (the seat measurement), and shows Before and after.
+        .onAppear { optimize.showTab = { selection = $0 } }
         // A call, the lock button or another app: stop whatever plays or listens.
         .onChange(of: scenePhase) { _, phase in
             if phase != .active { lifecycle?.sceneLeftForeground() }

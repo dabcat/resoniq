@@ -42,6 +42,8 @@ enum OptimizeHomeState: Equatable {
 struct OptimizeHomeView: View {
     var context: ListeningContext = .placeholder
     let state: OptimizeHomeState
+    /// One line under the headline, for what went wrong (the saved room could not be opened).
+    var notice: String?
     let onScan: () -> Void
     let onManualEntry: () -> Void
     let onEditLayout: () -> Void
@@ -54,6 +56,7 @@ struct OptimizeHomeView: View {
     init(
         context: ListeningContext = .placeholder,
         state: OptimizeHomeState,
+        notice: String? = nil,
         onScan: @escaping () -> Void,
         onManualEntry: @escaping () -> Void,
         onEditLayout: @escaping () -> Void,
@@ -65,6 +68,7 @@ struct OptimizeHomeView: View {
     ) {
         self.context = context
         self.state = state
+        self.notice = notice
         self.onScan = onScan
         self.onManualEntry = onManualEntry
         self.onEditLayout = onEditLayout
@@ -140,6 +144,12 @@ struct OptimizeHomeView: View {
                         Text(page.headline)
                             .resoniqTitle(.small)
                             .accessibilityAddTraits(.isHeader)
+                        if let notice {
+                            Text(notice)
+                                .font(ResoniqFont.caption)
+                                .foregroundStyle(ResoniqColor.muted)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                         if let basis = page.basis {
                             Text(basis)
                                 .font(ResoniqFont.caption)
@@ -234,26 +244,15 @@ struct OptimizeHomeContainer: View {
         let system = system
         let context = system.map { ListeningContext(room: $0.room?.name ?? StoreText.defaultRoomName, system: $0.name) }
             ?? ListeningContext(room: StoreText.defaultRoomName, system: StoreText.defaultSystemName)
-        let made = OptimizeHomeState.make(input(for: system))
+        let input = OptimizeHomeInput.read(from: store, system: system)
+        let made = OptimizeHomeState.make(input)
         OptimizeHomeView(
-            context: context, state: made.state,
+            context: context, state: made.state, notice: input.layoutUnreadable ? OptimizeText.roomUnreadable : nil,
             onScan: onScan, onManualEntry: onManualEntry, onEditLayout: onEditLayout, onMeasure: onMeasure,
             onGuideInAR: { if let suggestion = made.suggestion { onGuideInAR(suggestion) } },
             onMoveMyself: { if let suggestion = made.suggestion { onMoveMyself(suggestion) } },
             onShowVerification: onShowVerification, onRescan: onRescan
         )
-    }
-
-    private func input(for system: SoundSystem?) -> OptimizeHomeInput {
-        guard let store, let system else { return OptimizeHomeInput(layout: nil, seat: nil, progress: OptimizeProgress()) }
-        let progress = store.progress(in: system)
-        let layout = system.room.flatMap { (try? store.layout(of: $0)) ?? nil }
-        return OptimizeHomeInput(
-            layout: layout,
-            // A measurement made in another layout is not this room's.
-            seat: progress.measured ? store.latestSeatMeasurement(in: system)?.report : nil,
-            progress: progress,
-            comparison: store.currentOptimization(in: system)?.comparison)
     }
 }
 

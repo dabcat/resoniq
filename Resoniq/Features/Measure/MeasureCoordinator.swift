@@ -37,6 +37,10 @@ final class MeasureCoordinator {
     /// wrong, until the next measurement.
     private(set) var unsaved: MeasureSummary?
 
+    /// Called with the stored measurement each time a conclusive seat report was kept, after the cover was closed. The
+    /// Optimize coordinator sets it, to compare a measurement made after a move.
+    @ObservationIgnored var onSeatKept: ((SeatMeasurement) -> Void)?
+
     @ObservationIgnored private let store: ResoniqStore
     @ObservationIgnored private let audio: AudioEnvironment
 
@@ -99,12 +103,13 @@ final class MeasureCoordinator {
     /// flow: a report from a flow that is no longer the one on screen is ignored.
     func measurementFinished(_ report: SeatReport, from flow: SeatFlow) {
         guard case .measurement(let current) = content, current === flow else { return }
-        var isKept = false
+        var kept: SeatMeasurement?
         if report.isConclusive, let system {
-            isKept = (try? store.keep(report, in: system)) != nil
+            kept = try? store.keep(report, in: system)
         }
-        unsaved = isKept ? nil : MeasureSummary(report: report, date: .now)
+        unsaved = kept == nil ? MeasureSummary(report: report, date: .now) : nil
         close()
+        if let kept { onSeatKept?(kept) }
     }
 
     // MARK: Leaving

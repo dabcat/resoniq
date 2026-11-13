@@ -8,6 +8,8 @@ import SwiftUI
 struct DiagnoseFlowView<Result: View>: View {
     @Bindable var flow: DiagnoseFlow
     let onClose: () -> Void
+    /// "My speakers can't play from this iPhone": carries on as a test whose sound another device plays.
+    let onExternal: (() -> Void)?
     let result: (DiagnoseFlow.Completed) -> Result
 
     @Environment(\.openURL) private var openURL
@@ -16,10 +18,12 @@ struct DiagnoseFlowView<Result: View>: View {
     init(
         flow: DiagnoseFlow,
         onClose: @escaping () -> Void,
+        onExternal: (() -> Void)? = nil,
         @ViewBuilder result: @escaping (DiagnoseFlow.Completed) -> Result
     ) {
         self.flow = flow
         self.onClose = onClose
+        self.onExternal = onExternal
         self.result = result
     }
 
@@ -40,7 +44,8 @@ struct DiagnoseFlowView<Result: View>: View {
         switch step {
         case .aim:
             AimScreen(
-                position: $flow.position, choices: flow.choices, singleName: flow.singleName, onStart: flow.start, onClose: onClose
+                position: $flow.position, choices: flow.choices, singleName: flow.singleName, onStart: flow.start, onClose: onClose,
+                onExternal: onExternal
             )
         case .listening:
             ListeningScreen(display: flow.runDisplay, onStop: flow.stop)
@@ -53,7 +58,7 @@ struct DiagnoseFlowView<Result: View>: View {
         case .failed(.permissionDenied):
             MicrophoneDeniedScreen(onOpenSettings: openSettings, onBack: flow.stop)
         case .failed(let failure):
-            DiagnoseFailedScreen(failure: failure, onTryAgain: flow.tryAgain, onClose: onClose)
+            DiagnoseFailedScreen(failure: failure, onTryAgain: flow.tryAgain, onClose: onClose, onExternal: onExternal)
         }
     }
 

@@ -132,10 +132,14 @@ struct SeatPausedScreen: View {
 /// connected, or the audio was interrupted, switched route or could not start. Says why in a sentence and offers
 /// another try. A spot that failed twice and a room that stayed too noisy are "Inconclusive", as the design system
 /// names a measurement that could not decide.
+///
+/// When the sound would come from the phone, "Play the test sound from another device" sits beside "Try again"
+/// (`onExternal`): for a system that cannot take sound from the iPhone, that is the way on.
 struct SeatFailedScreen: View {
     var failure: SeatFlow.Failure
     var onTryAgain: () -> Void
     var onClose: () -> Void
+    var onExternal: (() -> Void)?
 
     var body: some View {
         FlowScaffold {
@@ -153,6 +157,10 @@ struct SeatFailedScreen: View {
             VStack(spacing: ResoniqSpace.s1) {
                 Button("Try again", action: onTryAgain)
                     .buttonStyle(ResoniqPrimaryButtonStyle())
+                if case .speakersNotConnected = failure, let onExternal {
+                    Button(TestSoundText.entryButton, action: onExternal)
+                        .buttonStyle(ResoniqSecondaryButtonStyle(.outlined))
+                }
                 Button("Not now", action: onClose)
                     .buttonStyle(ResoniqTextLinkStyle())
             }
@@ -225,7 +233,7 @@ struct SeatAnalysingScreen: View {
 #Preview("Speakers not connected") {
     SeatFailedScreen(
         failure: .speakersNotConnected(AudioOutputRoute(kind: .builtInSpeaker, name: "iPhone Speaker")),
-        onTryAgain: {}, onClose: {}
+        onTryAgain: {}, onClose: {}, onExternal: {}
     )
     .preferredColorScheme(.dark)
 }

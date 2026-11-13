@@ -12,6 +12,8 @@ struct AimScreen: View {
     var singleName = "Speaker"
     var onStart: () -> Void
     var onClose: () -> Void
+    /// "My speakers can't play from this iPhone": a quiet link under the caption, never the default. Nil hides it.
+    var onExternal: (() -> Void)?
 
     var body: some View {
         FlowScaffold {
@@ -71,6 +73,10 @@ struct AimScreen: View {
                     .foregroundStyle(ResoniqColor.muted)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
+                if let onExternal {
+                    Button(TestSoundText.entryLink, action: onExternal)
+                        .buttonStyle(ResoniqTextLinkStyle())
+                }
             }
         }
     }
@@ -207,13 +213,13 @@ private struct AimIllustration: View {
 #if DEBUG
 #Preview("Aim") {
     @Previewable @State var position = SpeakerPosition.left
-    AimScreen(position: $position, onStart: {}, onClose: {})
+    AimScreen(position: $position, onStart: {}, onClose: {}, onExternal: {})
         .preferredColorScheme(.dark)
 }
 
 #Preview("Aim, large type") {
     @Previewable @State var position = SpeakerPosition.right
-    AimScreen(position: $position, onStart: {}, onClose: {})
+    AimScreen(position: $position, onStart: {}, onClose: {}, onExternal: {})
         .preferredColorScheme(.dark)
         .dynamicTypeSize(.accessibility2)
 }

@@ -114,7 +114,10 @@ enum MeasureText {
     }
 
     static func failureBody(_ failure: SeatFlow.Failure) -> String {
-        SeatSessionText.failureBody(failure.measurementFailure)
+        let body = SeatSessionText.failureBody(failure.measurementFailure)
+        // Why the app plays the sound itself, for the person who hit this and did not know why it matters.
+        if case .speakersNotConnected = failure { return body + " " + ExternalSessionText.whyTheAppPlays }
+        return body
     }
 
     /// What the evidence tag on an ended measurement rests on, for the failures that are "Inconclusive".

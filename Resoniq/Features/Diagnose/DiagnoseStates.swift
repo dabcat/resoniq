@@ -84,6 +84,9 @@ private enum MessageMetrics {
 
 /// The microphone is off for Resoniq. Says what happened, why it is needed, and opens Settings.
 struct MicrophoneDeniedScreen: View {
+    /// What it says: a normal test's words by default; a listening test passes the Kit's own (`ExternalSessionText`).
+    var headline = DiagnoseText.failureHeadline(.permissionDenied)
+    var message = DiagnoseText.failureBody(.permissionDenied)
     var onOpenSettings: () -> Void
     var onBack: () -> Void
 
@@ -93,10 +96,7 @@ struct MicrophoneDeniedScreen: View {
                 .font(ResoniqFont.headline)
                 .foregroundStyle(ResoniqColor.ivory)
         } content: {
-            MessageBlock(
-                headline: DiagnoseText.failureHeadline(.permissionDenied),
-                message: DiagnoseText.failureBody(.permissionDenied)
-            ) {
+            MessageBlock(headline: headline, message: message) {
                 EmptyView()
             }
             .padding(.top, ResoniqSpace.s6)
@@ -118,10 +118,14 @@ struct MicrophoneDeniedScreen: View {
 /// offers another try. A run that failed twice, and a room that stayed too loud, are "Inconclusive", as the design
 /// system names a test that could not decide. A test with the speakers not connected is not inconclusive: nothing
 /// was played, so there was nothing to decide.
+///
+/// When the sound would have come from the phone, "Play the test sound from another device" sits beside "Try again"
+/// (`onExternal`): for a system that cannot take sound from the iPhone, that is the way on.
 struct DiagnoseFailedScreen: View {
     var failure: DiagnoseFlow.Failure
     var onTryAgain: () -> Void
     var onClose: () -> Void
+    var onExternal: (() -> Void)?
 
     var body: some View {
         FlowScaffold {
@@ -142,6 +146,10 @@ struct DiagnoseFailedScreen: View {
             VStack(spacing: ResoniqSpace.s1) {
                 Button("Try again", action: onTryAgain)
                     .buttonStyle(ResoniqPrimaryButtonStyle())
+                if case .speakersNotConnected = failure, let onExternal {
+                    Button(TestSoundText.entryButton, action: onExternal)
+                        .buttonStyle(ResoniqSecondaryButtonStyle(.outlined))
+                }
                 Button("Not now", action: onClose)
                     .buttonStyle(ResoniqTextLinkStyle())
             }
@@ -241,7 +249,7 @@ struct RunNoticePanel: View {
 #Preview("Speakers not connected") {
     DiagnoseFailedScreen(
         failure: .speakersNotConnected(AudioOutputRoute(kind: .builtInSpeaker, name: "iPhone Speaker")),
-        onTryAgain: {}, onClose: {}
+        onTryAgain: {}, onClose: {}, onExternal: {}
     )
     .preferredColorScheme(.dark)
 }
@@ -249,7 +257,7 @@ struct RunNoticePanel: View {
 #Preview("Speakers not connected, largest text") {
     DiagnoseFailedScreen(
         failure: .speakersNotConnected(AudioOutputRoute(kind: .builtInReceiver, name: "iPhone Receiver")),
-        onTryAgain: {}, onClose: {}
+        onTryAgain: {}, onClose: {}, onExternal: {}
     )
     .dynamicTypeSize(.accessibility3)
     .preferredColorScheme(.dark)

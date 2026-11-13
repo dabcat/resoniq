@@ -53,9 +53,7 @@ struct AppComposition {
         // When the scene leaves the foreground, a running test or measurement is cancelled and the live stream
         // stops. Diagnose's flow is cancelled in place (a result on screen stays); this does not touch its files.
         let lifecycle = AppLifecycle()
-        lifecycle.onLeavingForeground { [coordinator] in
-            if case .test(let flow) = coordinator.content { flow.cancel() }
-        }
+        lifecycle.onLeavingForeground { [coordinator] in coordinator.suspendFlow() }
         // A hold-to-hear tone on a finding (VoiceOver can start one with no finger to lift) stops too.
         lifecycle.onLeavingForeground { [coordinator] in coordinator.stopTone() }
         lifecycle.onLeavingForeground { [measure] in measure.suspend() }

@@ -24,6 +24,9 @@ struct ResultScreen: View {
     /// The Kit's sentence when the phone moved while a run played (`ReadingText.phoneMovedNote`); nil when it did not, and
     /// for a result opened from the store, which does not carry it.
     var phoneMovedNote: String? = nil
+    /// The Kit's line when the sound was played by another device (`DiagnosisText.sourceNote`); nil for the normal
+    /// way. It is in the stored report, so a result reopened later says it too.
+    var sourceNote: String? = nil
     let primaryTitle: String
     let onPrimary: () -> Void
     let onOpenFinding: (Finding) -> Void
@@ -41,6 +44,7 @@ struct ResultScreen: View {
                     header
                     portraitPanel
                     movedNote
+                    sourceLine
                     keptRow
                 }
                 .padding(.horizontal, ResoniqSpace.screenInset)
@@ -116,6 +120,18 @@ struct ResultScreen: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("\(phoneMovedNote) Measured, from \(ReadingText.phoneMovedBasis).")
+        }
+    }
+
+    /// "Measured from a test sound played on another device." A quiet line: how it was measured, said once.
+    @ViewBuilder
+    private var sourceLine: some View {
+        if let sourceNote {
+            Text(sourceNote)
+                .font(ResoniqFont.caption)
+                .foregroundStyle(ResoniqColor.muted)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 

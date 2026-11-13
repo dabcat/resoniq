@@ -8,6 +8,8 @@ struct SitAndAimScreen: View {
     let room: String
     var onStart: () -> Void
     var onBack: () -> Void
+    /// "My speakers can't play from this iPhone": a quiet link under the primary button. Nil hides it.
+    var onExternal: (() -> Void)?
 
     var body: some View {
         FlowScaffold {
@@ -45,8 +47,14 @@ struct SitAndAimScreen: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         } footer: {
-            Button("I'm seated, start", action: onStart)
-                .buttonStyle(ResoniqPrimaryButtonStyle())
+            VStack(spacing: ResoniqSpace.s1) {
+                Button("I'm seated, start", action: onStart)
+                    .buttonStyle(ResoniqPrimaryButtonStyle())
+                if let onExternal {
+                    Button(TestSoundText.entryLink, action: onExternal)
+                        .buttonStyle(ResoniqTextLinkStyle())
+                }
+            }
         }
         .accessibilityAction(.escape, onBack)
     }
@@ -54,12 +62,12 @@ struct SitAndAimScreen: View {
 
 #if DEBUG
 #Preview("Sit and aim") {
-    SitAndAimScreen(room: "Living room", onStart: {}, onBack: {})
+    SitAndAimScreen(room: "Living room", onStart: {}, onBack: {}, onExternal: {})
         .preferredColorScheme(.dark)
 }
 
 #Preview("Sit and aim, large type") {
-    SitAndAimScreen(room: "Living room", onStart: {}, onBack: {})
+    SitAndAimScreen(room: "Living room", onStart: {}, onBack: {}, onExternal: {})
         .preferredColorScheme(.dark)
         .dynamicTypeSize(.accessibility2)
 }

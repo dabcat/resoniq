@@ -29,6 +29,16 @@ import Testing
         #expect(ExternalSessionText.failureBody(.soundNotRecognised, file: left).contains("subwoofer"))
     }
 
+    @Test func `the app says why the sound has to come from it, and what an ended listening rests on`() {
+        #expect(ExternalSessionText.whyTheAppPlays.hasPrefix("I compare what I play with what I hear"))
+        #expect(ExternalSessionText.failureBasis(.nothingHeard) == "nothing louder than the room was heard")
+        #expect(ExternalSessionText.failureBasis(.soundNotRecognised) == "none of the sound heard was the test sound")
+        #expect(ExternalSessionText.failureBasis(.playerClockOff(ratio: 1.032)) == "the player ran 3.2 % fast")
+        #expect(ExternalSessionText.failureBasis(.listeningTimeUp(lastProblem: nil)) == "five minutes without enough clean recordings")
+        #expect(ExternalSessionText.failureBasis(.measurement(.tooNoisy)) == "the room stayed too noisy")
+        #expect(ExternalSessionText.failureBasis(.measurement(.interrupted)) == nil)
+    }
+
     @Test func `another play says why`() {
         #expect(ExternalSessionText.anotherPlayText(.run(.unusable(.clipped(ClippingDetector.detect([1, 1, 1, 1])))), have: 2, needed: 3, file: left)
             == "I have 2 of 3. One was too loud and the microphone clipped it. Turn the volume down a little, then play the file again from the start.")

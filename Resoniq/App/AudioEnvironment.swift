@@ -24,10 +24,24 @@ struct AudioEnvironment {
         var stillness: any StillnessMonitor
     }
 
+    /// What one listening test or seat measurement runs on when another device plays the test sound: the IO that only
+    /// listens, the stillness monitor, and, in the simulation, the "player" that plays the file into it.
+    struct ExternalAudio {
+        var io: any AudioIO
+        var stillness: any StillnessMonitor
+        /// Plays a test sound file into the simulated room, as a person pressing play on another device would;
+        /// nil on a device, where the person does it.
+        var simulatedPlay: (@MainActor (TestSoundFile) -> Void)?
+    }
+
     var makeIO: @MainActor () -> any AudioIO
     var permission: any MicrophonePermission
     var makeStillness: @MainActor () -> any StillnessMonitor
     var makeSeat: @MainActor () -> SeatAudio
+    /// The audio of a speaker test whose sound another device plays.
+    var makeExternal: @MainActor () -> ExternalAudio
+    /// The audio of a seat measurement whose sound another device plays.
+    var makeExternalSeat: @MainActor () -> ExternalAudio
     /// The IO "Watch the sound live" listens through.
     var makeLiveIO: @MainActor () -> any AudioIO
     /// Whether the audio is simulated, for a note on screen where one helps.
@@ -51,6 +65,8 @@ struct AudioEnvironment {
             permission: SystemMicrophonePermission(),
             makeStillness: { MotionStillnessMonitor() },
             makeSeat: { SeatAudio(io: EngineAudioIO(), stillness: MotionStillnessMonitor()) },
+            makeExternal: { ExternalAudio(io: EngineAudioIO(), stillness: MotionStillnessMonitor(), simulatedPlay: nil) },
+            makeExternalSeat: { ExternalAudio(io: EngineAudioIO(), stillness: MotionStillnessMonitor(), simulatedPlay: nil) },
             makeLiveIO: { EngineAudioIO() },
             isSimulated: false
         )
@@ -67,6 +83,8 @@ struct AudioEnvironment {
             permission: SimulatedMicrophonePermission(access),
             makeStillness: { ConstantStillnessMonitor() },
             makeSeat: { simulatedSeat(noise: noise, pacing: pacing) },
+            makeExternal: { simulatedExternal(pacing: pacing) },
+            makeExternalSeat: { simulatedExternalSeat(pacing: pacing) },
             makeLiveIO: { SimulatedAudioIO(configuration: .init(noiseRMS: liveNoiseRMS, pacing: pacing)) },
             isSimulated: true
         )
@@ -112,6 +130,39 @@ struct AudioEnvironment {
         let stillness = SimulatedStillnessMonitor(pacing: pacing == .realTime ? .realTime : .immediate)
         stillness.onMove = { [io] spot in io.moveToSpot(spot.index) }
         return SeatAudio(io: io, stillness: stillness)
+    }
+
+    /// The simulated "other device": it presses play a second after it is asked, runs 300 ppm fast, and the sound takes
+    /// 0.3 s to travel from the player's speakers (the route's delay), so the listening has a delay and a clock offset
+    /// to cope with, as with a real player.
+    private static let simulatedPlayerDelay = 1.0
+    private static let simulatedPlayerClockRatio = 1.0003
+    private static let simulatedRouteDelay = 0.3
+
+    private static func simulatedPlay(on io: SimulatedAudioIO) -> @MainActor (TestSoundFile) -> Void {
+        { [io] file in
+            io.playExternally(SimulatedExternalPlay(file: file, delay: simulatedPlayerDelay, clockRatio: simulatedPlayerClockRatio))
+        }
+    }
+
+    /// A speaker test listened to: the same simulated speakers as the normal test (the left one buzzes), a route delay.
+    @MainActor
+    private static func simulatedExternal(pacing: SimulatedAudioIO.Pacing) -> ExternalAudio {
+        let io = SimulatedAudioIO(configuration: .init(
+            routeDelay: simulatedRouteDelay, left: .buzzingBookshelf, right: .bookshelf, pacing: pacing
+        ))
+        return ExternalAudio(io: io, stillness: ConstantStillnessMonitor(), simulatedPlay: simulatedPlay(on: io))
+    }
+
+    /// A seat measurement listened to: the same room and moving phone as the normal one, a route delay.
+    @MainActor
+    private static func simulatedExternalSeat(pacing: SimulatedAudioIO.Pacing) -> ExternalAudio {
+        let io = SimulatedAudioIO(configuration: .init(
+            routeDelay: simulatedRouteDelay, left: .bookshelf, right: .bookshelf, pacing: pacing, room: simulatedSeatRoom
+        ))
+        let stillness = SimulatedStillnessMonitor(pacing: pacing == .realTime ? .realTime : .immediate)
+        stillness.onMove = { [io] spot in io.moveToSpot(spot.index) }
+        return ExternalAudio(io: io, stillness: stillness, simulatedPlay: simulatedPlay(on: io))
     }
 
     private static func launchFlag(_ name: String) -> Bool {

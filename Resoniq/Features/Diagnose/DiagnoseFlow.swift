@@ -313,6 +313,9 @@ final class DiagnoseFlow {
             case .routeChanged: .failed(.routeChanged)
             case .recordingUnusable(let problem): .failed(.unusable(problem))
             case .audioUnavailable: .failed(.audioUnavailable)
+            // Placeholders until the Diagnose states get their own screens for these two.
+            case .tooNoisy: .failed(.unusable(.interruptedRepeatedly))
+            case .speakersNotConnected: .failed(.audioUnavailable)
             }
         }
     }

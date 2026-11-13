@@ -188,6 +188,10 @@ final class DiagnoseFlow {
         /// A run's recording was unusable twice; the problem is the second one's.
         case unusable(RunProblem)
         case audioUnavailable
+        /// The room never became quiet enough for the test to carry on.
+        case tooNoisy
+        /// The sound would have come out of the phone itself, not the user's speakers (the route, for its name).
+        case speakersNotConnected(AudioOutputRoute)
     }
 
     enum Step: Equatable {
@@ -313,9 +317,8 @@ final class DiagnoseFlow {
             case .routeChanged: .failed(.routeChanged)
             case .recordingUnusable(let problem): .failed(.unusable(problem))
             case .audioUnavailable: .failed(.audioUnavailable)
-            // Placeholders until the Diagnose states get their own screens for these two.
-            case .tooNoisy: .failed(.unusable(.interruptedRepeatedly))
-            case .speakersNotConnected: .failed(.audioUnavailable)
+            case .tooNoisy: .failed(.tooNoisy)
+            case .speakersNotConnected(let route): .failed(.speakersNotConnected(route))
             }
         }
     }

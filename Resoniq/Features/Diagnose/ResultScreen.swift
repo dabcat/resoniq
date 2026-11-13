@@ -155,17 +155,25 @@ struct ResultScreen: View {
 
 // MARK: - A finding beside the portrait
 
-/// One finding as the portrait's margin note: tag, title, then the line that says more, or the way to hear it.
+/// One finding as the portrait's margin note: tag, title, then the line that says more, or the way to hear it
+/// (`Finding.noteAction` decides which, and whether the row leads to the Finding screen).
 private struct FindingNote: View {
     let finding: Finding
+    /// Opens the Finding screen, for the findings that have one.
     let onHear: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             text
-            if finding.hasSomethingToHear {
+            switch finding.noteAction {
+            case .hear:
                 Button("Hear it yourself", action: onHear)
                     .buttonStyle(ResoniqInlineLinkStyle(.deviation))
+            case .showRuns:
+                Button("See the runs", action: onHear)
+                    .buttonStyle(ResoniqInlineLinkStyle(.deviation))
+            case .informational:
+                EmptyView()
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

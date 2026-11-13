@@ -29,8 +29,8 @@ enum DiagnoseRules {
     ///    speaker" after the left, "Now the left speaker" after the right.
     /// 3. When every speaker has been heard (or there is only one), it is "Done".
     ///
-    /// - Parameter heard: The speakers with a result: kept in the store, or finished earlier in this session
-    ///   (a quick check counts, or it would offer the other speaker for ever).
+    /// - Parameter heard: The speakers with a result: kept in the store, or, in a quick check, finished earlier in
+    ///   that quick check (or it would offer the other speaker for ever).
     static func nextStep(
         after tested: SpeakerPosition,
         isConclusive: Bool,
@@ -52,12 +52,48 @@ enum DiagnoseRules {
     static func shouldKeep(isQuickCheck: Bool, isConclusive: Bool) -> Bool {
         !isQuickCheck && isConclusive
     }
+
+    /// Whether a finished test's runs may feed a later left/right comparison: only when the test is kept. A quick
+    /// check, an inconclusive test and a test that could not be saved never do, so the second speaker is never
+    /// compared with a run the user chose not to keep.
+    static func shouldRemember(isKept: Bool) -> Bool {
+        isKept
+    }
+
+    /// What `ComparisonMemory` holds after the user discards a kept test: the entry for its speaker is dropped.
+    static func memory(
+        _ memory: [ComparisonMemory.Key: [RunAnalysis]],
+        afterDiscarding key: ComparisonMemory.Key
+    ) -> [ComparisonMemory.Key: [RunAnalysis]] {
+        memory.filter { $0.key != key }
+    }
+
+    /// What `ComparisonMemory` holds when `system` is the selected system: nothing from any other, so going back to
+    /// a system does not bring back runs from before it was left.
+    static func memory(
+        _ memory: [ComparisonMemory.Key: [RunAnalysis]],
+        whenSelected system: PersistentIdentifier?
+    ) -> [ComparisonMemory.Key: [RunAnalysis]] {
+        memory.filter { $0.key.system == system }
+    }
+
+    /// The speakers a quick check has heard so far in its chain ("Now the right speaker", then "Done"): a quick check
+    /// is kept nowhere, so this is all that lets it move on to the other speaker.
+    static func quickHeard(
+        _ heard: Set<SpeakerPosition>,
+        after tested: SpeakerPosition,
+        isQuickCheck: Bool
+    ) -> Set<SpeakerPosition> {
+        isQuickCheck ? heard.union([tested]) : heard
+    }
 }
 
 // MARK: - Session memory
 
-/// The last finished test's analysed runs for each speaker of each system, for the life of the app session only.
+/// The analysed runs of each speaker's kept test, for the selected system only and the life of the app session only.
 /// A stored test keeps just the report, so this is what lets the second speaker of a pair be compared with the first.
+/// It holds only what the user kept: a quick check never writes to it, a discarded test is forgotten, and a different
+/// selected system empties it (`DiagnoseRules.shouldRemember`, `memory(_:afterDiscarding:)`, `memory(_:whenSelected:)`).
 @MainActor
 @Observable
 final class ComparisonMemory {
@@ -70,6 +106,17 @@ final class ComparisonMemory {
 
     func record(_ analyses: [RunAnalysis], for position: SpeakerPosition, in system: PersistentIdentifier) {
         runs[Key(system: system, position: position)] = analyses
+    }
+
+    /// Drops the speaker's runs: its test was discarded.
+    func forget(_ position: SpeakerPosition, in system: PersistentIdentifier) {
+        runs = DiagnoseRules.memory(runs, afterDiscarding: Key(system: system, position: position))
+    }
+
+    /// Drops the runs of every system but `system`.
+    func select(_ system: PersistentIdentifier?) {
+        let kept = DiagnoseRules.memory(runs, whenSelected: system)
+        if kept.count != runs.count { runs = kept }
     }
 
     /// The runs of the speaker on the other side of the pair, when it was tested in this session.
@@ -155,15 +202,25 @@ final class DiagnoseCoordinator {
         TonePlayerAdapter(player: TonePlayer(io: audio.makeIO()))
     }
 
-    private var system: SoundSystem? { try? store.defaultContext().system }
+    /// The selected system. Reading it tells the comparison memory which system is selected, so a change of system
+    /// forgets the runs kept for the one before.
+    private var system: SoundSystem? {
+        let system = try? store.defaultContext().system
+        memory.select(system?.persistentModelID)
+        return system
+    }
 
-    /// The speakers with a result in the selected system: kept, or finished in this session.
-    private func heard(in system: SoundSystem?) -> Set<SpeakerPosition> {
-        guard let system else { return [] }
+    /// Speakers a quick check has finished in this chain; empty outside one. Reset when a quick check starts.
+    @ObservationIgnored private var quickHeard: Set<SpeakerPosition> = []
+
+    /// The speakers with a result in the selected system: kept, or (in a quick check) heard earlier in that quick check.
+    private func heard(in system: SoundSystem?, isQuickCheck: Bool) -> Set<SpeakerPosition> {
+        guard let system else { return isQuickCheck ? quickHeard : [] }
         let kept = HomePlan.positions(for: system.kind).filter { position in
             store.history(for: position, in: system).contains { $0.report != nil }
         }
-        return Set(kept).union(memory.heard(in: system.persistentModelID))
+        let remembered = Set(kept).union(memory.heard(in: system.persistentModelID))
+        return isQuickCheck ? remembered.union(quickHeard) : remembered
     }
 
     // MARK: Starting
@@ -176,6 +233,8 @@ final class DiagnoseCoordinator {
 
     /// The quick check: the same flow, on the first speaker of the system, kept nowhere.
     func startQuickCheck() {
+        guard content == nil else { return }
+        quickHeard = []
         let kind = system?.kind ?? .stereoPair
         startTest(HomePlan.positions(for: kind).first ?? .single, isQuickCheck: true)
     }
@@ -193,7 +252,7 @@ final class DiagnoseCoordinator {
         outcome = Outcome(
             report: report, position: position, isQuickCheck: false, test: test, system: system,
             next: DiagnoseRules.nextStep(
-                after: position, isConclusive: report.isConclusive, kind: system.kind, heard: heard(in: system)
+                after: position, isConclusive: report.isConclusive, kind: system.kind, heard: heard(in: system, isQuickCheck: false)
             )
         )
         show(.stored)
@@ -232,20 +291,22 @@ final class DiagnoseCoordinator {
         guard case .test = content, outcome == nil else { return }
         let system = system
         let report = completed.report
-        if report.isConclusive, let system {
-            memory.record(completed.analyses, for: completed.position, in: system.persistentModelID)
-        }
         var test: SpeakerTest?
         if DiagnoseRules.shouldKeep(isQuickCheck: completed.isQuickCheck, isConclusive: report.isConclusive),
            let system {
             test = try? store.keep(report, speaker: completed.position, in: system)
         }
+        // Only a kept test is compared with the other speaker's later.
+        if DiagnoseRules.shouldRemember(isKept: test != nil), let system {
+            memory.record(completed.analyses, for: completed.position, in: system.persistentModelID)
+        }
+        quickHeard = DiagnoseRules.quickHeard(quickHeard, after: completed.position, isQuickCheck: completed.isQuickCheck)
         outcome = Outcome(
             report: report, position: completed.position, isQuickCheck: completed.isQuickCheck, test: test,
             system: system,
             next: DiagnoseRules.nextStep(
                 after: completed.position, isConclusive: report.isConclusive, kind: system?.kind ?? .stereoPair,
-                heard: heard(in: system)
+                heard: heard(in: system, isQuickCheck: completed.isQuickCheck)
             )
         )
     }
@@ -264,7 +325,12 @@ final class DiagnoseCoordinator {
 
     /// "Don't keep": deletes the kept test and goes home.
     func dontKeep() {
-        if let test = outcome?.test { try? store.discard(test) }
+        if let outcome, let test = outcome.test {
+            let system = outcome.system?.persistentModelID
+            try? store.discard(test)
+            // The runs of a discarded test must not be compared with the other speaker's.
+            if let system { memory.forget(outcome.position, in: system) }
+        }
         close()
     }
 
@@ -284,7 +350,8 @@ final class DiagnoseCoordinator {
     // MARK: Navigation
 
     func openFinding(_ finding: Finding) {
-        guard let index = outcome?.report.findings.firstIndex(where: { $0.id == finding.id }) else { return }
+        guard finding.noteAction != .informational,
+              let index = outcome?.report.findings.firstIndex(where: { $0.id == finding.id }) else { return }
         path.append(.finding(index))
     }
 

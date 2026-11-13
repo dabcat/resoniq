@@ -4,7 +4,7 @@ import Synchronization
 import Testing
 @testable import ResoniqAudio
 
-@Suite struct SimulatedAudioIOTests {
+@Suite(.timeLimit(.minutes(3))) struct SimulatedAudioIOTests {
     @Test func `a buffer arrives at the scheduled position plus the route delay`() async throws {
         let io = SimulatedAudioIO(configuration: .init(
             routeDelay: 0.1, noiseRMS: 0, left: SimulatedSpeaker(), right: SimulatedSpeaker(), pacing: .immediate

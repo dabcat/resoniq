@@ -3,7 +3,7 @@ import ResoniqDSP
 import Testing
 @testable import ResoniqAudio
 
-@Suite struct TonePlayerTests {
+@Suite(.timeLimit(.minutes(3))) struct TonePlayerTests {
     @Test(arguments: [40.0, 1000.0, 1234.5, 15000.0])
     func `the loop holds whole periods within a fraction of a percent of the frequency`(frequency: Double) {
         let (length, exact) = TonePlayer.loop(for: frequency, sampleRate: 48000)

@@ -11,7 +11,7 @@ import Testing
 /// (`minimumDistortionOctaves`), in every run. The defect it replaced (cubic 40 over 100–160 Hz) peaked at 10.7 % and
 /// stayed over 10 % for about 0.15 octave, so the app showed "Sounds healthy.".
 @MainActor
-@Suite struct DemoSpeakerTests {
+@Suite(.timeLimit(.minutes(3))) struct DemoSpeakerTests {
     static let smoothingFraction = 12
     static let buzzPercent: Float = 10
     static let minimumOctaves: Float = 1.0 / 6

@@ -242,6 +242,8 @@ public final class SeatMeasurementSession {
                         break blocks
                     }
                 }
+                // As in `MeasurementSession`: a backlog of blocks must not hold the main actor, one block at most.
+                await Task.yield()
             }
         } catch {
             outcome = .failed(MeasurementFailure(streamError: error))

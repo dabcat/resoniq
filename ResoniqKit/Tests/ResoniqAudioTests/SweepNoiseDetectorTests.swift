@@ -29,7 +29,7 @@ func blocks(_ samples: [Float], length: Int = 4800) -> [[Float]] {
     stride(from: 0, through: samples.count - length, by: length).map { Array(samples[$0..<($0 + length)]) }
 }
 
-@Suite struct SweepNoiseDetectorTests {
+@Suite(.timeLimit(.minutes(3))) struct SweepNoiseDetectorTests {
     static let floorSeconds = 1.0
 
     /// A floor, then a sweep played through `speaker`.

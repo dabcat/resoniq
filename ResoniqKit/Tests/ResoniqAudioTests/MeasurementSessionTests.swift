@@ -4,7 +4,7 @@ import Testing
 @testable import ResoniqAudio
 
 @MainActor
-@Suite struct MeasurementSessionTests {
+@Suite(.timeLimit(.minutes(3))) struct MeasurementSessionTests {
     @Test func `a clean test ends with three recordings that deconvolve to the speaker`() async throws {
         let io = Fixture.io()
         let session = Fixture.session(io: io)

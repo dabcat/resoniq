@@ -18,12 +18,16 @@ final class ToneAudioIO: AudioIO {
     let amplitude: Double
     let blockSize: Int
     private let calls = Mutex(Calls())
+    /// Yields once for every `stop()`, so a test can wait for it without a clock.
+    let stops: AsyncStream<Void>
+    private let stopped: AsyncStream<Void>.Continuation
 
     init(sampleRate: Double = 48000, frequency: Double = 1000, amplitude: Double = 0.1, blockSize: Int = 4800) {
         self.sampleRate = sampleRate
         self.frequency = frequency
         self.amplitude = amplitude
         self.blockSize = blockSize
+        (stops, stopped) = AsyncStream<Void>.makeStream()
     }
 
     var recorded: Calls { calls.withLock { $0 } }
@@ -53,6 +57,7 @@ final class ToneAudioIO: AudioIO {
 
     func stop() async {
         calls.withLock { $0.stops += 1 }
+        stopped.yield()
     }
 }
 
@@ -97,11 +102,7 @@ final class ToneAudioIO: AudioIO {
         listener.cancel()
         let count = await listener.value
         #expect(count > 0)
-        var spins = 0
-        while io.recorded.stops == 0, spins < 100_000 {
-            await Task.yield()
-            spins += 1
-        }
+        for await _ in io.stops { break }
         #expect(io.recorded.starts == 1 && io.recorded.stops == 1 && io.recorded.schedules == 0)
         // Nothing reads the microphone any more.
         let delivered = io.recorded.blocksDelivered
@@ -112,11 +113,7 @@ final class ToneAudioIO: AudioIO {
     @Test func `the microphone stops when the consumer stops iterating`() async {
         let io = ToneAudioIO()
         for await _ in LiveSpectrum(io: io).bands() { break }
-        var spins = 0
-        while io.recorded.stops == 0, spins < 100_000 {
-            await Task.yield()
-            spins += 1
-        }
+        for await _ in io.stops { break }
         #expect(io.recorded.stops == 1)
     }
 

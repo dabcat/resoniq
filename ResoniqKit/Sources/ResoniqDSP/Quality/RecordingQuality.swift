@@ -16,6 +16,9 @@ public enum RecordingVerdict: Sendable, Equatable {
     case tooNoisy(signalToNoise: Float, noiseFloor: NoiseFloorReport)
     /// The microphone delivered nothing: permission, routing or hardware, not the room.
     case silent(level: Level)
+    /// Some samples were not finite numbers (NaN or infinity): the data is broken, upstream of the room and the
+    /// speaker. Carries how many. Nothing in such a recording is analysed.
+    case corrupt(nonFiniteSampleCount: Int)
 }
 
 /// Decides whether a finished recording is fit to analyse.
@@ -24,10 +27,12 @@ public enum RecordingQuality {
     ///
     /// The checks run in this order, and the first that fails decides, so the problem the user can fix first
     /// is the one reported:
-    /// 1. **Silent**: nothing else can be judged in an empty recording.
-    /// 2. **Clipped**: a clipped waveform is wrong however loud or quiet the rest is.
-    /// 3. **Too quiet**: turning the volume up also raises the signal-to-noise ratio, so it comes before noise.
-    /// 4. **Too noisy**: the ratio is under the minimum, or the floor was not steady and so cannot be trusted.
+    /// 1. **Corrupt**: a sample that is not a finite number poisons every level computed from it.
+    /// 2. **Silent**: nothing else can be judged in an empty recording.
+    /// 3. **Clipped**: a clipped waveform is wrong however loud or quiet the rest is.
+    /// 4. **Too quiet**: turning the volume up also raises the signal-to-noise ratio, so it comes before noise.
+    /// 5. **Too noisy**: the ratio is under the minimum, or the floor was not steady (a corrupt floor never is) and
+    ///    so cannot be trusted.
     ///
     /// The signal level is the whole recording's RMS, so silence before and after the sweep lowers it slightly.
     /// The ratio is broadband; one band can be drowned while this passes (see `SignalToNoise.bandRatios`).
@@ -36,6 +41,10 @@ public enum RecordingQuality {
         noiseFloor: NoiseFloorReport,
         thresholds: QualityThresholds = .standard
     ) -> RecordingVerdict {
+        let nonFinite = LevelMeter.nonFiniteCount(recording)
+        if nonFinite > 0 {
+            return .corrupt(nonFiniteSampleCount: nonFinite)
+        }
         let level = LevelMeter.measure(recording)
         if level.peakDecibels <= thresholds.silencePeakDecibels {
             return .silent(level: level)

@@ -12,6 +12,15 @@ import Testing
         #expect(Decibels.fromAmplitude(0) == Decibels.floor)
     }
 
+    @Test func `a value that is not a number stays not a number`() {
+        // Turning NaN into the floor made a corrupt recording read as silence.
+        #expect(Decibels.fromAmplitude(.nan).isNaN)
+        #expect(Decibels.fromPower(.nan).isNaN)
+        #expect(Decibels.fromAmplitude(.infinity) == .infinity)
+        #expect(Decibels.fromPower(.infinity) == .infinity)
+        #expect(Decibels.fromAmplitude(-1) == Decibels.floor)
+    }
+
     @Test func `decibels convert back to amplitude`() {
         #expect(abs(Decibels.toAmplitude(-6.0206) - 0.5) < 0.0001)
     }

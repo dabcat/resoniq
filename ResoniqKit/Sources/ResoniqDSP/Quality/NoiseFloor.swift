@@ -33,12 +33,22 @@ public enum NoiseFloor {
     static let nominalCentres: [Float] = [31.5, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
 
     /// Measures a quiet recording. A second or more gives stable band levels down to 31.5 Hz; under 200 ms the
-    /// floor cannot be shown steady.
+    /// floor cannot be shown steady. A recording holding a sample that is not a finite number has no floor: every
+    /// level is NaN and it is not steady.
     public static func measure(
         _ quietRecording: [Float],
         sampleRate: Double,
         thresholds: QualityThresholds = .standard
     ) -> NoiseFloorReport {
+        guard LevelMeter.nonFiniteCount(quietRecording) == 0 else {
+            let bands = octaveBandLevels([], sampleRate: sampleRate)
+            return NoiseFloorReport(
+                rmsDecibels: .nan,
+                bandLevels: MagnitudeResponse(frequencies: bands.frequencies, decibels: bands.decibels.map { _ in .nan }),
+                fluctuationDecibels: .nan,
+                isSteady: false
+            )
+        }
         let blocks = blockLevels(quietRecording, sampleRate: sampleRate, blockDuration: thresholds.steadinessBlockDuration)
         var fluctuation: Float = 0
         if blocks.count >= 2 {

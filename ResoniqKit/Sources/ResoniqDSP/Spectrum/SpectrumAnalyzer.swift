@@ -12,15 +12,15 @@ import Accelerate
 public enum SpectrumAnalyzer {
     /// The spectrum of the whole of `signal`, windowed by `window` (over the signal's own length) and
     /// zero-padded to `size` points (default: the next power of two). `size` must be a power of two of at
-    /// least 16 that fits the signal.
+    /// least 16 that fits the signal. An empty signal is silence: every bin reads `Decibels.floor`.
     public static func spectrum(
         of signal: [Float],
         sampleRate: Double,
         window: Window = .hann,
         size: Int? = nil
     ) -> MagnitudeResponse {
-        precondition(!signal.isEmpty, "there is no signal to analyse")
         let size = size ?? FFT.nextPowerOfTwo(max(signal.count, 16))
+        guard !signal.isEmpty else { return silence(size: size, sampleRate: sampleRate) }
         let engine = PowerSpectrumEngine(size: size, frameLength: signal.count, window: window)
         return engine.response(power: engine.power(of: signal[...]), sampleRate: sampleRate)
     }
@@ -31,7 +31,7 @@ public enum SpectrumAnalyzer {
     ///
     /// A signal shorter than one segment is analysed as a single zero-padded segment. A trailing part shorter
     /// than a segment is left out. The window and the transform are set up once per call, so a 4096-sample
-    /// segment costs one FFT and a few vector operations.
+    /// segment costs one FFT and a few vector operations. An empty signal is silence, as for `spectrum`.
     public static func averagedSpectrum(
         of signal: [Float],
         sampleRate: Double,
@@ -39,7 +39,6 @@ public enum SpectrumAnalyzer {
         overlap: Double = 0.5,
         window: Window = .hann
     ) -> MagnitudeResponse {
-        precondition(!signal.isEmpty, "there is no signal to analyse")
         precondition(overlap >= 0 && overlap < 1, "overlap must be at least 0 and below 1")
         guard signal.count > segmentSize else {
             return spectrum(of: signal, sampleRate: sampleRate, window: window, size: segmentSize)
@@ -55,6 +54,15 @@ public enum SpectrumAnalyzer {
             start += hop
         }
         return engine.response(power: vDSP.divide(total, Float(segments)), sampleRate: sampleRate)
+    }
+
+    /// The spectrum of nothing: `size / 2 + 1` bins at `Decibels.floor`.
+    private static func silence(size: Int, sampleRate: Double) -> MagnitudeResponse {
+        precondition(size >= 16 && size == FFT.nextPowerOfTwo(size), "size must be a power of two of at least 16")
+        return MagnitudeResponse(
+            frequencies: (0...(size / 2)).map { Float(FFT.frequency(ofBin: $0, size: size, sampleRate: sampleRate)) },
+            decibels: [Float](repeating: Decibels.floor, count: size / 2 + 1)
+        )
     }
 }
 
@@ -80,7 +88,9 @@ private struct PowerSpectrumEngine {
         self.window = window.samples(count: frameLength)
         self.transform = transform
         self.zeros = [Float](repeating: 0, count: size)
-        let windowSum = Float(frameLength) * window.coherentGain
+        // The window's own sum rather than `count · coherentGain`: equal for any frame of two samples or more,
+        // and right for a one-sample frame too.
+        let windowSum = vDSP.sum(self.window)
         let edge = 1 / (windowSum * windowSum)
         var scale = [Float](repeating: 4 * edge, count: size / 2 + 1)
         scale[0] = edge

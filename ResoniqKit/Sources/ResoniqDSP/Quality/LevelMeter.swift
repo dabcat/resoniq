@@ -18,6 +18,10 @@ public struct Level: Sendable, Equatable {
         self.dcOffset = dcOffset
     }
 
+    /// False for the level of a buffer holding a sample that is not a finite number (`LevelMeter` then reports NaN
+    /// for all three), or of a hand-built level with such a field. Nothing about a non-finite level is a reading.
+    public var isFinite: Bool { peak.isFinite && rms.isFinite && dcOffset.isFinite }
+
     /// The peak in dBFS; `Decibels.floor` for silence.
     public var peakDecibels: Float { Decibels.fromAmplitude(peak) }
 
@@ -34,13 +38,20 @@ public struct Level: Sendable, Equatable {
 
 /// Measures the level of a buffer. Cheap enough to run on every 100 ms block.
 public enum LevelMeter {
-    /// Peak, RMS and DC offset of `samples`; all zero for an empty buffer.
+    /// Peak, RMS and DC offset of `samples`; all zero for an empty buffer, all NaN when any sample is NaN or
+    /// infinite (see `Level.isFinite`).
     public static func measure(_ samples: [Float]) -> Level {
         guard !samples.isEmpty else { return Level(peak: 0, rms: 0, dcOffset: 0) }
+        guard nonFiniteCount(samples) == 0 else { return Level(peak: .nan, rms: .nan, dcOffset: .nan) }
         return Level(
             peak: vDSP.maximumMagnitude(samples),
             rms: vDSP.rootMeanSquare(samples),
             dcOffset: vDSP.mean(samples)
         )
+    }
+
+    /// How many samples are NaN or infinite. No microphone delivers one; a corrupt buffer or a bug upstream does.
+    static func nonFiniteCount(_ samples: [Float]) -> Int {
+        samples.reduce(0) { $1.isFinite ? $0 : $0 + 1 }
     }
 }

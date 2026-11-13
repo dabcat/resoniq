@@ -46,6 +46,7 @@ private func kind(of verdict: RecordingVerdict) -> String {
     case .tooQuiet: "tooQuiet"
     case .tooNoisy: "tooNoisy"
     case .silent: "silent"
+    case .corrupt: "corrupt"
     }
 }
 
@@ -334,6 +335,70 @@ private func kind(of verdict: RecordingVerdict) -> String {
         strict.minimumSignalToNoiseDecibels = 70
         let recording = sine(frequency: 1000, amplitude: 0.25, count: seconds(1))
         #expect(kind(of: RecordingQuality.assess(recording: recording, noiseFloor: quietRoom, thresholds: strict)) == "tooNoisy")
+    }
+}
+
+// MARK: - Corrupt input
+
+@Suite struct NonFiniteInputTests {
+    static let corruptions: [Float] = [.nan, .infinity, -.infinity]
+
+    /// A clean sweep-level tone with one sample replaced.
+    static func recording(with value: Float, at index: Int = 5000) -> [Float] {
+        var samples = sine(frequency: 1000, amplitude: 0.2, count: seconds(1))
+        samples[index] = value
+        return samples
+    }
+
+    @Test(arguments: corruptions)
+    func `one corrupt sample makes the verdict corrupt, before anything else`(value: Float) {
+        let floor = NoiseFloor.measure(whiteNoise(rms: 0.0001, count: seconds(1)), sampleRate: sampleRate)
+        guard case let .corrupt(count) = RecordingQuality.assess(recording: Self.recording(with: value), noiseFloor: floor) else {
+            Issue.record("expected corrupt for one \(value)")
+            return
+        }
+        #expect(count == 1)
+        // Even in an otherwise silent recording, corrupt comes first: silence would send the user to the
+        // microphone permission, when the fault is in the data.
+        var silent = [Float](repeating: 0, count: seconds(1))
+        silent[10] = value
+        #expect(kind(of: RecordingQuality.assess(recording: silent, noiseFloor: floor)) == "corrupt")
+    }
+
+    @Test(arguments: corruptions)
+    func `the level of a corrupt buffer is not a number, not the floor`(value: Float) {
+        let level = LevelMeter.measure(Self.recording(with: value))
+        #expect(!level.isFinite)
+        #expect(!level.peakDecibels.isFinite && !level.rmsDecibels.isFinite)
+        #expect(LevelMeter.measure(sine(frequency: 1000, amplitude: 0.2, count: 4800)).isFinite)
+    }
+
+    @Test(arguments: corruptions)
+    func `a corrupt quiet recording is neither steady nor a floor`(value: Float) {
+        var quiet = whiteNoise(rms: 0.0001, count: seconds(1))
+        quiet[1000] = value
+        let report = NoiseFloor.measure(quiet, sampleRate: sampleRate)
+        #expect(!report.isSteady)
+        #expect(!report.rmsDecibels.isFinite)
+        #expect(report.bandLevels.decibels.allSatisfy { !$0.isFinite })
+    }
+
+    @Test(arguments: corruptions)
+    func `the gate pauses on a corrupt block and does not call it quiet`(value: Float) {
+        var block = whiteNoise(rms: 0.0001, count: 4800)
+        block[100] = value
+        #expect(NoiseGate.isTooNoisy(block: block, baseline: -60))
+        #expect(!NoiseGate.isQuietEnough(block: block, baseline: -60))
+        // A corrupt baseline cannot vouch for a clean block either.
+        let clean = whiteNoise(rms: 0.0001, count: 4800)
+        #expect(!NoiseGate.isQuietEnough(block: clean, baseline: .nan))
+        #expect(NoiseGate.isTooNoisy(block: clean, baseline: .nan))
+    }
+
+    @Test(arguments: corruptions)
+    func `a spectrum of a corrupt buffer is not finite`(value: Float) {
+        let spectrum = SpectrumAnalyzer.spectrum(of: Self.recording(with: value), sampleRate: sampleRate)
+        #expect(spectrum.decibels.allSatisfy { !$0.isFinite })
     }
 }
 

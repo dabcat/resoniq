@@ -25,11 +25,12 @@ public enum Window: Sendable, CaseIterable, Hashable {
         }
     }
 
-    /// `count` samples of the window, peaking at 1 at sample `count / 2`.
+    /// `count` samples of the window, peaking at 1 at sample `count / 2`. A one-sample window is that peak, `[1]`,
+    /// for every shape (the periodic formula would give 0 and wipe the frame out).
     public func samples(count: Int) -> [Float] {
         precondition(count > 0, "a window needs at least one sample")
         let coefficients = coefficients
-        guard coefficients.count > 1 else { return [Float](repeating: 1, count: count) }
+        guard coefficients.count > 1, count > 1 else { return [Float](repeating: 1, count: count) }
         return (0..<count).map { index in
             let angle = 2 * Double.pi * Double(index) / Double(count)
             var value = 0.0

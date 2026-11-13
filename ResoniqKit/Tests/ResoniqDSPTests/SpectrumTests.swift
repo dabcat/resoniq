@@ -112,6 +112,22 @@ private func meanPowerDecibels(_ decibels: ArraySlice<Float>) -> Float {
         #expect(spread(averaged.decibels[1..<2048]) < spread(single.decibels[1..<2048]) / 2)
     }
 
+    @Test func `an empty buffer is silence, not a crash`() {
+        let single = SpectrumAnalyzer.spectrum(of: [], sampleRate: 48000)
+        #expect(single.count == 9)
+        #expect(single.decibels.allSatisfy { $0 == Decibels.floor })
+        let averaged = SpectrumAnalyzer.averagedSpectrum(of: [], sampleRate: 48000, segmentSize: 1024)
+        #expect(averaged.count == 513)
+        #expect(averaged.decibels.allSatisfy { $0 == Decibels.floor })
+    }
+
+    @Test func `one sample is a constant`() {
+        // A one-sample frame has no shape for a window to give it; it reads as the DC it is in every bin.
+        let spectrum = SpectrumAnalyzer.spectrum(of: [0.5], sampleRate: 48000)
+        #expect(spectrum.decibels.allSatisfy { $0.isFinite })
+        #expect(abs(spectrum.decibels[0] - -6.0206) < 0.001)
+    }
+
     @Test func `a signal shorter than a segment is analysed as one padded segment`() {
         let signal = sine(bin: 25, size: 1024)
         let spectrum = SpectrumAnalyzer.averagedSpectrum(of: signal, sampleRate: 48000, segmentSize: 4096)

@@ -35,6 +35,9 @@ struct RootView: View {
         // `-gallery YES` shows every design component instead of the tabs.
         if UserDefaults.standard.bool(forKey: "gallery") {
             ComponentGallery()
+        } else if let name = UserDefaults.standard.string(forKey: "screen"), let screen = DebugScreens.view(named: name) {
+            // `-screen <name>` shows one screen in a fixed state (see DebugScreens).
+            screen
         } else {
             shell
         }

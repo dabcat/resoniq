@@ -13,6 +13,8 @@ SIM ?= booted
 
 # Debug builds can open on another tab: make run TAB=measure
 TAB ?= diagnose
+# …or on one screen in a fixed state: make run SCREEN=listening (names in Resoniq/App/DebugScreens*.swift)
+SCREEN ?=
 
 .PHONY: help project test build run screenshot clean
 
@@ -33,7 +35,7 @@ build: project ## Build the app for the iOS simulator
 run: build ## Install and launch the app in the simulator
 	xcrun simctl install $(SIM) $(APP)
 	xcrun simctl terminate $(SIM) $(BUNDLE) 2>/dev/null || true
-	xcrun simctl launch $(SIM) $(BUNDLE) -initialTab $(TAB)
+	xcrun simctl launch $(SIM) $(BUNDLE) -initialTab $(TAB) $(if $(SCREEN),-screen $(SCREEN))
 
 screenshot: ## Save a screenshot of the simulator to .build/screenshot.png
 	xcrun simctl io $(SIM) screenshot .build/screenshot.png

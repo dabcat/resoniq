@@ -167,11 +167,15 @@ public struct RunMeasurement: Sendable, Codable, Equatable {
 public struct RunRecord: Sendable, Codable, Equatable {
     public let check: RecordingCheck
     public let measurement: RunMeasurement?
+    /// What a sound classifier heard while the run was noisy (`InterferenceAdvisor`), `inferred`; nil when nothing
+    /// was classified or nothing clear was heard. Optional, so records stored before it still decode.
+    public let interference: InterferenceReport?
 
-    public init(check: RecordingCheck, measurement: RunMeasurement?) {
+    public init(check: RecordingCheck, measurement: RunMeasurement?, interference: InterferenceReport? = nil) {
         precondition(check.isValid == (measurement != nil), "only a valid recording has a measurement")
         self.check = check
         self.measurement = measurement
+        self.interference = interference
     }
 }
 
@@ -196,6 +200,11 @@ public struct RunAnalysis: Sendable, Equatable {
     public init(verdict: RecordingVerdict, check: RecordingCheck, measurement: RunMeasurement?) {
         self.verdict = verdict
         self.record = RunRecord(check: check, measurement: measurement)
+    }
+
+    init(verdict: RecordingVerdict, record: RunRecord) {
+        self.verdict = verdict
+        self.record = record
     }
 
     public var isValid: Bool { record.check.isValid }

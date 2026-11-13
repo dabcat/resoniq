@@ -113,6 +113,12 @@ public struct Finding: Sendable, Codable, Identifiable, Equatable {
     public let numbers: Numbers?
     /// For `invalidRecording`, what was wrong.
     public let recordingProblem: RecordingCheck.Problem?
+    /// For `invalidRecording` about noise, what a sound classifier heard during the noisy run (`inferred`); nil
+    /// otherwise. Optional, so findings stored before it still decode.
+    public internal(set) var interference: InterferenceReport? = nil
+    /// A model's agreement with this finding (`ModelAdvice`), set only on an `inferred` finding; it adds a line and
+    /// changes nothing else. Nil when no model said anything.
+    public internal(set) var modelSupport: ModelEvidence? = nil
 
     /// The one driver concerned, when there is one.
     public var band: DriverBand? { bands.count == 1 ? bands[0] : nil }

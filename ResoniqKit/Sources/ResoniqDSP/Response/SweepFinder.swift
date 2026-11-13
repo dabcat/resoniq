@@ -72,7 +72,19 @@ public enum SweepFinder {
 
     /// Every occurrence of `sweep` in `recording`, by position, strongest kept first when there are more than
     /// `expectedCount` (nil: all of them). Both are at `sampleRate`, which must be the sweep's.
-    public static func find(in recording: [Float], sampleRate: Double, sweep: LogSweep, expectedCount: Int? = nil) -> [FoundSweep] {
+    ///
+    /// - Parameter anchored: Whether the caller already knows from the file's timing that a sweep is due in
+    ///   `recording` (it follows the clock tone, or another sweep, at the file's interval). An anchored candidate need
+    ///   only be there in two neighbouring `verificationBands` instead of all but one, so the sweep of a speaker that
+    ///   plays only part of the range (a dead tweeter, a dead woofer, a small speaker) is still found; an unanchored
+    ///   one must span the range, so music and noise are not taken for a sweep. See `spansEveryBand`.
+    public static func find(
+        in recording: [Float],
+        sampleRate: Double,
+        sweep: LogSweep,
+        expectedCount: Int? = nil,
+        anchored: Bool = false
+    ) -> [FoundSweep] {
         precondition(sampleRate == sweep.sampleRate, "the recording and the sweep differ in sample rate")
         let sweepSamples = sweep.samples()
         guard !recording.isEmpty, !sweepSamples.isEmpty, LevelMeter.nonFiniteCount(recording) == 0 else { return [] }
@@ -126,7 +138,7 @@ public enum SweepFinder {
         var rejected: [Int] = []
         for candidate in candidates where !kept.contains(where: { abs($0.index - candidate.index) < offset }) {
             if rejected.contains(where: { abs($0 - candidate.index) < blockLength }) { continue }
-            guard spansEveryBand(recording, start: candidate.index - offset, sweep: sweep, sweepSamples: sweepSamples) else {
+            guard spansEveryBand(recording, start: candidate.index - offset, sweep: sweep, sweepSamples: sweepSamples, anchored: anchored) else {
                 rejected.append(candidate.index)
                 continue
             }
@@ -322,14 +334,34 @@ public enum SweepFinder {
     /// that band are smeared over the band's quarter to half second of sweep. *First guess*.
     public static let minimumBandStrength: Float = 6
 
-    /// Whether a sweep starting at `start` (in recording samples) is there in every verification band whose part of
-    /// the sweep the recording holds, all but one when there are three or more. Each band's matched filter must peak
-    /// within 5 ms of `start` (room for a dispersion of `maximumClockOffset`) by `minimumBandStrength`. A sweep cut so
+    /// The finer bands an anchored candidate is checked in: `detectionBand` in eight of about 0.8 octave each, so how
+    /// much of the range agrees is counted closely. A band partly covered can agree, so a chirp of one octave touches
+    /// two or three of them.
+    public static let anchoredBands: [ClosedRange<Double>] = {
+        let low = detectionBand.lowerBound
+        let ratio = pow(detectionBand.upperBound / low, 1.0 / 8)
+        return (0..<8).map { low * pow(ratio, Double($0))...low * pow(ratio, Double($0 + 1)) }
+    }()
+    /// Neighbouring `anchoredBands` that must agree for an anchored candidate: 4, about 3.2 octaves of the sweep at
+    /// its exact rate and timing. A speaker playing only 200 Hz to 2 kHz still makes five (three whole, two edges);
+    /// an exact-rate glide of an octave and a half after a 1 kHz tone is refused (`FaultySpeakerFinderTests`). *First guess*.
+    public static let minimumAnchoredBands = 4
+
+    /// Whether a sweep starting at `start` (in recording samples) is there across the verification bands whose part of
+    /// the sweep the recording holds. Each band's matched filter must peak within 5 ms of `start` (room for a
+    /// dispersion of `maximumClockOffset`) by `minimumBandStrength`.
+    ///
+    /// **The rule.** Unanchored: every band, all but one when there are three or more, so only something that rises
+    /// at the sweep's rate over most of 150 Hz to 12 kHz passes; a gliding note covers an octave or two. Anchored (the
+    /// file's timing says a sweep is due): `minimumAnchoredBands` neighbouring `anchoredBands`, about three octaves at the
+    /// sweep's exact rate and timing, so a speaker missing its tweeter (nothing above 2 kHz), its woofer (nothing
+    /// under 500 Hz) or both (200 Hz to 2 kHz) is still found, while a tone followed by a glissando is not. A speaker
+    /// heard only under 150 Hz (a subwoofer alone) is never found: the detection band starts there. A sweep cut so
     /// short that fewer than two bands are held cannot be checked and passes; it is not complete anyway.
-    static func spansEveryBand(_ recording: [Float], start: Int, sweep: LogSweep, sweepSamples: [Float]) -> Bool {
+    static func spansEveryBand(_ recording: [Float], start: Int, sweep: LogSweep, sweepSamples: [Float], anchored: Bool = false) -> Bool {
         let length = sweepSamples.count
         let sampleRate = sweep.sampleRate
-        let available = verificationBands.filter { band in
+        let available = (anchored ? anchoredBands : verificationBands).filter { band in
             let opening = Double(start) + sweep.time(of: band.lowerBound) * sampleRate
             let closing = Double(start) + sweep.time(of: band.upperBound) * sampleRate
             return opening >= 0 && closing <= Double(recording.count)
@@ -348,15 +380,27 @@ public enum SweepFinder {
         func value(_ power: [Float], at offset: Int) -> Float {
             power[((lag + offset) % plan.size + plan.size) % plan.size]
         }
-        var agreeing = 0
+        var agreeing: [Bool] = []
         for band in available {
             let filter = whitenedFilter(sweepSpectrum, sweep: sweep, size: plan.size, band: band)
             let power = vDSP.square(correlate(spectrum, with: filter, plan: plan))
             let peak = (-reach...reach).map { value(power, at: $0) }.max() ?? 0
             let nearby = stride(from: exclusion, through: around, by: 2).map { max(value(power, at: $0), value(power, at: -$0)) }.max() ?? 0
-            if peak > 0, Decibels.fromPower(peak / max(nearby, .leastNormalMagnitude)) >= minimumBandStrength { agreeing += 1 }
+            agreeing.append(peak > 0 && Decibels.fromPower(peak / max(nearby, .leastNormalMagnitude)) >= minimumBandStrength)
         }
-        return agreeing >= (available.count >= 3 ? available.count - 1 : available.count)
+        if anchored {
+            // The longest run of neighbouring bands that agree. `available` keeps the table's order and drops bands
+            // only at its ends, so neighbours in it are neighbours in the table.
+            var longest = 0
+            var run = 0
+            for agrees in agreeing {
+                run = agrees ? run + 1 : 0
+                longest = max(longest, run)
+            }
+            return longest >= minimumAnchoredBands
+        }
+        let count = agreeing.filter { $0 }.count
+        return count >= (available.count >= 3 ? available.count - 1 : available.count)
     }
 
     /// `S / (|S|² + ε)` on `size` bins from the sweep's spectrum `spectrum`, inside `band` (`detectionBand` unless

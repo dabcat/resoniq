@@ -23,6 +23,7 @@ launch the app and test a speaker immediately.
 | 6 | AI diagnostics and finish | done | [phase-6-ai-finish](plans/phase-6-ai-finish.md) | #4 |
 | 7 | Playing the test sound from another device | done | [phase-7-external-playback](plans/phase-7-external-playback.md) | #5 |
 | 8 | Rub and buzz from the high orders | done | [phase-8-rub-buzz](plans/phase-8-rub-buzz.md) | #10 |
+| 9 | Keep the raw recordings of a speaker test | in progress | [phase-9-keep-recordings](plans/phase-9-keep-recordings.md) | — |
 
 Phases 2 to 6 are one pull request: the review fixes for phase 2 were made on the phase 3 branch, and the later
 phases followed on it. "Done" means the code and its tests exist, the screens run in the simulator on simulated

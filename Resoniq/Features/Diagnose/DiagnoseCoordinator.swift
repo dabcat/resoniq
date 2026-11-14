@@ -103,25 +103,51 @@ final class ComparisonMemory {
     }
 
     @ObservationIgnored private var runs: [Key: [RunAnalysis]] = [:]
+    /// How each remembered speaker's sound was played, where it was not the phone (`SoundSource`); a speaker with no
+    /// entry here was played by the phone. Kept in step with `runs`.
+    @ObservationIgnored private var sources: [Key: SoundSource] = [:]
 
-    func record(_ analyses: [RunAnalysis], for position: SpeakerPosition, in system: PersistentIdentifier) {
-        runs[Key(system: system, position: position)] = analyses
+    func record(
+        _ analyses: [RunAnalysis], source: SoundSource? = nil, for position: SpeakerPosition, in system: PersistentIdentifier
+    ) {
+        let key = Key(system: system, position: position)
+        runs[key] = analyses
+        sources[key] = source
     }
 
     /// Drops the speaker's runs: its test was discarded.
     func forget(_ position: SpeakerPosition, in system: PersistentIdentifier) {
         runs = DiagnoseRules.memory(runs, afterDiscarding: Key(system: system, position: position))
+        sources = sources.filter { runs[$0.key] != nil }
     }
 
     /// Drops the runs of every system but `system`.
     func select(_ system: PersistentIdentifier?) {
         let kept = DiagnoseRules.memory(runs, whenSelected: system)
-        if kept.count != runs.count { runs = kept }
+        if kept.count != runs.count {
+            runs = kept
+            sources = sources.filter { runs[$0.key] != nil }
+        }
     }
 
     /// Drops every speaker's runs: the results they belonged to were deleted.
     func removeAll() {
         runs = [:]
+        sources = [:]
+    }
+
+    /// The other speaker of the pair, when it was tested in this session, and how its sound was played; nil when it was
+    /// not tested (the inner value is nil when the phone played it).
+    func counterpartSource(for position: SpeakerPosition, in system: PersistentIdentifier) -> (position: SpeakerPosition, source: SoundSource?)? {
+        let other: SpeakerPosition
+        switch position {
+        case .left: other = .right
+        case .right: other = .left
+        case .single: return nil
+        }
+        let key = Key(system: system, position: other)
+        guard runs[key] != nil else { return nil }
+        return (other, sources[key])
     }
 
     /// The runs of the speaker on the other side of the pair, when it was tested in this session.
@@ -176,6 +202,9 @@ final class DiagnoseCoordinator {
         var next: DiagnoseRules.NextStep
         /// The runs in which the phone moved (`Completed.movedRuns`); empty for a stored result.
         var movedRuns: [Int] = []
+        /// The other speaker's name and how its sound was played, when the left/right comparison used its runs and it
+        /// was measured differently from this one; empty otherwise (`SourceWords.lines`).
+        var sourceLines: [String] = []
     }
 
     private(set) var content: Content?
@@ -369,9 +398,15 @@ final class DiagnoseCoordinator {
            let system {
             test = try? store.keep(report, speaker: completed.position, in: system)
         }
+        // The other speaker's runs fed the left/right comparison; say so when it was measured another way.
+        var sourceLines: [String] = []
+        if let system, let other = memory.counterpartSource(for: completed.position, in: system.persistentModelID) {
+            sourceLines = SourceWords.lines(
+                (SourceWords.speaker(completed.position), report.source), (SourceWords.speaker(other.position), other.source))
+        }
         // Only a kept test is compared with the other speaker's later.
         if DiagnoseRules.shouldRemember(isKept: test != nil), let system {
-            memory.record(completed.analyses, for: completed.position, in: system.persistentModelID)
+            memory.record(completed.analyses, source: report.source, for: completed.position, in: system.persistentModelID)
         }
         quickHeard = DiagnoseRules.quickHeard(quickHeard, after: completed.position, isQuickCheck: completed.isQuickCheck)
         outcome = Outcome(
@@ -381,7 +416,8 @@ final class DiagnoseCoordinator {
                 after: completed.position, isConclusive: report.isConclusive, kind: system?.kind ?? .stereoPair,
                 heard: heard(in: system, isQuickCheck: completed.isQuickCheck)
             ),
-            movedRuns: completed.movedRuns
+            movedRuns: completed.movedRuns,
+            sourceLines: sourceLines
         )
     }
 

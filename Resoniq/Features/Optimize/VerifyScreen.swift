@@ -50,6 +50,9 @@ struct VerifyScreen: View {
                         .font(ResoniqFont.caption)
                         .foregroundStyle(ResoniqColor.muted)
                         .fixedSize(horizontal: false, vertical: true)
+                    // The Before was measured one way and the After another: both valid, but taken differently.
+                    SourceCaptions(lines: SourceWords.lines(
+                        (OptimizeText.before, before.source), (OptimizeText.after(spots: after.validSpotCount), after.source)))
                     if let placementNote {
                         Text(placementNote)
                             .font(ResoniqFont.caption)

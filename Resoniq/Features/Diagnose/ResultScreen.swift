@@ -27,6 +27,9 @@ struct ResultScreen: View {
     /// The Kit's line when the sound was played by another device (`DiagnosisText.sourceNote`); nil for the normal
     /// way. It is in the stored report, so a result reopened later says it too.
     var sourceNote: String? = nil
+    /// Quiet lines when the other speaker, whose runs the left/right comparison used, was measured another way
+    /// (`SourceWords.lines`); empty otherwise.
+    var counterpartSourceLines: [String] = []
     let primaryTitle: String
     let onPrimary: () -> Void
     let onOpenFinding: (Finding) -> Void
@@ -45,6 +48,7 @@ struct ResultScreen: View {
                     portraitPanel
                     movedNote
                     sourceLine
+                    SourceCaptions(lines: counterpartSourceLines)
                     keptRow
                 }
                 .padding(.horizontal, ResoniqSpace.screenInset)

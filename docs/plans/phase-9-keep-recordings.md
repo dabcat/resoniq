@@ -1,7 +1,7 @@
 ---
 type: "plan"
 phase: 9
-status: "active"
+status: "done"
 tags:
   - "plan/phase-9"
 ---
@@ -75,13 +75,25 @@ Documents folder visible in Finder when the phone is plugged in, both together s
 
 | # | Task | Module | Model | Status |
 |---|---|---|---|---|
-| 1 | `WAVFile` (write and read, mono and stereo, PCM 16/24, float 32), `TestSoundFile` on it with its bytes unchanged | Audio | Opus | |
-| 2 | `MeasurementResult` gains the floor's samples and the routes; both speaker-test sessions fill them | Audio | Opus | |
-| 3 | `RecordingManifest`, `RecordingExample`, `RecordingStore`, `RecordingPreference`, the store's calls; tests first | Store | Opus | |
-| 4 | App: the preference, writing after keep, deleting on discard, sweep at launch, Settings section, Info.plist keys | App | Opus | |
-| 5 | Module notes, device checklist, review | — | Fable | |
+| 1 | `WAVFile` (write and read, mono and stereo, PCM 16/24, float 32), `TestSoundFile` on it with its bytes unchanged | Audio | Opus | done |
+| 2 | `MeasurementResult` gains the floor's samples and the routes; both speaker-test sessions fill them | Audio | Opus | done |
+| 3 | `RecordingManifest`, `RecordingExample`, `RecordingStore`, `RecordingPreference`, the store's calls; tests first | Store | Opus | done |
+| 4 | App: the preference, writing after keep, deleting on discard, sweep at launch, Settings section, Info.plist keys | App | Opus | done: in the simulator a kept test left a 2.8 MB folder (runs 864 KB, floor 192 KB, manifest 140 KB) |
+| 5 | Module notes, device checklist, review | — | Fable | notes and checklist done; review open |
 
 Done when: `make test` and `make build` pass; on the Mac a written example reads back bit for bit with every
 manifest field; deleting a test, its system or room, all results or everything removes its folder; in the
 simulator, with the setting on, a kept test leaves a folder in the app's Documents and a discarded one does not.
 What the phone's own routes report, and that the Files app shows the folder, is verified on a device.
+
+## Notes
+
+- **Sizes.** At 48 kHz a run is 4 bytes a sample: about 4.5 s (lead-in, the 4 s sweep, the route delay, the tail)
+  is 0.86 MB with a cable, up to about 1.2 MB over AirPlay. The floor is 1 s, 192 KB. The manifest is about 140 KB,
+  most of it the report's curves. One three-run test: about 3 to 4 MB.
+- **The report in the manifest** is the one first made. When the other speaker of the pair is kept later, the kept
+  report is read again (`SpeakerDiagnosis.compared`) but the manifest is not rewritten.
+- **Turning the setting off** keeps what was recorded; "Delete recordings" removes it.
+- **The space used** in Settings is read when the screen opens and after a delete.
+- **Debug:** `-diskStore YES` with `-screen app-flow -autostart YES` runs a kept test on the on-disk store, which is
+  how the simulator check above was made.

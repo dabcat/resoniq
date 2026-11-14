@@ -14,7 +14,8 @@ enum SettingsText {
     static let seatMeasurements = "Seat measurements"
     static let roomScans = "Room scans"
     static let privacy =
-        "Nothing leaves your iPhone. I analyse a recording while you listen and don't keep it, only what I found in it."
+        "Nothing leaves your iPhone. I analyse a recording while you listen and keep only what I found in it, unless "
+        + "you ask me to keep recordings below."
     static let deleteResults = "Delete all results"
     static let deleteEverything = "Delete everything"
     static let noResults = "There are no results to delete yet."
@@ -30,8 +31,9 @@ enum SettingsText {
 
     /// What "Delete all results" removes, said exactly.
     static func deleteResultsMessage(_ counts: StoreCounts) -> String {
-        "I will remove \(list(tests: counts.speakerTests, measurements: counts.seatMeasurements)) from this iPhone. "
-            + "Your rooms, sound systems and room scans stay. This cannot be undone."
+        let recordings = counts.recordings > 0 ? ", with the recordings kept for them," : ""
+        return "I will remove \(list(tests: counts.speakerTests, measurements: counts.seatMeasurements))\(recordings) "
+            + "from this iPhone. Your rooms, sound systems and room scans stay. This cannot be undone."
     }
 
     /// What "Delete everything" removes, said exactly.
@@ -40,9 +42,32 @@ enum SettingsText {
         parts.append(count(counts.speakerTests, "speaker test"))
         parts.append(count(counts.seatMeasurements, "seat measurement"))
         parts.append(count(counts.roomScans, "room scan"))
+        if counts.recordings > 0 { parts.append("the recordings of \(count(counts.recordings, "speaker test"))") }
         return "I will remove \(join(parts)) from this iPhone. "
             + "Then I start again with \u{201C}\(StoreText.defaultRoomName)\u{201D} and "
             + "\u{201C}\(StoreText.defaultSystemName)\u{201D}. This cannot be undone."
+    }
+
+    // Recordings
+    static let recordingsLabel = "Recordings"
+    static let keepRecordings = "Keep recordings"
+    static let recordingsExplanation =
+        "When this is on, I keep the raw sound of each speaker test you keep, in Resoniq's folder in the Files app, "
+        + "and it stays on this iPhone."
+    static let recordingsSpace = "Space used"
+    static let deleteRecordings = "Delete recordings"
+    static let deleteRecordingsTitle = "Delete recordings?"
+    static let deleteRecordingsConfirm = "Delete recordings"
+
+    /// "9.6 MB", as the Files app counts; "0 MB" when nothing is kept (the formatter's own word is "Zero kB").
+    static func size(_ bytes: Int64) -> String {
+        bytes == 0 ? "0 MB" : bytes.formatted(.byteCount(style: .file))
+    }
+
+    /// What "Delete recordings" removes, said exactly.
+    static func deleteRecordingsMessage(_ counts: StoreCounts) -> String {
+        "I will remove the recordings of \(count(counts.recordings, "speaker test")) from this iPhone. "
+            + "The results stay. This cannot be undone."
     }
 
     // Measurement

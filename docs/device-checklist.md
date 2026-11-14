@@ -304,6 +304,22 @@ recordings and on healthy studio monitors in a real room with measurement microp
 | 10.4 | The same from the listening seat | Expected not to be found (the simulation loses it where the room is louder than the direct sound); note what is said |
 | 10.5 | A small speaker played loud | No finding from its own bass distortion above 80 Hz; if there is one, the lower limit or the threshold is wrong for small speakers |
 
+## 11. Keeping the recordings
+
+The files were written and read back on the Mac and in the simulator (simulated audio); nothing here has run on a
+phone ([plan](plans/phase-9-keep-recordings.md)).
+
+| # | Check | Expect |
+|---|---|---|
+| 11.1 | Settings, Recordings: turn on "Keep recordings"; test one speaker and keep it | Settings shows a few MB under "Space used" |
+| 11.2 | Files app, On My iPhone > Resoniq > Recordings | One folder named by date, time and speaker (`2026-11-14_153012_left_1A2B3C4D`) with `manifest.json`, `noise-floor.wav`, `run-1.wav` to `run-3.wav`; nothing else in Documents |
+| 11.3 | On the Mac: `xcrun devicectl device copy from --device <id> --domain-type appDataContainer --domain-identifier com.matovic.resoniq --source Documents/Recordings --destination ~/Desktop/resoniq-recordings` | The same folders. Sizes at 48 kHz: noise floor about 190 KB, each run about 0.85 MB with a cable (4.5 s) and up to about 1.2 MB over AirPlay (2 s more of route delay), manifest about 140 KB: about 3 to 4 MB a test |
+| 11.4 | Open a run in an audio editor | Mono, 32-bit float, 48 kHz (or the rate the route ran at); the sweep after a short lead-in; the manifest's `device.model`, `systemVersion` and `audioRoute` (input "iPhone Microphone", output the speakers' route) are the phone's |
+| 11.5 | Test again and press Don't keep; test with a quick check | No new folder for either |
+| 11.6 | Delete recordings, then keep a test and use Delete all results | The folders go each time; the results stay after Delete recordings |
+| 11.7 | Finder, the phone, Files tab | Resoniq is listed (file sharing) with its Documents folder |
+| 11.8 | With the setting off (the default) | No folder is ever written |
+
 ## Constants to tune
 
 Each is a first guess checked only against simulated rooms and speakers. When a step above says "Tune", change

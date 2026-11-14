@@ -220,11 +220,23 @@ final class DiagnoseCoordinator {
     @ObservationIgnored private let store: ResoniqStore
     @ObservationIgnored private let memory: ComparisonMemory
     @ObservationIgnored private let audio: AudioEnvironment
+    /// "Keep recordings" in Settings.
+    @ObservationIgnored private let recordingPreference: RecordingPreference
 
-    init(store: ResoniqStore, memory: ComparisonMemory, audio: AudioEnvironment) {
+    init(
+        store: ResoniqStore, memory: ComparisonMemory, audio: AudioEnvironment,
+        recordingPreference: RecordingPreference = RecordingPreference()
+    ) {
         self.store = store
         self.memory = memory
         self.audio = audio
+        self.recordingPreference = recordingPreference
+    }
+
+    /// "0.1.0 (1)", for a kept recording's manifest.
+    private static var appVersion: String {
+        let info = Bundle.main.infoDictionary
+        return "\(info?["CFBundleShortVersionString"] as? String ?? "0") (\(info?["CFBundleVersion"] as? String ?? "0"))"
     }
 
     // MARK: Reading
@@ -411,6 +423,16 @@ final class DiagnoseCoordinator {
             let again = SpeakerDiagnosis.compared(kept, with: report)
             if again != kept { try? store.update(earlier, report: again) }
         }
+        // "Keep recordings": the kept test's audio is written after the result is on screen, off the main actor. A write
+        // that fails leaves the report kept and the test without a recording; nothing is said.
+        if let test, let system, let recorded = completed.recorded, recordingPreference.isOn {
+            let example = RecordingExample(
+                result: recorded.result, report: report, speaker: completed.position, systemName: system.name,
+                systemKind: system.kind, roomName: system.room?.name ?? StoreText.defaultRoomName, date: test.date,
+                device: .current(appVersion: Self.appVersion)
+            )
+            Task { [store] in await store.keepRecording(example, for: test) }
+        }
         // Only a kept test is compared with the other speaker's later.
         if DiagnoseRules.shouldRemember(isKept: test != nil), let system {
             memory.record(completed.analyses, source: report.source, for: completed.position, in: system.persistentModelID)
@@ -445,7 +467,7 @@ final class DiagnoseCoordinator {
         }
     }
 
-    /// "Don't keep": deletes the kept test and goes home.
+    /// "Don't keep": deletes the kept test, and its recording, and goes home.
     func dontKeep() {
         if let outcome, let test = outcome.test {
             let system = outcome.system?.persistentModelID

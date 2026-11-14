@@ -51,8 +51,8 @@ public struct CaptureStream: Sendable {
 }
 
 /// Where the sound goes: the kind of output and its name, as the system reports it.
-public struct AudioOutputRoute: Sendable, Hashable {
-    public enum Kind: Sendable, Hashable, CaseIterable {
+public struct AudioOutputRoute: Sendable, Hashable, Codable {
+    public enum Kind: String, Sendable, Hashable, Codable, CaseIterable {
         /// The earpiece at the top of the phone.
         case builtInReceiver
         /// The phone's own loudspeaker.
@@ -80,6 +80,34 @@ public struct AudioOutputRoute: Sendable, Hashable {
 
     /// What `SimulatedAudioIO` reports unless told otherwise.
     public static let simulatedSpeakers = AudioOutputRoute(kind: .other, name: "Simulated speakers")
+}
+
+/// Where the microphone signal comes from, as the system names it. Kept with a recording, never used to decide.
+public struct AudioInputRoute: Sendable, Hashable, Codable {
+    public enum Kind: String, Sendable, Hashable, Codable, CaseIterable {
+        /// The phone's own microphone.
+        case builtInMicrophone
+        /// A headset's microphone on a cable.
+        case wired
+        /// A Bluetooth headset's microphone.
+        case bluetooth
+        /// A USB microphone or interface.
+        case usb
+        /// Anything else (a car, a simulated microphone).
+        case other
+    }
+
+    public var kind: Kind
+    /// The name the system gives the input ("iPhone Microphone").
+    public var name: String
+
+    public init(kind: Kind, name: String) {
+        self.kind = kind
+        self.name = name
+    }
+
+    /// What the simulated IO reports.
+    public static let simulatedMicrophone = AudioInputRoute(kind: .other, name: "Simulated microphone")
 }
 
 /// Why the audio stopped under a measurement.
@@ -119,9 +147,15 @@ public protocol AudioIO: AnyObject, Sendable {
 
     /// Where the sound goes now; nil when it cannot be told. Read after `start()`, before anything is scheduled.
     var outputRoute: AudioOutputRoute? { get }
+
+    /// Where the sound is heard from now (the phone's microphone, a headset's, a USB microphone); nil when it cannot be
+    /// told. Kept with a recording so the phone and route that coloured it are known; it decides nothing.
+    var inputRoute: AudioInputRoute? { get }
 }
 
 extension AudioIO {
     /// Unknown, for an IO that cannot tell: the measurement then goes ahead.
     public var outputRoute: AudioOutputRoute? { nil }
+    /// Unknown, for an IO that cannot tell.
+    public var inputRoute: AudioInputRoute? { nil }
 }

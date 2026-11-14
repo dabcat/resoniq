@@ -143,6 +143,20 @@ public final class EngineAudioIO: AudioIO {
         return AudioOutputRoute(kind: kind, name: output.portName)
     }
 
+    /// The session's current input, from `AVAudioSession.currentRoute`. Kept with a recording only. Check on a phone:
+    /// the names a built-in microphone and a headset report.
+    public var inputRoute: AudioInputRoute? {
+        guard let input = AVAudioSession.sharedInstance().currentRoute.inputs.first else { return nil }
+        let kind: AudioInputRoute.Kind = switch input.portType {
+        case .builtInMic: .builtInMicrophone
+        case .headsetMic, .lineIn: .wired
+        case .bluetoothHFP, .bluetoothLE: .bluetooth
+        case .usbAudio: .usb
+        default: .other
+        }
+        return AudioInputRoute(kind: kind, name: input.portName)
+    }
+
     public func schedule(_ samples: [Float], on channel: SpeakerChannel, mode: PlaybackMode) throws -> Int64 {
         try state.withLock { state throws(AudioIOError) in try state.schedule(samples, on: channel, mode: mode) }
     }

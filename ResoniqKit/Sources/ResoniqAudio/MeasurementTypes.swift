@@ -117,6 +117,15 @@ public struct MeasurementResult: Sendable, Equatable {
     public var runs: [RunRecording]
     /// What played the sound; the runs' `clockRatio` says how far another device's clock was off.
     public var source: PlaybackSource = .thisPhone
+    /// The room's floor as it was recorded: the samples `noiseFloor` was measured from (`NoiseFloor.measure` on them
+    /// gives it again), at the runs' sample rate. Kept so a test's recordings can be kept whole; empty for a result
+    /// made by hand.
+    public var noiseFloorSamples: [Float] = []
+    /// Where the phone sent the sound when the test opened; nil when the IO could not tell, and when another device
+    /// played it (the phone's own output then says nothing about the sound).
+    public var outputRoute: AudioOutputRoute? = nil
+    /// What the phone heard through when the test opened; nil when the IO could not tell.
+    public var inputRoute: AudioInputRoute? = nil
 }
 
 /// What the Listening and Paused screens show while a test runs.

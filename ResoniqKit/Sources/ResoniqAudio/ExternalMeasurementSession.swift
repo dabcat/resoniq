@@ -75,6 +75,8 @@ public final class ExternalMeasurementSession {
     public var isRunning: Bool { task != nil }
 
     @ObservationIgnored private let io: any AudioIO
+    /// The input the IO reported once the test opened, for the result.
+    @ObservationIgnored private var inputRoute: AudioInputRoute?
     @ObservationIgnored private let permission: any MicrophonePermission
     @ObservationIgnored private let stillness: any StillnessMonitor
     @ObservationIgnored private var task: Task<State, Never>?
@@ -172,6 +174,7 @@ public final class ExternalMeasurementSession {
             await io.stop()
             return .failed(.measurement(.audioUnavailable("the input runs at \(Int(stream.sampleRate)) Hz")))
         }
+        inputRoute = io.inputRoute
         stillness.start()
         defer { stillness.stop() }
 
@@ -471,7 +474,10 @@ public final class ExternalMeasurementSession {
             run.clockDisagreementPPM = clock.disagreement
             runs.append(run)
         }
-        return .finished(MeasurementResult(channel: channel, sweep: test.sweep, noiseFloor: floor, runs: runs, source: .anotherDevice))
+        return .finished(MeasurementResult(
+            channel: channel, sweep: test.sweep, noiseFloor: floor, runs: runs, source: .anotherDevice,
+            noiseFloorSamples: test.floorListener.floorSamples ?? [], outputRoute: nil, inputRoute: inputRoute
+        ))
     }
 
     /// Cuts deferred from play `play` that a later sweep's spacing has now placed, checked again, anchored.

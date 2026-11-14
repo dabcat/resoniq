@@ -401,7 +401,7 @@ struct FindingScreen: View {
             let swaps: Bool
             let secondSpot: Bool
             switch finding.kind {
-            case .responseDip, .responsePeak, .distortion, .leftRightDifference, .quietBand, .rattle:
+            case .responseDip, .responsePeak, .distortion, .leftRightDifference, .quietBand, .rattle, .highOrderDistortion:
                 swaps = speaker != .single
                 secondSpot = true
             case .topEndDip:
@@ -429,6 +429,7 @@ struct FindingScreen: View {
         private static func problem(of finding: Finding) -> String {
             switch finding.kind {
             case .distortion: "buzz"
+            case .highOrderDistortion: "rub or buzz"
             case .responseDip, .topEndDip: "dip"
             case .responsePeak: "peak"
             case .leftRightDifference: "difference"

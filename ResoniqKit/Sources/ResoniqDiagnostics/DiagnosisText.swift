@@ -103,6 +103,7 @@ public enum DiagnosisText {
     }
 
     static func confidenceStatement(kind: Finding.Kind, confidence: Finding.Confidence, basis: Finding.Basis) -> String {
+        if kind == .highOrderDistortion { return highOrderConfidence(confidence, basis: basis) }
         switch confidence {
         case .medium, .high:
             let label = confidence == .high ? "high" : "medium"
@@ -137,6 +138,48 @@ public enum DiagnosisText {
             detail: "Distortion rose to \(percent(extreme)) % around \(self.frequency(frequency)).",
             sentence: "A possible buzz around \(self.frequency(range.centre))."
         )
+    }
+
+    /// Energy above the tenth harmonic: hedged in every line, as a buzz is. `extreme` is the level in dB relative to
+    /// the tone at `frequency`; `thdUnder`, when set, is the buzz threshold THD stayed under across the range, which
+    /// the detail then says, because that is how a rub hides from the ordinary measure.
+    static func highOrder(range: FrequencyRange, extreme: Float, at frequency: Float, thdUnder: Float?) -> Words {
+        var detail = "Above the tone's tenth harmonic it read about \(decibels(extreme)) dB under the tone around \(self.frequency(frequency))."
+        if let thdUnder {
+            detail += " Ordinary distortion stayed under \(percent(thdUnder)) % there; a rub or buzz shows in these higher overtones first."
+        }
+        return Words(
+            headline: "Possible rub or buzz at \(self.range(range))",
+            detail: detail,
+            sentence: "A possible rub or buzz around \(self.frequency(range.centre))."
+        )
+    }
+
+    /// Names what else would read the same from one microphone position, at every confidence.
+    static func highOrderConfidence(_ confidence: Finding.Confidence, basis: Finding.Basis) -> String {
+        let alternative = "something near the speaker buzzing along, such as a loose panel or an object on the shelf"
+        switch confidence {
+        case .medium, .high:
+            return "Inferred, \(confidence == .high ? "high" : "medium") confidence. It repeats every run, but from one microphone position I can't tell the speaker from \(alternative)."
+        case .low:
+            if basis.runsAgreeing == basis.runsCompared {
+                return "Inferred, low confidence. It showed in both runs I could use, but that is too few to be sure, and \(alternative) would sound the same."
+            }
+            return "Inferred, low confidence. It showed in \(basis.text), so it may have been a sound in the room, or \(alternative)."
+        }
+    }
+
+    /// The sentence a buzz or a possible rattle gains when the level above the tenth harmonic was measured at the same
+    /// place.
+    static func highOrderAlso(extreme: Float, _ basis: Finding.Basis) -> String {
+        "Above the tone's tenth harmonic it read about \(decibels(extreme)) dB under the tone there too, in \(basis.text)."
+    }
+
+    /// What the even statement says about rub and buzz, the high orders: where they were ruled out, or that they could
+    /// not be read over the room's noise.
+    enum HighOrderStatement: Equatable {
+        case ruledOut(FrequencyRange)
+        case notChecked
     }
 
     /// A driver far quieter than the rest. The difference is measured; what causes it is not known, and the words say
@@ -274,7 +317,8 @@ public enum DiagnosisText {
         distortionBelow threshold: Float,
         over range: FrequencyRange?,
         uncheckedBelow: Float?,
-        rollOffBelow: Float? = nil
+        rollOffBelow: Float? = nil,
+        highOrder: HighOrderStatement? = nil
     ) -> Words {
         let list = bandList(bands)
         let capitalised = list.prefix(1).uppercased() + list.dropFirst()
@@ -288,6 +332,13 @@ public enum DiagnosisText {
             if let uncheckedBelow { detail += " I couldn't check for distortion below \(frequency(uncheckedBelow))." }
         } else {
             detail += " I couldn't measure distortion over the room's noise."
+        }
+        // The high orders are named only where they were read clean; elsewhere the statement says they weren't
+        // checked, so "distortion stayed under" is never read as "no rub or buzz".
+        switch highOrder {
+        case .ruledOut(let stretch): detail += " I found no sign of rub or buzz \(span(stretch))."
+        case .notChecked: detail += " I couldn't check for rub or buzz over the room's noise."
+        case nil: break
         }
         return Words(
             headline: "\(capitalised) \(verb) even",
@@ -362,6 +413,7 @@ public enum DiagnosisText {
         case .leftRightDifference: return "it may not match the other speaker around \(around)"
         case .quietBand: return "I could barely hear \(band)"
         case .rattle: return "something may be rattling around \(around)"
+        case .highOrderDistortion: return "\(band) may be rubbing or buzzing"
         case .topEndDip, .even, .invalidRecording, .distortionUnclear, .notAssessed: return ""
         }
     }
@@ -405,7 +457,7 @@ public enum DiagnosisText {
         case 1: "Sounds healthy, except \(clause(for: suspected[0]))."
         case 2: "Sounds healthy, except \(clause(for: suspected[0])) and \(clause(for: suspected[1]))."
         // Three or more dips and peaks and nothing else is an uneven response, which one spot cannot pin on the
-        // speaker; a buzz, a rattle or a quiet driver among them keeps the plainer line.
+        // speaker; a buzz, a rub, a rattle or a quiet driver among them keeps the plainer line.
         default: suspected.allSatisfy { $0.kind == .responseDip || $0.kind == .responsePeak }
             ? "It's uneven in \(suspected.count) places. From one spot I can't tell the speaker from the room."
             : "I found \(suspected.count) things worth a closer look."

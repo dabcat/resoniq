@@ -98,6 +98,8 @@ struct FindingNumbersSheet: View {
         switch unit {
         case .percent: String(format: "%.1f %%", value)
         case .decibels: String(format: signed ? "%+.1f dB" : "%.1f dB", value)
+        // A level against the tone, threshold included: always signed, since the sign is the meaning.
+        case .toneDecibels: String(format: "%+.1f dB", value)
         }
     }
 
@@ -112,6 +114,7 @@ struct FindingNumbersSheet: View {
             switch unit {
             case .percent: "How much of the sound is distortion rather than the note, at the worst point of each run."
             case .decibels: "Level against this speaker's own middle notes, at the worst point of each run. The microphone is not calibrated, so only the difference means anything."
+            case .toneDecibels: "Sound above the test tone's tenth harmonic, against the tone itself, at the worst point of each run."
             }
         }
     }

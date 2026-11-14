@@ -130,8 +130,9 @@ func deviations(_ report: SpeakerReport) -> [Finding] {
         #expect(even.headline == "Tweeter, mid and woofer are even")
         // Distortion is read from 80 Hz (the DSP's trusted band for the second harmonic) to under half the sweep's
         // end; rattle is not measured from a sweep, so it is not mentioned. The woofer is in the statement, so the
-        // words say distortion was not checked under 80 Hz.
-        #expect(even.detail == "It stays within 3 dB from 50 Hz to 14 kHz. Distortion stayed under 10 % from 80 Hz to 9.2 kHz. I couldn't check for distortion below 80 Hz.")
+        // words say distortion was not checked under 80 Hz. The quiet room's −60 dBFS of white noise reads about
+        // −46 dB against the tone above the tenth harmonic, too close to rule a rub out, and the words say so.
+        #expect(even.detail == "It stays within 3 dB from 50 Hz to 14 kHz. Distortion stayed under 10 % from 80 Hz to 9.2 kHz. I couldn't check for distortion below 80 Hz. I couldn't check for rub or buzz over the room's noise.")
         #expect(even.tagLine == "Measured")
         #expect(even.basis == Finding.Basis(runsAgreeing: 3, runsCompared: 3))
     }
@@ -174,7 +175,7 @@ func deviations(_ report: SpeakerReport) -> [Finding] {
         #expect(report.verdict == "Sounds healthy, except the woofer may be buzzing.")
         let even = try #require(report.findings.first { $0.kind == .even })
         #expect(even.headline == "Tweeter and mid are even")
-        #expect(even.detail == "It stays within 3 dB from 310 Hz to 14 kHz. Distortion stayed under 10 % from 310 Hz to 9.2 kHz.")
+        #expect(even.detail == "It stays within 3 dB from 310 Hz to 14 kHz. Distortion stayed under 10 % from 310 Hz to 9.2 kHz. I couldn't check for rub or buzz over the room's noise.")
         #expect(even.tagLine == "Measured")
     }
 

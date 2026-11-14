@@ -72,6 +72,20 @@ public enum DistortionReading: Sendable, Equatable {
     case belowNoise(readPercent: Float, upperBoundPercent: Float?)
 }
 
+/// What the level above the high harmonics at one grid point of one run is known to be.
+public enum HighOrderReading: Sendable, Equatable {
+    /// Nothing was read here: outside the band `HighOrderDistortion` reads (40 Hz to about 1.7 kHz with the
+    /// measurement sweep), or a record stored before the high orders were kept.
+    case notRead
+    /// The level is a measurement (`SweepHighOrderDistortion.isMeasurable(at:)`: at least `measurableMarginDecibels`
+    /// above what noise alone reads), in dB relative to the tone.
+    case measured(decibels: Float)
+    /// The level did not stand clear of the noise. `readDecibels` is what was read, noise included; all that is known
+    /// is that the speaker's own is under `upperBoundDecibels` (the floor raised by the DSP's margin), nil when there
+    /// was no floor.
+    case belowNoise(readDecibels: Float, upperBoundDecibels: Float?)
+}
+
 /// What one valid run measured, on `ResponseGrid`.
 public struct RunMeasurement: Sendable, Codable, Equatable {
     /// The response in dB re the sweep (uncalibrated: only its shape means anything), smoothed to
@@ -104,6 +118,18 @@ public struct RunMeasurement: Sendable, Codable, Equatable {
     public let bandCentres: [Float]
     /// The recording's level over the room's noise floor in each band, dB.
     public let bandSignalToNoise: [Float]
+    /// The level above the tenth harmonic (`HighOrderDistortion`) in dB relative to the tone at each `ResponseGrid`
+    /// frequency, smoothed to 1/`DiagnosisThresholds.distortionSmoothingFraction` octave. Gross, like THD: read it with
+    /// `highOrder(atIndex:)`. Nil at a point outside the band it is read over (40 Hz to about 1.7 kHz for the
+    /// measurement sweep). Nil as a whole in a record stored before it was kept, and then not encoded, so a record
+    /// without it is stored as before.
+    public let highOrderDecibels: [Float?]?
+    /// Whether the level at each grid point is a measurement (`SweepHighOrderDistortion.isMeasurable(at:)` on the
+    /// smoothed level). Nil as a whole only in a record stored before it was kept: nowhere measurable.
+    public let highOrderMeasurable: [Bool]?
+    /// What noise alone reads there, dB relative to the tone, from the noise-floor recording; nil where there is none.
+    /// Nil as a whole only in a record stored before it was kept.
+    public let highOrderNoiseFloorDecibels: [Float?]?
 
     public init(
         response: [Float],
@@ -114,11 +140,20 @@ public struct RunMeasurement: Sendable, Codable, Equatable {
         thdNoiseFloorDecibels: [Float?]?,
         delay: Double,
         bandCentres: [Float],
-        bandSignalToNoise: [Float]
+        bandSignalToNoise: [Float],
+        highOrderDecibels: [Float?]? = nil,
+        highOrderMeasurable: [Bool]? = nil,
+        highOrderNoiseFloorDecibels: [Float?]? = nil
     ) {
         precondition(response.count == ResponseGrid.count && thdDecibels.count == ResponseGrid.count, "curves must be on ResponseGrid")
         precondition(thdMeasurable.map { $0.count == ResponseGrid.count } ?? true, "curves must be on ResponseGrid")
         precondition(thdNoiseFloorDecibels.map { $0.count == ResponseGrid.count } ?? true, "curves must be on ResponseGrid")
+        precondition(highOrderDecibels.map { $0.count == ResponseGrid.count } ?? true, "curves must be on ResponseGrid")
+        precondition(highOrderMeasurable.map { $0.count == ResponseGrid.count } ?? true, "curves must be on ResponseGrid")
+        precondition(highOrderNoiseFloorDecibels.map { $0.count == ResponseGrid.count } ?? true, "curves must be on ResponseGrid")
+        self.highOrderDecibels = highOrderDecibels
+        self.highOrderMeasurable = highOrderMeasurable
+        self.highOrderNoiseFloorDecibels = highOrderNoiseFloorDecibels
         precondition(bandCentres.count == bandSignalToNoise.count, "bands and ratios differ in length")
         self.response = response
         self.referenceLevel = referenceLevel
@@ -152,6 +187,14 @@ public struct RunMeasurement: Sendable, Codable, Equatable {
             100 * Decibels.toAmplitude($0 + SweepDistortion.measurableMarginDecibels)
         }
         return .belowNoise(readPercent: read, upperBoundPercent: bound)
+    }
+
+    /// What the level above the high harmonics at grid point `index` is known to be.
+    public func highOrder(atIndex index: Int) -> HighOrderReading {
+        guard let read = highOrderDecibels?[index], let highOrderMeasurable else { return .notRead }
+        if highOrderMeasurable[index] { return .measured(decibels: read) }
+        let bound = highOrderNoiseFloorDecibels?[index].map { $0 + SweepDistortion.measurableMarginDecibels }
+        return .belowNoise(readDecibels: read, upperBoundDecibels: bound)
     }
 
     /// The signal-to-noise ratio of the octave band holding `frequency`; the nearest band outside their range, and
@@ -255,12 +298,11 @@ public struct RunAnalysis: Sendable, Equatable {
 
 /// Turns one run's recording into its numbers.
 ///
-/// **What is not measured.** The plan lists the non-harmonic residue (rub and buzz that is not a harmonic of the
-/// sweep) among a run's numbers. It is not computed: the DSP measures it only on a steady tone
-/// (`ToneDistortionResult.nonHarmonicResidue`), and a sweep's deconvolution offers no such figure
-/// (`HarmonicDistortion` does not see rattles). What a run keeps instead is the session's observation that sound tied
-/// to the sweep came back (`SweepTiedSound`): evidence, not a measurement. Nothing in a report may claim that rattle
-/// was measured, or that a run without the observation had none.
+/// **Rub and buzz.** A run keeps the level above the tenth harmonic along the sweep (`HighOrderDistortion`, read from
+/// the recording itself against the noise floor), which is where rub and buzz show even when THD over orders 2 to 5
+/// stays low. A rattle that does not follow the tone is not measured: what a run keeps of it is the session's
+/// observation that sound tied to the sweep came back (`SweepTiedSound`), evidence, not a measurement. Nothing in a
+/// report may claim that rattle was measured, or that a run without the observation had none.
 public enum RunAnalyzer {
     /// Analyses one recording of `sweep`, made at the same microphone gain as `noiseFloor`.
     ///
@@ -321,6 +363,19 @@ public enum RunAnalyzer {
             read.noiseFloorPercent(at: frequency).map { Decibels.fromAmplitude($0 / 100) }
         }
 
+        // The level above the high harmonics, smoothed and judged against its floor as THD is.
+        let high = HighOrderDistortion.analyze(
+            recording: recording, sweep: sweep, delay: impulse.delay, noise: noiseFloor, measuredBand: impulse.trustedBand
+        )
+        let highRead = SweepHighOrderDistortion(
+            level: Smoothing.fractionalOctave(high.level, fraction: thresholds.distortionSmoothingFraction),
+            noiseFloor: high.noiseFloor
+        )
+        let highOrder: [Float?] = grid.map { frequency in
+            let level = highRead.levelDecibels(at: frequency)
+            return level.isNaN ? nil : level
+        }
+
         let bands = bandSignalToNoise(recording: recording, sampleRate: sweep.sampleRate, noiseFloor: noiseFloor)
         return RunAnalysis(
             verdict: verdict,
@@ -333,7 +388,10 @@ public enum RunAnalyzer {
                 thdNoiseFloorDecibels: floor,
                 delay: impulse.delay,
                 bandCentres: bands.frequencies,
-                bandSignalToNoise: bands.decibels
+                bandSignalToNoise: bands.decibels,
+                highOrderDecibels: highOrder,
+                highOrderMeasurable: grid.map(highRead.isMeasurable(at:)),
+                highOrderNoiseFloorDecibels: grid.map(highRead.noiseFloorDecibels(at:))
             )
         )
     }

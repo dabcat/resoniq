@@ -104,7 +104,7 @@ struct AppShell: View {
         .background(ResoniqColor.ink)
         // A call, the lock button or another app: stop whatever plays or listens.
         .onChange(of: scenePhase) { _, phase in
-            if phase != .active { lifecycle?.sceneLeftForeground() }
+            if phase != .active { lifecycle?.sceneLeftForeground() } else { lifecycle?.sceneBecameActive() }
         }
     }
 

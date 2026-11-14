@@ -222,15 +222,19 @@ final class DiagnoseCoordinator {
     @ObservationIgnored private let audio: AudioEnvironment
     /// "Keep recordings" in Settings.
     @ObservationIgnored private let recordingPreference: RecordingPreference
+    /// "Share recordings for research": told when a kept test's recording is on disk and when a kept test is discarded.
+    /// Nil in a build without sharing.
+    @ObservationIgnored private let share: ShareModel?
 
     init(
         store: ResoniqStore, memory: ComparisonMemory, audio: AudioEnvironment,
-        recordingPreference: RecordingPreference = RecordingPreference()
+        recordingPreference: RecordingPreference = RecordingPreference(), share: ShareModel? = nil
     ) {
         self.store = store
         self.memory = memory
         self.audio = audio
         self.recordingPreference = recordingPreference
+        self.share = share
     }
 
     /// "0.1.0 (1)", for a kept recording's manifest.
@@ -424,14 +428,20 @@ final class DiagnoseCoordinator {
             if again != kept { try? store.update(earlier, report: again) }
         }
         // "Keep recordings": the kept test's audio is written after the result is on screen, off the main actor. A write
-        // that fails leaves the report kept and the test without a recording; nothing is said.
+        // that fails leaves the report kept and the test without a recording; nothing is said. Once it is on disk,
+        // sharing is told, if it was on when the test was kept; the result never waits for either.
         if let test, let system, let recorded = completed.recorded, recordingPreference.isOn {
+            let sharingWhenKept = share?.isOn ?? false
             let example = RecordingExample(
                 result: recorded.result, report: report, speaker: completed.position, systemName: system.name,
                 systemKind: system.kind, roomName: system.room?.name ?? StoreText.defaultRoomName, date: test.date,
                 device: .current(appVersion: Self.appVersion)
             )
-            Task { [store] in await store.keepRecording(example, for: test) }
+            Task { [store, share] in
+                if await store.keepRecording(example, for: test), let folder = test.recordingFileName {
+                    share?.recordingKept(folder, sharingWhenKept: sharingWhenKept)
+                }
+            }
         }
         // Only a kept test is compared with the other speaker's later.
         if DiagnoseRules.shouldRemember(isKept: test != nil), let system {
@@ -471,7 +481,9 @@ final class DiagnoseCoordinator {
     func dontKeep() {
         if let outcome, let test = outcome.test {
             let system = outcome.system?.persistentModelID
+            let folder = test.recordingFileName
             try? store.discard(test)
+            if let folder { share?.recordingDiscarded(folder) }
             // The runs of a discarded test must not be compared with the other speaker's.
             if let system { memory.forget(outcome.position, in: system) }
         }

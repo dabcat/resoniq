@@ -20,6 +20,13 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+#if RESONIQ_LOCAL_NETWORKING
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+#endif
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>LSRequiresIPhoneOS</key>
@@ -29,7 +36,9 @@
 	<key>NSCameraUsageDescription</key>
 	<string>I use the camera to scan your room and to show you where a speaker should go. The pictures never leave this iPhone.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>I play a test sound through your speaker and listen to it with the microphone. The sound never leaves this iPhone.</string>
+	<string>I play a test sound through your speaker and listen to it with the microphone. The sound stays on this iPhone unless you choose to share your recordings.</string>
+	<key>ResoniqShareURL</key>
+	<string>$(RESONIQ_SHARE_URL)</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UIFileSharingEnabled</key>

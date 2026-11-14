@@ -3,7 +3,8 @@ import ResoniqStore
 import SwiftData
 import SwiftUI
 
-/// Settings (no mockup; built from design/DESIGN_SYSTEM.md): what is kept on this iPhone and how to delete it, how the
+/// Settings (no mockup; built from design/DESIGN_SYSTEM.md): what is kept on this iPhone and how to delete it, whether
+/// a kept test keeps its recordings (no mockup either: the same panel, rows and outlined button as "Your data"), how the
 /// test sound and the microphone should be understood, the intro, and the app's version and licences.
 ///
 /// Reads the store from the environment (`\.resoniqStore`) and its counts live with `@Query`.
@@ -23,17 +24,23 @@ struct SettingsScreen: View {
     @State private var introScheduled = false
     @State private var showsLicences = false
     @State private var showsTestSound = false
+    /// "Keep recordings" (`RecordingPreference`), off by default.
+    @AppStorage(RecordingPreference.key) private var keepsRecordings = false
+    /// Bytes the kept recordings take; read when the screen opens and after a delete.
+    @State private var recordingsSize: Int64 = 0
 
     private enum Deletion: Identifiable {
         case results
         case everything
+        case recordings
         var id: Self { self }
     }
 
     private var counts: StoreCounts {
         StoreCounts(
             rooms: rooms.count, systems: systems.count, speakerTests: tests.count,
-            seatMeasurements: measurements.count, roomScans: rooms.filter { $0.scanFileName != nil }.count
+            seatMeasurements: measurements.count, roomScans: rooms.filter { $0.scanFileName != nil }.count,
+            recordings: tests.filter { $0.recordingFileName != nil }.count
         )
     }
 
@@ -42,6 +49,7 @@ struct SettingsScreen: View {
             VStack(alignment: .leading, spacing: Metrics.sectionGap) {
                 header
                 dataSection
+                recordingsSection
                 measurementSection
                 introSection
                 aboutSection
@@ -54,22 +62,17 @@ struct SettingsScreen: View {
         .background(ResoniqColor.ink)
         .preferredColorScheme(.dark)
         .confirmationDialog(
-            confirming == .everything ? SettingsText.deleteEverythingTitle : SettingsText.deleteResultsTitle,
+            confirming.map(title) ?? "",
             isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } }),
             titleVisibility: .visible,
             presenting: confirming
         ) { deletion in
-            Button(
-                deletion == .everything ? SettingsText.deleteEverythingConfirm : SettingsText.deleteResultsConfirm,
-                role: .destructive
-            ) { delete(deletion) }
+            Button(confirmLabel(deletion), role: .destructive) { delete(deletion) }
             Button(SettingsText.cancel, role: .cancel) {}
         } message: { deletion in
-            Text(
-                deletion == .everything
-                    ? SettingsText.deleteEverythingMessage(counts) : SettingsText.deleteResultsMessage(counts)
-            )
+            Text(message(deletion))
         }
+        .task { recordingsSize = store?.recordingsSize() ?? 0 }
         .fullScreenCover(isPresented: $showsTestSound) {
             TestSoundScreen(context: .everything, onContinue: nil, onClose: { showsTestSound = false })
                 .preferredColorScheme(.dark)
@@ -126,16 +129,64 @@ struct SettingsScreen: View {
         }
     }
 
+    private func title(_ deletion: Deletion) -> String {
+        switch deletion {
+        case .results: SettingsText.deleteResultsTitle
+        case .everything: SettingsText.deleteEverythingTitle
+        case .recordings: SettingsText.deleteRecordingsTitle
+        }
+    }
+
+    private func confirmLabel(_ deletion: Deletion) -> String {
+        switch deletion {
+        case .results: SettingsText.deleteResultsConfirm
+        case .everything: SettingsText.deleteEverythingConfirm
+        case .recordings: SettingsText.deleteRecordingsConfirm
+        }
+    }
+
+    private func message(_ deletion: Deletion) -> String {
+        switch deletion {
+        case .results: SettingsText.deleteResultsMessage(counts)
+        case .everything: SettingsText.deleteEverythingMessage(counts)
+        case .recordings: SettingsText.deleteRecordingsMessage(counts)
+        }
+    }
+
     private func delete(_ deletion: Deletion) {
         do {
             switch deletion {
             case .results: try store?.deleteAllResults()
             case .everything: try store?.deleteEverything()
+            case .recordings: try store?.deleteRecordings()
             }
         } catch {
             failed = true
         }
+        recordingsSize = store?.recordingsSize() ?? 0
     }
+
+    // MARK: Recordings
+
+    private var recordingsSection: some View {
+        SettingsSection(SettingsText.recordingsLabel) {
+            VStack(alignment: .leading, spacing: Metrics.rowGap) {
+                Toggle(isOn: $keepsRecordings) {
+                    Text(SettingsText.keepRecordings).font(ResoniqFont.body).foregroundStyle(ResoniqColor.ivory)
+                }
+                .tint(ResoniqColor.lime)
+                .frame(minHeight: ResoniqSize.touchMin)
+                Text(SettingsText.recordingsExplanation).bodyText(colour: ResoniqColor.muted)
+                ValueRow(label: SettingsText.recordingsSpace, value: SettingsText.size(recordingsSize), isLast: true)
+                Button(SettingsText.deleteRecordings) { confirming = .recordings }
+                    .buttonStyle(ResoniqSecondaryButtonStyle(.outlined))
+                    .disabled(!hasRecordings)
+                    .opacity(hasRecordings ? 1 : Metrics.disabledOpacity)
+            }
+        }
+    }
+
+    private var hasRecordings: Bool { recordingsSize > 0 || counts.recordings > 0 }
 
     // MARK: Measurement
 
@@ -247,10 +298,21 @@ private struct CountRow: View {
     var isLast = false
 
     var body: some View {
+        ValueRow(label: label, value: value.formatted(.number), isLast: isLast)
+    }
+}
+
+/// A row of the data lists: the name on the left, a figure on the right, a hairline under all but the last.
+private struct ValueRow: View {
+    let label: String
+    let value: String
+    var isLast = false
+
+    var body: some View {
         HStack(alignment: .firstTextBaseline) {
             Text(label).font(ResoniqFont.body).foregroundStyle(ResoniqColor.ivory)
             Spacer(minLength: ResoniqSpace.s3)
-            Text(value, format: .number).font(ResoniqFont.figure).foregroundStyle(ResoniqColor.ivory)
+            Text(value).font(ResoniqFont.figure).foregroundStyle(ResoniqColor.ivory)
         }
         .padding(.vertical, ResoniqSpace.s2)
         .overlay(alignment: .bottom) {

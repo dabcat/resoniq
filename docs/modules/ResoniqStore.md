@@ -23,7 +23,7 @@ Paths are relative to `ResoniqKit/Sources/ResoniqStore/`.
 - **History is filtered and sorted in memory** from the relationship arrays, not with relationship predicates.
 - **A layout is a snapshot.** A seat measurement copies the room's layout bytes when it is kept, so a comparison knows where the speakers stood. An optimisation keeps the layout before and, once the move is recorded, the layout after.
 - **"The same layout" has one definition:** `LayoutMatch.matches` in ResoniqRoom (same speakers and seats by id, each pose within 2 cm and 2°). The baseline, `verifies`, `staysOpen`, `canPutBack` and `staysDeclined` all use it; nothing compares layout bytes alone any more (equal bytes are a shortcut to "matches").
-- **Files are references.** The database keeps only a file name (`Room.scanFileName`); `ScanFileStore` owns the bytes. Scan files stay in the backup: a scan is user data that takes a walk round the room to recreate, so it is not excluded (the data skill excludes only re-creatable files). Recordings are not stored.
+- **Files are references.** The database keeps only a file name (`Room.scanFileName`, `SpeakerTest.recordingFileName`); `ScanFileStore` and `RecordingStore` own the bytes. Scan files stay in the backup: a scan is user data that takes a walk round the room to recreate, so it is not excluded (the data skill excludes only re-creatable files). Kept recordings (phase 9, only when "Keep recordings" is on) are excluded from the backup: they are the room's raw sound, for the owner to take off the phone themselves.
 - **Main actor.** `ResoniqStore` is `@MainActor` and uses the container's main context, unless `init(container:scanFiles:context:)` is given another (tests use a second `ModelContext` to prove a value was saved, not only held in memory). Models are not `Sendable`.
 
 ## Schema versions
@@ -41,7 +41,7 @@ To change a model again: add `ResoniqSchemaV3`, move the typealiases, add a stag
 |---|---|---|
 | `Room` | `SchemaV2.swift:50` | name, createdAt, systems; layout (`layoutData`, `layoutSchemaVersion`, `layoutUpdatedAt`), `scanFileName`; `readLayout()` (:74), `layout` (:80) |
 | `SoundSystem` | `SchemaV2.swift:84` | name, kind, room, tests, seatMeasurements, optimizations |
-| `SpeakerTest` | `SchemaV2.swift:109` | the kept speaker report with its version; `readReport()` (:134) |
+| `SpeakerTest` | `SchemaV2.swift:109` | the kept speaker report with its version; `readReport()` (:134); `recordingFileName`, reserved since V1, holds the kept recording's folder name (phase 9; no migration) |
 | `StoreState` | `SchemaV2.swift:144` | the selected system, in the database |
 | `SeatMeasurement` | `SchemaV2.swift:153` | date, system, `SeatReport` data and version, layout snapshot (optional); `readReport()` (:179), `readLayout()` (:186) |
 | `Optimization` | `SchemaV2.swift` | system, createdAt, suggestion, layout before, layout after (nil until moved), `seatBefore`, `seatAfter`, comparison (nil until verified), `outcome`; `readSuggestion()`, `readLayoutBefore()`, `readLayoutAfter()`, `readComparison()`, and the optional twins `suggestion`, `comparison`, `layoutBefore`, `layoutAfter` |
@@ -57,7 +57,7 @@ To change a model again: add `ResoniqSchemaV3`, move the typealiases, add a stag
 | `rooms()`, `defaultContext()`, `addRoom`, `addSystem`, `rename` | `ResoniqStore.swift:52–95` | as in phase 2 |
 | `delete(_ room:)`, `delete(_ system:)` | `ResoniqStore.swift:102`, `:111` | cascade; the room's scan file is deleted too |
 | `selectedSystem`, `select(_:)` | `ResoniqStore.swift:120`, `:124` | selection in the database |
-| `keep(_ report: SpeakerReport, speaker:in:date:)`, `update(_ test:report:)`, `discard(_ test:)`, `latestTest`, `history` | `ResoniqStore.swift` ("Tests") | speaker tests; `update` replaces a kept test's report with the same test read again (`SpeakerDiagnosis.compared`), keeping its date |
+| `keep(_ report: SpeakerReport, speaker:in:date:)`, `update(_ test:report:)`, `discard(_ test:)`, `latestTest`, `history` | `ResoniqStore.swift` ("Tests") | speaker tests; `update` replaces a kept test's report with the same test read again (`SpeakerDiagnosis.compared`), keeping its date; `discard` deletes the test's recording folder too, as `delete(_ room:)` and `delete(_ system:)` do for theirs |
 | `layout(of:)` | `ResoniqStore+Optimize.swift:84` | the room's `RoomModel`, nil when none, throws when unreadable |
 | `setLayout(_:for:scanFile:date:)` | `ResoniqStore+Optimize.swift:94` | the raw write: stores the layout and its date; a new `scanFile` replaces the reference and deletes the old file; nil keeps it, except for a hand-entered layout (`RoomSource.manual`), which drops the room's scan and deletes its file |
 | `confirmLayout(_:for:scanFile:date:)` | `ResoniqStore+Optimize.swift:112` | "Looks right": `setLayout`, after closing as `superseded` every open optimisation of the room's systems the new layout makes stale (`OptimizeRules.staysOpen`: an edit that is exactly the recorded move keeps it open; a rescan, entry by hand or any other edit does not) |
@@ -121,6 +121,20 @@ Once an optimisation is closed, `moved` and `verified` clear for the next one. "
 | `withGuess` | :164 | a scanned room gets `LayoutGuess`'s speakers and seat |
 | `MovePlacement`, `placement(of:in:)` | :169, :179 | `atTarget`, `approximate` (marked farther than `MoveGuidance.positionTolerance` from the target) or `notConfirmed` |
 
+### Kept recordings (phase 9)
+
+[Plan](../plans/phase-9-keep-recordings.md). The store depends on `ResoniqAudio` for this (`MeasurementResult`, `WAVFile`).
+
+| Symbol | Where | Does |
+|---|---|---|
+| `RecordingManifest` | `RecordingManifest.swift` | `manifest.json`, `currentSchemaVersion` 1: kind, `createdAt`, `sampleRate`, `playback`, `device` (model, system, version, app version; `Device.current(appVersion:)`), `audioRoute` (output, input), `speaker` (position, channel; make, model, unit id absent), `system` (name, kind), `room` (name), `sweep` (the `LogSweep`'s parameters and sample count), `noiseFloor` (file, sample count, rms, fluctuation, steady), `runs` (file, sample count, lead-in, arrival, measured and route delay, the report's `RecordingCheck`, splices, phone moved, attempt, sweep-tied sound, take offsets, clock ratio, source and disagreement), `report` (schema version and the `SpeakerReport`), `label` (absent); `encoder`, `decoder` (ISO 8601 dates, sorted keys, non-finite numbers as text) |
+| `RecordingExample` | `RecordingManifest.swift` | manifest, each run's samples, the floor's; `init(result:report:speaker:systemName:systemKind:roomName:date:device:)` builds it from a finished test |
+| `RecordingStore` | `RecordingStore.swift` | `<root>/Recordings/<name>/` with `manifest.json`, `noise-floor.wav`, `run-N.wav` (mono 32-bit float at the stream's rate); `documents()`, `folderName(date:speaker:id:timeZone:)` (`2026-11-14_153012_left_1A2B3C4D`), `write(_:named:)` (into `.<name>.partial`, then moved: a plain name is always complete), `read(_:)`, `names()`, `totalSize()`, `delete(_:)`, `deleteAll()`, `sweep(keeping:)`; the folder is excluded from backup |
+| `RecordingPreference` | `RecordingStore.swift` | "Keep recordings": `UserDefaults` key `keepRecordings`, false until turned on |
+| `keepRecording(_:for:)` | `ResoniqStore+Recordings.swift` | names the folder on the test and saves, writes off the main actor (`@concurrent`), then on it: a failed write clears the name (the report stays kept); a test deleted meanwhile has its folder removed |
+| `recordingsSize()`, `deleteRecordings()`, `sweepRecordings()` | `ResoniqStore+Recordings.swift` | bytes on disk; every recording goes and every test stays; folders no test refers to and partial writes go (at launch) |
+| `StoreCounts.recordings` | `ResoniqStore+Data.swift` | tests with a recording; `deleteAllResults()` and `deleteEverything()` delete every recording |
+
 ### Scan files
 
 `ScanFileStore` (`ScanFileStore.swift:9`): files in `<root>/Scans/<uuid>.usdz`. `applicationSupport()` (:19) for the app, `init(root:)` for tests. `importScan(from:replacing:)` (:28) copies and returns the name (the old file goes after a successful copy), `url(for:)` (:39) resolves (nil for a missing file or a name with a path separator), `delete(_:)` (:46) is quiet when the file is missing, `sweep(keeping:)` (:54) removes every file not named. RoomPlan's export goes to the temporary directory first, named by `temporaryExportURL(in:)` (:70, prefix `Resoniq-scan-`); the app imports it only when the layout is confirmed, deletes it when the scan is closed or abandoned, and `removeTemporaryExports(in:)` (:77) clears any left at launch.
@@ -128,6 +142,8 @@ Once an optimisation is closed, `moved` and `verified` clear for the next one. "
 ## Tests
 
 `ResoniqKit/Tests/ResoniqStoreTests/`: `ResoniqStoreTests.swift` (phase 2) and `StoreV2Tests.swift` (which also covers `counts()`, `canDelete`, `deleteAllResults()` and `deleteEverything()`; `IntroGateTests` in the same file): layout round trip and unknown version; seat measurement keep, latest, history, discard, snapshot; optimisation life cycle through every outcome; `progress` for each combination; cascade and nullify rules, including reading after the referenced object is gone; scan files in a temporary directory; and the migration test, which writes a V1 store to disk (room, system, speaker test, selection), closes it, opens it with V2 and the plan, checks everything and the empty new fields, then writes V2 data into it. The tests that check persistence ("again") read through a second `ModelContext`, so they prove a save, not object identity.
+
+`RecordingStoreTests.swift` (phase 9): every manifest field from a hand-made result, another device's clock, the JSON's shape; an example read back bit for bit, its size, the backup exclusion, a partial write and odd names; on the store, keeping names the folder and saves it, a failed write keeps the report and no name, Don't keep, a discard during the write, deleting a system or room, all results, everything and the recordings alone, the sweep; the preference off by default.
 
 `OptimizeFlowTests.swift` drives the flow with the real advisor's suggestion: after put back, home works from the measurement of the restored layout, the put-back move is not offered again, and a new optimisation starts from that baseline; a put-back move returns once the problem changes; a decline stays until the layout changes; a rescan while moved supersedes the move, leaves the room not measured, the next measurement does not verify and put back is refused; an edit that is exactly the move keeps it, any other supersedes it; "I'll move it myself" is recorded not confirmed and AR placements as at the target or approximate; `verifies` only in the layout the move left; `optimization(for:in:)` needs a baseline and reuses an open suggestion; the status of an unreadable layout. `OptimizeRulesTests` covers routes, what follows a layout, targets and closed outcomes. `StoreMaintenanceTests.swift`: the scan sweep and temporary exports in a temporary directory, a hand-entered room dropping the scan, and `onDataReset` firing on both deletes only.
 
@@ -142,5 +158,6 @@ Once an optimisation is closed, `moved` and `verified` clear for the next one. "
 
 ## Open questions
 
-- Whether raw recordings are kept by default or only on request (spec §9 lists them as optional).
+- Decided in phase 9: raw recordings are kept only on request, off by default.
+- A kept recording's manifest holds the report as first made; when the pair's comparison rewrites the kept report (`update`), the manifest is not rewritten.
 - Whether `StoreError` and `ReportReadError` should merge once the screens show their messages.

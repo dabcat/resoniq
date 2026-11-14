@@ -15,8 +15,9 @@ struct AppComposition {
     /// Opens the store (on disk, or in memory when `inMemory`), makes sure "My room · My speakers" exists, and wires
     /// the coordinator. Nil when the store cannot be opened.
     ///
-    /// Debug builds read launch arguments: `-inMemoryStore YES` starts with nothing stored, and `-screen app-flow`
-    /// does the same on simulated audio, already inside the flow for the left speaker.
+    /// Debug builds read launch arguments: `-inMemoryStore YES` starts with nothing stored; `-screen app-flow` does the
+    /// same on simulated audio, already inside the flow for the left speaker; `-diskStore YES` keeps the store on disk
+    /// whatever else is asked (with `app-flow`: the kept test's recordings land in Documents).
     static func launch(
         inMemory: Bool = false, audio: AudioEnvironment = .current, optimizeSources: OptimizeSources = .live
     ) -> AppComposition? {
@@ -31,16 +32,24 @@ struct AppComposition {
             audio = .simulated(noise: defaults.bool(forKey: "simulatedNoise"))
             opensFlow = true
         }
+        // `-diskStore YES` keeps the store (and kept recordings) on disk even in `app-flow`, to check what a kept test
+        // leaves in Documents.
+        if defaults.bool(forKey: "diskStore") { inMemory = false }
         #endif
 
         // Room scans are kept on the phone in Application Support; an in-memory store keeps no files.
         let scanFiles = inMemory ? nil : try? ScanFileStore.applicationSupport()
-        guard let store = try? ResoniqStore(inMemory: inMemory, scanFiles: scanFiles), (try? store.defaultContext()) != nil else {
+        // Kept recordings ("Keep recordings" in Settings) go in Documents, where Files and devicectl reach them.
+        let recordings = inMemory ? nil : try? RecordingStore.documents()
+        guard let store = try? ResoniqStore(inMemory: inMemory, scanFiles: scanFiles, recordings: recordings),
+              (try? store.defaultContext()) != nil else {
             return nil
         }
         // No scan is in progress at launch: a scan file no room refers to (the app stopped on Confirm layout) and a
         // temporary export RoomPlan left behind go.
         _ = try? store.sweepScanFiles()
+        // No recording is being written at launch: a folder no test refers to, or a write the app was stopped in, goes.
+        _ = try? store.sweepRecordings()
         // The test sound files a share sheet handed out last session are not needed any more.
         TestSoundFolder.sweep()
         if !inMemory { ScanFileStore.removeTemporaryExports(in: URL.temporaryDirectory) }

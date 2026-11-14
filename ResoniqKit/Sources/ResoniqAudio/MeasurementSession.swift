@@ -74,6 +74,8 @@ public final class MeasurementSession {
 
     @ObservationIgnored private var paused: PausedAudioKeeper?
     @ObservationIgnored private let io: any AudioIO
+    /// The routes the IO reported once the test opened, for the result.
+    @ObservationIgnored private var routes: (output: AudioOutputRoute?, input: AudioInputRoute?) = (nil, nil)
     @ObservationIgnored private let permission: any MicrophonePermission
     @ObservationIgnored private let stillness: any StillnessMonitor
     @ObservationIgnored private var task: Task<State, Never>?
@@ -163,6 +165,7 @@ public final class MeasurementSession {
         case .success(let opened): stream = opened
         case .failure(let failure): return .failed(failure)
         }
+        routes = (io.outputRoute, io.inputRoute)
         stillness.start()
         defer { stillness.stop() }
         paused = PausedAudioKeeper(sampleRate: stream.sampleRate)
@@ -391,7 +394,10 @@ public final class MeasurementSession {
             test.recordings.append(kept)
         }
         if test.recordings.count == runCount {
-            return .finished(MeasurementResult(channel: channel, sweep: test.sweep, noiseFloor: floor, runs: test.recordings))
+            return .finished(MeasurementResult(
+                channel: channel, sweep: test.sweep, noiseFloor: floor, runs: test.recordings,
+                noiseFloorSamples: test.listener.floorSamples ?? [], outputRoute: routes.output, inputRoute: routes.input
+            ))
         }
         test.nextRun()
         return nil

@@ -268,50 +268,10 @@ public struct TestSoundFile: Sendable, Hashable {
     /// 16 bits each `round(x · 2¹⁵)` held to the 16-bit range (`codes16(_:seed:dither:)`).
     public func data() -> Data {
         let (left, right) = channels()
-        let frames = left.count
-        let bitDepth = format.bitDepth
-        let bytesPerSample = bitDepth / 8
-        let channelCount = 2
-        let dataSize = frames * channelCount * bytesPerSample
-        var data = Data(capacity: 44 + dataSize)
-        func append32(_ value: UInt32) { withUnsafeBytes(of: value.littleEndian) { data.append(contentsOf: $0) } }
-        func append16(_ value: UInt16) { withUnsafeBytes(of: value.littleEndian) { data.append(contentsOf: $0) } }
-        data.append(contentsOf: Array("RIFF".utf8))
-        append32(UInt32(36 + dataSize))
-        data.append(contentsOf: Array("WAVE".utf8))
-        data.append(contentsOf: Array("fmt ".utf8))
-        append32(16)
-        append16(1)
-        append16(UInt16(channelCount))
-        append32(UInt32(Self.sampleRate))
-        append32(UInt32(Int(Self.sampleRate) * channelCount * bytesPerSample))
-        append16(UInt16(channelCount * bytesPerSample))
-        append16(UInt16(bitDepth))
-        data.append(contentsOf: Array("data".utf8))
-        append32(UInt32(dataSize))
-
-        var bytes = [UInt8](repeating: 0, count: dataSize)
-        let leftCodes = format == .pcm24 ? Self.codes(left) : Self.codes16(left, seed: 1, dither: false)
-        let rightCodes = format == .pcm24 ? Self.codes(right) : Self.codes16(right, seed: 2, dither: false)
-        bytes.withUnsafeMutableBufferPointer { buffer in
-            // Per sample, so written for a debug build too: plain stores, no temporary arrays.
-            var index = 0
-            var frame = 0
-            func store(_ code: Int32) {
-                let bits = UInt32(bitPattern: code)
-                buffer[index] = UInt8(truncatingIfNeeded: bits)
-                buffer[index + 1] = UInt8(truncatingIfNeeded: bits >> 8)
-                if bytesPerSample == 3 { buffer[index + 2] = UInt8(truncatingIfNeeded: bits >> 16) }
-                index += bytesPerSample
-            }
-            while frame < frames {
-                store(leftCodes[frame])
-                store(rightCodes[frame])
-                frame += 1
-            }
-        }
-        data.append(contentsOf: bytes)
-        return data
+        let codes = format == .pcm24
+            ? [Self.codes(left), Self.codes(right)]
+            : [Self.codes16(left, seed: 1, dither: false), Self.codes16(right, seed: 2, dither: false)]
+        return WAVFile.pcm(codes: codes, bitDepth: format.bitDepth, sampleRate: Self.sampleRate)
     }
 
     /// Writes `data()` to `url`, replacing what is there.

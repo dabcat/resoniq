@@ -21,7 +21,7 @@ let package = Package(
         .target(name: "ResoniqAudio", dependencies: ["ResoniqDSP"], swiftSettings: swift6),
         .target(name: "ResoniqDiagnostics", dependencies: ["ResoniqDSP"], swiftSettings: swift6),
         .target(name: "ResoniqRoom", swiftSettings: swift6),
-        .target(name: "ResoniqStore", dependencies: ["ResoniqDiagnostics", "ResoniqRoom"], swiftSettings: swift6),
+        .target(name: "ResoniqStore", dependencies: ["ResoniqAudio", "ResoniqDiagnostics", "ResoniqRoom"], swiftSettings: swift6),
         .testTarget(name: "ResoniqDesignTests", dependencies: ["ResoniqDesign"], swiftSettings: swift6),
         .testTarget(name: "ResoniqDSPTests", dependencies: ["ResoniqDSP"], swiftSettings: swift6),
         .testTarget(name: "ResoniqAudioTests", dependencies: ["ResoniqAudio"], swiftSettings: swift6),

@@ -58,6 +58,7 @@ The coordinators (`DiagnoseCoordinator`, `MeasureCoordinator`, `OptimizeCoordina
 | `-initialTab measure` | `App/RootView.swift` | Opens on that tab |
 | `-screen <name>` | `App/RootView.swift` | Shows one screen in a fixed state instead of the tabs; names below |
 | `-gallery YES` | `App/RootView.swift` | `ComponentGallery`: every component in every state |
+| `-diskStore YES` | `App/AppComposition.swift` | Keeps the store on disk whatever else is asked; with `-screen app-flow -autostart YES` and "Keep recordings" on (`xcrun simctl spawn booted defaults write com.matovic.resoniq keepRecordings -bool YES`) the kept test's folder lands in the app's `Documents/Recordings` |
 | `-inMemoryStore YES` | `App/AppComposition.swift` | Starts with nothing stored, nothing written to disk |
 | `-screen app-flow` | `App/AppComposition.swift` | The real Diagnose tab, in-memory store, simulated audio, already inside the test for the left speaker (not in a `names` list) |
 | `-simulatedAudio YES` | `App/AudioEnvironment.swift` | On a device, use the simulated audio |
@@ -101,7 +102,8 @@ The option for a system the iPhone cannot play through ([phase 7](../plans/phase
 - **First launch.** `AppShell` shows `IntroView` while `IntroGate` says the intro has not been finished.
   "Try it on a speaker" finishes the gate and calls `DiagnoseCoordinator.startFirstTest()`; "Skip intro" lands
   on Diagnose. A `-screen` launch never shows the intro and never writes the flag.
-- **Settings** opens as a sheet from the icon button on Diagnose home (`DiagnoseTab`).
+- **Settings** opens as a sheet from the icon button on Diagnose home (`DiagnoseTab`). Its Recordings section (phase 9, no mockup: the panel, row and outlined button of "Your data") holds "Keep recordings" (`@AppStorage(RecordingPreference.key)`, off by default), one sentence, the space used and "Delete recordings" with a confirmation.
+- **Kept recordings.** When the setting is on, `DiagnoseCoordinator.testFinished` builds a `RecordingExample` from the finished test (`DiagnoseFlow.Completed.recorded`, the `MeasurementResult`, compared by identity) right after `store.keep`, for the normal and the listening flow, and hands it to `store.keepRecording` in a task: the result screen is already up and the audio is written off the main actor. A failed write says nothing; the report stays kept. Don't keep deletes the folder. `AppComposition` opens `RecordingStore.documents()` with the store and sweeps orphaned folders at launch. `Info.plist` has `UIFileSharingEnabled` (Documents in Finder) and `LSSupportsOpeningDocumentsInPlace` (with it, Documents in the Files app under On My iPhone > Resoniq).
 - **Rooms and systems.** The switcher on every tab calls the `openRooms` environment action, set once in
   `RootView`, which presents `RoomsSheet`. When either sheet closes, `systemsChanged` tells each coordinator
   that the selection may have changed; deleting data calls each coordinator's `resetAfterDataDeletion()`.

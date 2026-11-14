@@ -19,6 +19,8 @@ struct FloorListener {
     private var samples: [Float] = []
     /// Samples listened to after settling, across resets.
     private var listened = 0
+    /// The recording the floor was measured from, once it is known; nil before.
+    private(set) var floorSamples: [Float]?
 
     /// Whether `maximumFloorWait` has passed without a floor: the session ends as too noisy.
     var hasTimedOut: Bool { listened > configuration.samples(configuration.maximumFloorWait, at: sampleRate) }
@@ -50,6 +52,7 @@ struct FloorListener {
         let report = NoiseFloor.measure(samples, sampleRate: sampleRate, thresholds: thresholds)
         if report.isSteady, report.rmsDecibels <= thresholds.resumeCeilingDecibels {
             let detector = SweepNoiseDetector(noiseFloor: samples, sweep: sweep, blockLength: blockLength, thresholds: thresholds)
+            floorSamples = samples
             return (report, detector)
         }
         // Not a floor yet: someone talked, or the room is too loud. Keep listening, half a window at a time.

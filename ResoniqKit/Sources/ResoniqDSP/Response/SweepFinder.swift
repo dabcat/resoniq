@@ -197,6 +197,13 @@ public enum SweepFinder {
     /// expected one. Nil with fewer than two starts, or when a spacing is not within 10 % of a whole number of
     /// expected spacings (the sweeps are not consecutive sweeps of one such file).
     public static func clockRatio(starts: [Double], expectedSpacing: Double, sampleRate: Double) -> Double? {
+        clockFit(starts: starts, expectedSpacing: expectedSpacing, sampleRate: sampleRate)?.ratio
+    }
+
+    /// `clockRatio(starts:expectedSpacing:sampleRate:)`, and how far the starts stray from the straight line it fits
+    /// through them, samples RMS: zero for two starts, a fraction of a sample for three sweeps placed alike, more when
+    /// one was placed on a reflection or the phone moved between them (so the ratio should not be trusted).
+    public static func clockFit(starts: [Double], expectedSpacing: Double, sampleRate: Double) -> (ratio: Double, residual: Double)? {
         let sorted = starts.sorted()
         guard sorted.count >= 2, expectedSpacing > 0 else { return nil }
         let spacing = expectedSpacing * sampleRate
@@ -218,7 +225,13 @@ public enum SweepFinder {
         }
         guard variance > 0 else { return nil }
         let observedSpacing = covariance / variance
-        return observedSpacing > 0 ? spacing / observedSpacing : nil
+        guard observedSpacing > 0 else { return nil }
+        var squares = 0.0
+        for (step, start) in zip(steps, sorted) {
+            let error = start - meanStart - observedSpacing * (step - meanStep)
+            squares += error * error
+        }
+        return (spacing / observedSpacing, (squares / Double(sorted.count)).squareRoot())
     }
 
     /// The clock tone every test sound file carries before its sweeps: a steady sine, played on one path, whose

@@ -82,6 +82,23 @@ public struct RunRecording: Sendable, Equatable {
     /// When the sound was played by another device: its clock against the phone's (above 1: it ran fast), which
     /// `samples` have already been corrected for (`SweepFinder.corrected(_:ratio:)`). Nil when the phone played it.
     public var clockRatio: Double? = nil
+    /// Where `clockRatio` came from; nil when the phone played the sound.
+    public var clockSource: ClockSource? = nil
+    /// When both the clock tone and the spacing of the play's sweeps gave the clock, how far apart they were, parts
+    /// per million; nil otherwise. More than `ExternalListening.clockAgreementPPM` and the spacing was used: the phone
+    /// probably moved while the tone played.
+    public var clockDisagreementPPM: Double? = nil
+}
+
+/// Where a run played by another device got its clock from.
+public enum ClockSource: Sendable, Hashable {
+    /// The clock tone at the start of its play (`SweepFinder.clockRatio(ofTone:sampleRate:)`).
+    case tone
+    /// The spacing of its play's sweeps (`SweepFinder.clockFit(starts:expectedSpacing:sampleRate:)`): when there was
+    /// no tone, or when the tone disagreed with it.
+    case sweepSpacing
+    /// The tone of an earlier play, when its own play gave neither.
+    case earlierPlay
 }
 
 /// What played the test sound.

@@ -89,6 +89,11 @@ public enum ExternalSessionText {
     /// While the clock tone is heard, before the first sweep.
     public static let toneLine = "I can hear your player. The sweeps start in a moment."
 
+    /// When the clock read from the tone and the one read from the sweeps disagree
+    /// (`ExternalMeasurementProgress.clockDisagreementPPM`): the phone probably moved while the tone played.
+    public static let clockDisagreementLine =
+        "The phone seems to have moved while the short tone played, so I'm timing your player from the sweeps instead. Hold it still."
+
     /// Why the file must be played again, with what is in hand ("I have 2 of 3 runs."). `file` is the file the
     /// session listens for.
     public static func anotherPlayText(_ problem: ExternalPlayProblem?, have: Int, needed: Int, file: TestSoundFile.Kind) -> String {

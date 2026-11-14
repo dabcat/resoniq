@@ -195,6 +195,17 @@ let bookshelfFilters = [
         #expect(SweepFinder.clockRatio(starts: [1000], expectedSpacing: 7, sampleRate: 48000) == nil)
     }
 
+    @Test func `the fit says how far three starts stray from a line`() throws {
+        let ratio = 1.0002
+        let starts = (0..<3).map { 48000 + Double($0) * 7 * 48000 / ratio }
+        let fit = try #require(SweepFinder.clockFit(starts: starts, expectedSpacing: 7, sampleRate: 48000))
+        #expect(abs(fit.ratio - ratio) < 1e-9)
+        #expect(fit.residual < 1e-6)
+        // The middle sweep placed on a reflection 3 ms late.
+        let misplaced = try #require(SweepFinder.clockFit(starts: [starts[0], starts[1] + 144, starts[2]], expectedSpacing: 7, sampleRate: 48000))
+        #expect(misplaced.residual > 50)
+    }
+
     @Test(arguments: [-500.0, -100.0, 0.0, 300.0, 1000.0])
     func `the clock ratio is read from the clock tone through a speaker and a room`(ppm: Double) {
         let ratio = 1 + ppm * 1e-6

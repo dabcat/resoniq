@@ -487,6 +487,14 @@ public final class ExternalSeatMeasurementSession {
         var recordings: [SpeakerChannel: RunRecording] = [:]
         for (index, channel) in channels.enumerated() {
             guard let candidate = byChannel[channel] else { return nil }
+            // The two sweeps take different paths, so their spacing cannot check the clock: only the tone gives it,
+            // and a tone read while the phone moved carries its Doppler shift. That play's recordings are refused.
+            let play = seat.listener.plays.first { $0.id == candidate.play }
+            if play?.toneMoved == true {
+                seat.kept.removeAll { $0.play == candidate.play }
+                seat.lastProblem = .phoneMovedDuringTone
+                return nil
+            }
             guard let ratio = seat.listener.ratio(forPlay: candidate.play) else {
                 seat.kept.removeAll { $0.play == candidate.play }
                 seat.lastProblem = .clockUnknown
@@ -498,7 +506,7 @@ public final class ExternalSeatMeasurementSession {
                 inspection = await SweepInspection.recorrected(inspection, ratio: ratio, sweep: seat.sweep)
                 guard !Task.isCancelled else { return nil }
             }
-            recordings[channel] = RunRecording(
+            var recording = RunRecording(
                 run: index + 1,
                 samples: inspection.samples,
                 sampleRate: seat.sampleRate,
@@ -512,6 +520,8 @@ public final class ExternalSeatMeasurementSession {
                 measuredDelay: inspection.measuredDelay,
                 clockRatio: ratio
             )
+            recording.clockSource = play?.ratio != nil ? .tone : .earlierPlay
+            recordings[channel] = recording
         }
         seat.spots.append(SeatSpotRecording(
             spot: seat.spot,
@@ -576,6 +586,8 @@ public final class ExternalSeatMeasurementSession {
         var hearing: SpeakerChannel?
         if case .hearing(_, let channel) = state { hearing = channel }
         let ratio = listener.currentPlay?.ratio ?? listener.knownRatio
+        // While the test sound is heard, the room without it, as the normal test's progress reads it.
+        let room = !listener.isQuiet ? seat.detector.map { $0.assess(block.samples).roomLevel } ?? level : level
         progress = ExternalSeatMeasurementProgress(
             spot: seat.spot,
             spotsCaptured: seat.spots.count,
@@ -585,9 +597,9 @@ public final class ExternalSeatMeasurementSession {
             sweepFraction: listener.sweepFraction,
             isHearingTone: listener.isHearingTone,
             clockOffsetPPM: ratio.map { ($0 - 1) * 1e6 },
-            roomLevel: level,
+            roomLevel: room,
             quietEnoughLevel: mark,
-            isRoomQuiet: level.dBFS <= (mark?.dBFS ?? -.infinity),
+            isRoomQuiet: room.dBFS <= (mark?.dBFS ?? -.infinity),
             inputLevel: level,
             inputPeakDecibels: LevelMeter.measure(block.samples).peakDecibels,
             isClipping: clipped,

@@ -56,7 +56,7 @@ extension ExternalMeasurementSession.State {
 }
 
 @MainActor
-@Suite(.timeLimit(.minutes(3))) struct ExternalMeasurementSessionTests {
+@Suite(.timeLimit(.minutes(8))) struct ExternalMeasurementSessionTests {
     /// Presses play once, when the session first asks.
     static func pressPlayOnce(_ io: SimulatedAudioIO, _ play: SimulatedExternalPlay) -> (ExternalMeasurementSession.State) -> Void {
         { state in

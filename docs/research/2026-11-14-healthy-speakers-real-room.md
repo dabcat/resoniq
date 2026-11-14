@@ -371,7 +371,7 @@ driver. None of this is a measurement of the cause.
 
 ## Proposals for the owner (not implemented)
 
-1. **Tighten "shared" to the same place.** Apply `samePlaceOctaves` once (or compare centres within 1/3 octave)
+1. **Tighten "shared" to the same place.** *Done since, in pull request #11: the middles of the two deviations are compared, within `samePlaceOctaves`. The figures in this note for what the shared rule clears were taken with the rule as it was and are not recomputed.* Apply `samePlaceOctaves` once (or compare centres within 1/3 octave)
    in `SpeakerDiagnosis.isShared`. *Evidence:* 631 of 741 matched shared clearings here paired features more than
    2/3 octave apart (speaker 1's 400 Hz peak with speaker 0's 900 Hz peak). *Cost:* fewer healthy findings cleared
    (here about 85 % of the 834), so a higher false-alarm rate on paper, but no deviation would be cleared by a

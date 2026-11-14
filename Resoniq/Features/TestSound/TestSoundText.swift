@@ -41,8 +41,9 @@ enum TestSoundText {
         "Come back here and I'll listen.",
     ]
 
-    /// The two things this option cannot do, one sentence each.
+    /// The things this option cannot do, one sentence each.
     static let notes = [
+        "The file has to play on another device: this iPhone can't play it and listen at the same time.",
         "I can't pause someone else's player, so if the room gets noisy during a run, you'll play the file again.",
         "A subwoofer on its own can't be tested this way.",
     ]

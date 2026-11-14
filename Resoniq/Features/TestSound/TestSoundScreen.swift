@@ -28,9 +28,11 @@ enum TestSoundContext: Equatable {
 /// context needs with a share button each and one for all, three steps, and the two things it cannot do. "I have the
 /// file" carries on to listening; without it (`onContinue` nil) the screen only hands the files over, for Settings.
 ///
-/// The files are written to a temporary folder off the main actor when the screen appears, with the Kit's names so
-/// AirDrop, Files and "Save to Files" keep the name and the `.wav` type, and the folder is removed when the screen goes
-/// away. The files themselves are `TestSoundFile`'s; nothing about them is decided here.
+/// The files are written to one temporary folder (`TestSoundFolder`) off the main actor when the screen appears, with
+/// the Kit's names so AirDrop, Files and "Save to Files" keep the name and the `.wav` type. The folder lives for the
+/// whole app session (each file is written once) and is cleared at the next launch, so "I have the file" cannot pull
+/// away a file a share sheet is still handing out. The files themselves are `TestSoundFile`'s; nothing about them is
+/// decided here.
 struct TestSoundScreen: View {
     let context: TestSoundContext
     /// "I have the file"; nil for the browse-only form.
@@ -41,8 +43,6 @@ struct TestSoundScreen: View {
 
     @State private var preparation = Preparation.preparing
     @State private var attempt = 0
-    /// Removes the temporary folder when the screen is gone (not when a share sheet covers it).
-    @State private var temporary = TemporaryFolder()
 
     private enum Preparation: Equatable {
         case preparing
@@ -229,21 +229,21 @@ struct TestSoundScreen: View {
     private func prepare() async {
         guard preparation == .preparing || preparation == .failed else { return }
         preparation = .preparing
-        let kinds = context.kinds
-        let folder = URL.temporaryDirectory.appending(path: "TestSound-\(UUID().uuidString)", directoryHint: .isDirectory)
-        let files = kinds.map { TestSoundFile(kind: $0) }
+        let files = context.kinds.map { TestSoundFile(kind: $0) }
+        let folder = TestSoundFolder.url
+        // Only what this session has not written yet; a file already there is not touched again.
+        let missing = files.filter { !TestSoundFolder.hasWritten($0.kind) }
         do {
-            try await writer(files, folder)
+            try await writer(missing, folder)
         } catch {
-            try? FileManager.default.removeItem(at: folder)
+            // Remove what this attempt may have left half-written; files written earlier stay.
+            for file in missing { try? FileManager.default.removeItem(at: folder.appending(path: file.suggestedFileName)) }
             if !Task.isCancelled { preparation = .failed }
             return
         }
-        guard !Task.isCancelled else {
-            try? FileManager.default.removeItem(at: folder)
-            return
-        }
-        temporary.url = folder
+        // Written even if the screen went away meanwhile: the files stay for the session, and the next screen finds them.
+        for file in missing { TestSoundFolder.markWritten(file.kind) }
+        guard !Task.isCancelled else { return }
         preparation = .ready(Folder(
             url: folder,
             files: files.map { Prepared(file: $0, url: folder.appending(path: $0.suggestedFileName, directoryHint: .notDirectory)) }
@@ -286,15 +286,31 @@ nonisolated struct TestSoundTransfer: Transferable {
     }
 }
 
-/// A folder in the temporary directory that is removed when this object goes: held in the screen's state, so the files
-/// live exactly as long as the screen does and a share sheet over it cannot pull them away.
-nonisolated final class TemporaryFolder: @unchecked Sendable {
-    var url: URL? {
-        didSet { if let oldValue, oldValue != url { try? FileManager.default.removeItem(at: oldValue) } }
+/// The one folder the test sound files are exported into: in the temporary directory, the same for the whole app
+/// session, each kind of file written once (`hasWritten`). Nothing removes it while the app runs, so a share sheet
+/// (AirDrop, "Save to Files") started from any screen can finish; `sweep()` clears it at the next launch.
+@MainActor
+enum TestSoundFolder {
+    static let url = URL.temporaryDirectory.appending(path: "ResoniqTestSound", directoryHint: .isDirectory)
+
+    private static var written: Set<TestSoundFile.Kind> = []
+
+    static func hasWritten(_ kind: TestSoundFile.Kind) -> Bool {
+        written.contains(kind) && FileManager.default.fileExists(atPath: path(of: kind))
     }
 
-    deinit {
-        if let url { try? FileManager.default.removeItem(at: url) }
+    static func markWritten(_ kind: TestSoundFile.Kind) {
+        written.insert(kind)
+    }
+
+    /// At launch: whatever an earlier session left in the folder goes.
+    static func sweep() {
+        try? FileManager.default.removeItem(at: url)
+        written = []
+    }
+
+    private static func path(of kind: TestSoundFile.Kind) -> String {
+        url.appending(path: TestSoundFile(kind: kind).suggestedFileName, directoryHint: .notDirectory).path
     }
 }
 

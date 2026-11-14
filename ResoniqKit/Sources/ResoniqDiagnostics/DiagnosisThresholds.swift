@@ -58,8 +58,28 @@ public struct DiagnosisThresholds: Sendable, Equatable {
     /// by `SweepDistortion.measurableMarginDecibels`); the margin is the DSP's, not restated here.
     public var distortionPercent: Float
 
-    /// The narrowest distortion band reported, in octaves. **First guess**: 1/6 octave.
+    /// The narrowest distortion band reported, in octaves. **First guess**: 1/6 octave. It applies to the high orders
+    /// too.
     public var minimumDistortionOctaves: Float
+
+    /// The level above the tenth harmonic, in dB relative to the tone (`HighOrderDistortion`), at or over which a band
+    /// counts as a possible rub or buzz. **First guess**: −50 dB, between the borderline and the bad unit of the three
+    /// real recordings measured on 2026-11-14 (a steady 256 Hz tone, a measurement microphone close to the driver, no
+    /// room), read by `HighOrderDistortion.steadyTone`: good −62.3 dB, borderline −59.4 dB, strong rub and buzz −40.3 dB
+    /// (`ToneDistortion`'s residue gives −61.6, −58.1 and −40.3 dB), and the bad unit's THD only 4.2 %, under
+    /// `distortionPercent`). One recording of each, so nothing is known of the spread; what a phone in a room reads for
+    /// a healthy speaker is not known either. A band counts only where the level is a measurement (clear of the noise
+    /// floor by `SweepDistortion.measurableMarginDecibels`), smoothed as THD is (`distortionSmoothingFraction`).
+    public var highOrderDecibels: Float
+
+    /// Rub and buzz from the high orders are looked for from this frequency up, in hertz, though the DSP reads the level
+    /// from 40 Hz. **First guess**: 80 Hz, from real sweeps of a healthy studio monitor (Geithain RL900A) in a room: at
+    /// 50–80 Hz it read about −41 dB re the tone (frames to −34 dB), 9 to 11 dB over its noise, and the excess fell
+    /// about twice as fast as the drive when the drive was halved, so it is the woofer's own nonlinearity at large
+    /// excursion, not the room (linear, and below the tone) or the measure's leakage (which would follow the tone).
+    /// From 80 Hz up the same speaker read at its noise (−53 to −63 dB). A smaller speaker played louder may distort
+    /// so higher up; that is not measured. Where THD starts with the measurement sweep is 80 Hz too.
+    public var highOrderLowerFrequency: Float
 
     // MARK: Repetition
 
@@ -134,9 +154,13 @@ public struct DiagnosisThresholds: Sendable, Equatable {
         minimumBandSignalToNoise: Float,
         quietBandDecibels: Float = 15,
         quietBandLowerFrequency: Float = 100,
-        rollOffToleranceDecibels: Float = 0.5
+        rollOffToleranceDecibels: Float = 0.5,
+        highOrderDecibels: Float = -50,
+        highOrderLowerFrequency: Float = 80
     ) {
         self.rollOffToleranceDecibels = rollOffToleranceDecibels
+        self.highOrderDecibels = highOrderDecibels
+        self.highOrderLowerFrequency = highOrderLowerFrequency
         self.quietBandDecibels = quietBandDecibels
         self.quietBandLowerFrequency = quietBandLowerFrequency
         self.smoothingFraction = smoothingFraction
@@ -179,6 +203,8 @@ public struct DiagnosisThresholds: Sendable, Equatable {
         minimumBandSignalToNoise: 10,
         quietBandDecibels: 15,
         quietBandLowerFrequency: 100,
-        rollOffToleranceDecibels: 0.5
+        rollOffToleranceDecibels: 0.5,
+        highOrderDecibels: -50,
+        highOrderLowerFrequency: 80
     )
 }

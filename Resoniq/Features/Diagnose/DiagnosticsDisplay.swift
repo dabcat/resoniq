@@ -68,7 +68,7 @@ extension Finding {
     ///   built to check a defect by ear would suggest a defect was found.
     var noteAction: NoteAction {
         switch kind {
-        case .responseDip, .responsePeak, .distortion, .topEndDip, .leftRightDifference, .rattle:
+        case .responseDip, .responsePeak, .distortion, .topEndDip, .leftRightDifference, .rattle, .highOrderDistortion:
             listenFrequency == nil ? .informational : .hear
         case .quietBand:
             context == nil || numbers == nil ? .informational : .showRuns

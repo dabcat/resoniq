@@ -15,6 +15,16 @@ struct Biquad {
         )
     }
 
+    static func lowPass(frequency: Double, q: Double, sampleRate: Double) -> Biquad {
+        let w = 2 * Double.pi * frequency / sampleRate
+        let alpha = sin(w) / (2 * q)
+        let a0 = 1 + alpha
+        return Biquad(
+            b0: (1 - cos(w)) / 2 / a0, b1: (1 - cos(w)) / a0, b2: (1 - cos(w)) / 2 / a0,
+            a1: -2 * cos(w) / a0, a2: (1 - alpha) / a0
+        )
+    }
+
     static func peaking(frequency: Double, q: Double, gain decibels: Double, sampleRate: Double) -> Biquad {
         let w = 2 * Double.pi * frequency / sampleRate
         let alpha = sin(w) / (2 * q)
@@ -83,13 +93,24 @@ struct SimulatedSpeaker {
     var noiseRMS: Double = 0
     var tailSeconds: Double = 0.5
     var seed: UInt64 = 1
+    /// A rub: see `Rub`. Nil for none.
+    var rub: Rub?
 
     func record(_ sweep: LogSweep) -> [Float] {
         let source = sweep.samples()
         let length = source.count + Int(delaySamples.rounded(.up)) + Int(tailSeconds * sweep.sampleRate)
-        var signal = Self.delayed(source, by: delaySamples, length: length).map(Double.init)
+        let drive = Self.delayed(source, by: delaySamples, length: length).map(Double.init)
+        var signal = drive
         for filter in filters { signal = filter.process(signal) }
         signal = signal.map { $0 + quadratic * $0 * $0 + cubic * $0 * $0 * $0 }
+        if let rub {
+            let added = rub.sound(drive: drive, peak: Double(sweep.amplitude), sampleRate: sweep.sampleRate) { index in
+                let time = (Double(index) - delaySamples) / sweep.sampleRate
+                guard time >= 0, time <= sweep.duration else { return false }
+                return rub.band.contains(sweep.frequency(at: time))
+            }
+            signal = zip(signal, added).map(+)
+        }
         if noiseRMS > 0 {
             var generator = SeededGenerator(state: seed)
             signal = zip(signal, generator.noise(count: length, rms: noiseRMS)).map(+)
@@ -134,5 +155,48 @@ struct SimulatedSpeaker {
         let real = vDSP.subtract(vDSP.multiply(spectrum.real, c), vDSP.multiply(spectrum.imaginary, s))
         let imaginary = vDSP.add(vDSP.multiply(spectrum.real, s), vDSP.multiply(spectrum.imaginary, c))
         return Array(FFT.inverse(ComplexSpectrum(real: real, imaginary: imaginary)).prefix(length))
+    }
+}
+
+/// A rubbing voice coil or a buzzing part in a test: once per cycle, while the drive's excursion is past `threshold`
+/// of its peak, a burst of band-limited noise (`burstBand`, hertz) whose amplitude grows with how far past it is, up
+/// to `level` times the peak drive. It is locked to the low-frequency excursion and lies far above the tone's low
+/// harmonics, so it raises the energy above the tenth harmonic and leaves THD over orders 2 to 5 where it was.
+/// It acts only while the tone is in `band` (hertz).
+struct Rub {
+    var band: ClosedRange<Double> = 0...Double.infinity
+    var level: Double = 0.1
+    var threshold: Double = 0.7
+    var burstBand: ClosedRange<Double> = 2000...8000
+    var seed: UInt64 = 0xB022
+
+    /// The sound added to a recording driven by `drive` (peak `peak`), at the samples where `active` holds.
+    func sound(drive: [Double], peak: Double, sampleRate: Double, active: (Int) -> Bool) -> [Double] {
+        guard peak > 0 else { return [Double](repeating: 0, count: drive.count) }
+        var generator = SeededGenerator(state: seed)
+        var carrier = generator.noise(count: drive.count, rms: 1)
+        for filter in [
+            Biquad.highPass(frequency: burstBand.lowerBound, q: 0.707, sampleRate: sampleRate),
+            Biquad.highPass(frequency: burstBand.lowerBound, q: 0.707, sampleRate: sampleRate),
+            Biquad.lowPass(frequency: burstBand.upperBound, q: 0.707, sampleRate: sampleRate),
+            Biquad.lowPass(frequency: burstBand.upperBound, q: 0.707, sampleRate: sampleRate),
+        ] { carrier = filter.process(carrier) }
+        let rms = (carrier.reduce(0) { $0 + $1 * $1 } / Double(max(carrier.count, 1))).squareRoot()
+        return drive.indices.map { index in
+            guard active(index) else { return 0 }
+            let past = abs(drive[index]) / peak - threshold
+            guard past > 0 else { return 0 }
+            return level * peak * past / (1 - threshold) * carrier[index] / rms
+        }
+    }
+
+    /// A steady tone of `amplitude` at `frequency` lasting `seconds`, with this rub, plus white noise.
+    func tone(frequency: Double, amplitude: Double, seconds: Double, sampleRate: Double, noiseRMS: Double = 1e-5) -> [Float] {
+        let count = Int(seconds * sampleRate)
+        let drive = (0..<count).map { amplitude * sin(2 * Double.pi * frequency * Double($0) / sampleRate) }
+        let added = sound(drive: drive, peak: amplitude, sampleRate: sampleRate) { _ in true }
+        var generator = SeededGenerator(state: seed &+ 1)
+        let noise = generator.noise(count: count, rms: noiseRMS)
+        return (0..<count).map { Float(drive[$0] + added[$0] + noise[$0]) }
     }
 }

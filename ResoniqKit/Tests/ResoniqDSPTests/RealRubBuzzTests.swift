@@ -57,4 +57,20 @@ struct RealRubBuzzTests {
         // The borderline unit reads over the good one, by a few dB only.
         #expect(borderline.nonHarmonicResidue > good.nonHarmonicResidue)
     }
+
+    /// The same core computation as along the sweep (`HighOrderDistortion.steadyTone`), on the three units' tones.
+    @Test func `above the tenth harmonic the bad unit reads at least 10 dB over the good one`() throws {
+        var levels: [String: Float] = [:]
+        for unit in RubBuzzRecordings.units {
+            let (samples, rate) = try RubBuzzRecordings.tone(unit)
+            let level = HighOrderDistortion.steadyTone(recording: samples, frequency: 256, sampleRate: rate)
+            levels[unit] = level
+            print("sn-\(unit): above the tenth harmonic \(level) dB re tone")
+        }
+        let bad = try #require(levels["57"])
+        let borderline = try #require(levels["76"])
+        let good = try #require(levels["97"])
+        #expect(bad > good + 10)
+        #expect(bad > borderline + 10)
+    }
 }

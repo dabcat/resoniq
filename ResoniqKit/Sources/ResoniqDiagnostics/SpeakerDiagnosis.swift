@@ -57,6 +57,12 @@ public struct SpeakerReport: Sendable, Codable, Equatable {
 ///   `minimumAgreeingRuns` valid runs is a possible rattle, `inferred` with the runs as its basis; in one run it is
 ///   dropped. Over a measured buzz it is not a second finding but the buzz's second piece of evidence
 ///   (`Finding.sweepTied`). Either way the drivers it overlaps are left out of the even statement.
+/// - The level above the tenth harmonic (`RunMeasurement.highOrderDecibels`) measured at or over `highOrderDecibels`
+///   at the same place in at least `minimumAgreeingRuns` valid runs is a possible rub or buzz (`highOrderDistortion`),
+///   `inferred`, whatever THD read; in one run it is dropped, and a level that did not stand clear of the noise is never
+///   a finding. Over a measured buzz or a possible rattle it is not a second finding but that finding's further
+///   evidence (`Finding.highOrder`). The even statement says where rub and buzz were ruled out, or that they could not
+///   be checked over the room's noise; it never implies they were clean where they could not be read.
 /// - Nothing is read outside a run's `responseBand`, where its response holds the edge value.
 /// - An invalid run is reported as such, and nothing is drawn from it; with fewer than `minimumValidRuns` valid
 ///   runs nothing is concluded at all.
@@ -196,14 +202,33 @@ public enum SpeakerDiagnosis {
         // Sound tied to the sweep where it recurs: over a measured buzz it is that buzz's second piece of evidence,
         // so the two never contradict each other; elsewhere it is a possible rattle.
         let tied = sweepTiedClusters(records, valid: Set(measurements.keys), thresholds: thresholds)
+        // Energy above the tenth harmonic where it recurs: over a measured buzz or a possible rattle it is that
+        // finding's further evidence; elsewhere it is a possible rub or buzz of its own.
+        let high = highOrderClusters(measurements, audible: audible, thresholds: thresholds)
+            .filter { $0.runs >= thresholds.minimumAgreeingRuns && !inQuietBand($0) }
+        func highOrderAt(_ cluster: Cluster) -> Cluster? {
+            high.first { $0.range.overlaps(cluster.range, toleranceOctaves: thresholds.samePlaceOctaves) }
+        }
+        let rattles = tied.filter { cluster in !buzzes.contains(where: { $0.range.overlaps(cluster.range) }) }
         for cluster in buzzes {
             let alsoHeard = tied.first { $0.range.overlaps(cluster.range) }
             findings.append(deviationFinding(
-                .distortion, cluster, compared: compared, runCount: records.count, thresholds: thresholds, sweepTied: alsoHeard
+                .distortion, cluster, compared: compared, runCount: records.count, thresholds: thresholds, sweepTied: alsoHeard,
+                highOrder: highOrderAt(cluster)
             ))
         }
-        for cluster in tied where !buzzes.contains(where: { $0.range.overlaps(cluster.range) }) {
-            findings.append(rattleFinding(cluster, compared: compared, thresholds: thresholds))
+        for cluster in rattles {
+            findings.append(rattleFinding(cluster, compared: compared, thresholds: thresholds, highOrder: highOrderAt(cluster)))
+        }
+        let clean = distortionRuledOut(measurements, audible: audible, thresholds: thresholds)
+        let readings = distortionReadings(measurements, audible: audible)
+        for cluster in high where !(buzzes + rattles).contains(where: {
+            $0.range.overlaps(cluster.range, toleranceOctaves: thresholds.samePlaceOctaves)
+        }) {
+            findings.append(deviationFinding(
+                .highOrderDistortion, cluster, compared: compared, runCount: records.count, thresholds: thresholds,
+                thdUnder: thdStayedUnder(cluster.range, ruledOut: clean, readings: readings, thresholds: thresholds)
+            ))
         }
         // Where THD read above the threshold but did not stand clear of the noise, no buzz is claimed; the report
         // says it could not tell, unless a measured buzz is already at the same place (its noisy skirt).
@@ -223,11 +248,11 @@ public enum SpeakerDiagnosis {
                 thresholds: thresholds
             )
         }
-        let clean = distortionRuledOut(measurements, audible: audible, thresholds: thresholds)
         let consensus = consensusResponse(Array(measurements.values))
         let even = evenFinding(
             findings: findings, consensus: consensus, assessed: assessed, distortionRuledOut: clean,
-            readings: distortionReadings(measurements, audible: audible), compared: compared, thresholds: thresholds
+            readings: readings, compared: compared, thresholds: thresholds,
+            highOrder: highOrderCoverage(measurements, audible: audible, thresholds: thresholds)
         )
         if let finding = even.finding { findings.append(finding) }
 
@@ -418,6 +443,72 @@ public enum SpeakerDiagnosis {
         )
     }
 
+    /// Where the level above the tenth harmonic is measured at or over `highOrderDecibels`, run by run, grouped across
+    /// runs. Only a measurement counts (`HighOrderReading.measured`): a level that did not stand clear of the noise is
+    /// never a finding, not even an inconclusive one, because a clean speaker in an ordinary room reads its noise
+    /// there. Extremes are in dB relative to the tone.
+    static func highOrderClusters(_ measurements: [Int: RunMeasurement], audible: [Bool], thresholds: DiagnosisThresholds) -> [Cluster] {
+        var measured: [Int: [Region]] = [:]
+        for (run, measurement) in measurements {
+            let values: [Float?] = ResponseGrid.frequencies.indices.map { index in
+                guard audible[index], case .measured(let level) = measurement.highOrder(atIndex: index) else { return nil }
+                return level
+            }
+            measured[run] = RegionFinder.regions(
+                in: values,
+                span: FrequencyRange(lower: thresholds.highOrderLowerFrequency, upper: ResponseGrid.upperFrequency),
+                threshold: thresholds.highOrderDecibels,
+                edge: thresholds.highOrderDecibels,
+                minimumOctaves: thresholds.minimumDistortionOctaves
+            )
+        }
+        return Cluster.group(measured, toleranceOctaves: thresholds.samePlaceOctaves)
+    }
+
+    /// For each grid point, whether every valid run rules rub and buzz out there (`ruledOut`: the level above the tenth
+    /// harmonic measured under `highOrderDecibels`, or below the noise with the noise's bound under it) and whether any
+    /// run read the level there at all (`read`). Both false where the band was not audible.
+    static func highOrderCoverage(
+        _ measurements: [Int: RunMeasurement],
+        audible: [Bool],
+        thresholds: DiagnosisThresholds
+    ) -> (ruledOut: [Bool], read: [Bool]) {
+        let grid = ResponseGrid.frequencies
+        let usable = grid.indices.map { audible[$0] && grid[$0] >= thresholds.highOrderLowerFrequency }
+        let ruledOut = grid.indices.map { index in
+            usable[index] && measurements.values.allSatisfy { measurement in
+                switch measurement.highOrder(atIndex: index) {
+                case .measured(let level): level < thresholds.highOrderDecibels
+                case .belowNoise(_, let bound?): bound < thresholds.highOrderDecibels
+                case .belowNoise(_, nil), .notRead: false
+                }
+            }
+        }
+        let read = grid.indices.map { index in
+            usable[index] && measurements.values.contains { $0.highOrder(atIndex: index) != .notRead }
+        }
+        return (ruledOut, read)
+    }
+
+    /// The buzz threshold, when THD stayed under it across `range` in every run: a buzz was ruled out at some point of
+    /// it (`distortionRuledOut`) and no run measured THD at or over the threshold anywhere in it. Nil otherwise (THD
+    /// not read there, such as under 80 Hz, or read too close to the noise).
+    static func thdStayedUnder(
+        _ range: FrequencyRange,
+        ruledOut: [Bool],
+        readings: [[DistortionReading]],
+        thresholds: DiagnosisThresholds
+    ) -> Float? {
+        let points = ResponseGrid.frequencies.indices.filter { range.contains(ResponseGrid.frequencies[$0]) }
+        let over = points.contains { index in
+            readings.contains { run in
+                if case .measured(let percent) = run[index] { return percent >= thresholds.distortionPercent }
+                return false
+            }
+        }
+        return points.contains { ruledOut[$0] } && !over ? thresholds.distortionPercent : nil
+    }
+
     /// The other speaker's own dips and peaks, where enough of its runs agree; nil when too few of its runs are valid
     /// to compare with.
     static func counterpartDeviations(_ counterpart: [RunRecord], thresholds: DiagnosisThresholds) -> (dips: [Cluster], peaks: [Cluster])? {
@@ -507,13 +598,15 @@ public enum SpeakerDiagnosis {
 
     /// A possible rattle: `inferred`, with the runs it rests on and a confidence statement that names the room or
     /// something near the speaker vibrating. Nothing was measured, so it carries no numbers.
-    static func rattleFinding(_ cluster: Cluster, compared: Int, thresholds: DiagnosisThresholds) -> Finding {
+    static func rattleFinding(_ cluster: Cluster, compared: Int, thresholds: DiagnosisThresholds, highOrder: Cluster? = nil) -> Finding {
         let range = cluster.range
         let basis = Finding.Basis(runsAgreeing: cluster.runs, runsCompared: compared)
         let confidence: Finding.Confidence =
             cluster.runs == compared && cluster.runs >= thresholds.mediumConfidenceRuns ? .medium : .low
-        let words = DiagnosisText.rattle(range: range)
-        return Finding(
+        var words = DiagnosisText.rattle(range: range)
+        let evidence = highOrder.map { highOrderEvidence($0, compared: compared) }
+        if let evidence { words.detail += " " + evidence.statement }
+        var finding = Finding(
             id: identifier(.rattle, range),
             kind: .rattle,
             frequencyRange: range,
@@ -532,6 +625,20 @@ public enum SpeakerDiagnosis {
             numbers: nil,
             recordingProblem: nil
         )
+        finding.highOrder = evidence
+        return finding
+    }
+
+    /// The level above the tenth harmonic as further evidence of a buzz or a rattle at the same place.
+    static func highOrderEvidence(_ cluster: Cluster, compared: Int) -> Finding.HighOrderEvidence {
+        let basis = Finding.Basis(runsAgreeing: cluster.runs, runsCompared: compared)
+        return Finding.HighOrderEvidence(
+            range: cluster.range,
+            extreme: cluster.extreme,
+            runsMeasured: cluster.runs,
+            runsCompared: compared,
+            statement: DiagnosisText.highOrderAlso(extreme: cluster.extreme, basis)
+        )
     }
 
     static func deviationFinding(
@@ -541,7 +648,9 @@ public enum SpeakerDiagnosis {
         runCount: Int,
         thresholds: DiagnosisThresholds,
         sweepTied: Cluster? = nil,
-        sharedWithOther: Bool = false
+        sharedWithOther: Bool = false,
+        highOrder: Cluster? = nil,
+        thdUnder: Float? = nil
     ) -> Finding {
         let range = cluster.range
         let basis = Finding.Basis(runsAgreeing: cluster.runs, runsCompared: compared)
@@ -553,6 +662,9 @@ public enum SpeakerDiagnosis {
         case .distortion:
             words = DiagnosisText.distortion(range: range, extreme: cluster.extreme, at: cluster.extremeFrequency)
             numbers = Self.numbers(cluster, unit: .percent, threshold: thresholds.distortionPercent, runCount: runCount)
+        case .highOrderDistortion:
+            words = DiagnosisText.highOrder(range: range, extreme: cluster.extreme, at: cluster.extremeFrequency, thdUnder: thdUnder)
+            numbers = Self.numbers(cluster, unit: .toneDecibels, threshold: thresholds.highOrderDecibels, runCount: runCount)
         case .responsePeak:
             words = DiagnosisText.peak(range: range, height: cluster.extreme)
             numbers = Self.numbers(cluster, unit: .decibels, threshold: thresholds.deviationDecibels, runCount: runCount)
@@ -570,6 +682,8 @@ public enum SpeakerDiagnosis {
             )
         }
         if let evidence { words.detail += " " + evidence.statement }
+        let highOrderEvidence = highOrder.map { Self.highOrderEvidence($0, compared: compared) }
+        if let highOrderEvidence { words.detail += " " + highOrderEvidence.statement }
         if sharedWithOther { words.detail += " " + DiagnosisText.sharedWithOther(isPeak: kind == .responsePeak) }
         var finding = Finding(
             id: identifier(kind, range),
@@ -594,6 +708,7 @@ public enum SpeakerDiagnosis {
         )
         if sharedWithOther { finding.sharedWithOtherSpeaker = true }
         finding.sweepTied = evidence
+        finding.highOrder = highOrderEvidence
         return finding
     }
 
@@ -789,7 +904,8 @@ public enum SpeakerDiagnosis {
         distortionRuledOut: [Bool],
         readings: [[DistortionReading]],
         compared: Int,
-        thresholds: DiagnosisThresholds
+        thresholds: DiagnosisThresholds,
+        highOrder: (ruledOut: [Bool], read: [Bool])? = nil
     ) -> (finding: Finding?, leftOut: [DriverBand]) {
         let grid = ResponseGrid.frequencies
         let deviation = Trend.deviation(of: consensus, thresholds: thresholds)
@@ -842,22 +958,32 @@ public enum SpeakerDiagnosis {
             }
         }
         let range = FrequencyRange(lower: response.first!.lower, upper: response.last!.upper)
-        var clean: FrequencyRange?
-        var start: Int?
-        for index in grid.indices {
-            let frequency = grid[index]
-            let inside = distortionRuledOut[index]
-                && spans.contains { $0.range.contains(frequency) }
-                && !unclear.contains { $0.contains(frequency) }
-            if inside, start == nil { start = index }
-            if let first = start, !inside || index == grid.count - 1 {
-                let last = inside ? index : index - 1
-                let stretch = FrequencyRange(lower: grid[first], upper: grid[last])
-                if stretch.octaves >= thresholds.minimumDistortionOctaves, stretch.octaves > (clean?.octaves ?? -1) {
-                    clean = stretch
+        /// The widest unbroken stretch inside the stated drivers where `include` holds, no narrower than
+        /// `minimumDistortionOctaves`.
+        func widest(_ include: (Int) -> Bool) -> FrequencyRange? {
+            var widest: FrequencyRange?
+            var start: Int?
+            for index in grid.indices {
+                let inside = include(index) && spans.contains { $0.range.contains(grid[index]) }
+                if inside, start == nil { start = index }
+                if let first = start, !inside || index == grid.count - 1 {
+                    let last = inside ? index : index - 1
+                    let stretch = FrequencyRange(lower: grid[first], upper: grid[last])
+                    if stretch.octaves >= thresholds.minimumDistortionOctaves, stretch.octaves > (widest?.octaves ?? -1) {
+                        widest = stretch
+                    }
+                    start = nil
                 }
-                start = nil
             }
+            return widest
+        }
+        let clean = widest { index in distortionRuledOut[index] && !unclear.contains { $0.contains(grid[index]) } }
+        // Rub and buzz: named clean only where every run ruled them out; where they were read but not ruled out, the
+        // statement says so; where nothing was read (a record stored before they were kept), it says nothing.
+        let highOrderStatement: DiagnosisText.HighOrderStatement? = highOrder.flatMap { coverage in
+            if let stretch = widest({ coverage.ruledOut[$0] }) { return .ruledOut(stretch) }
+            let anyRead = grid.indices.contains { index in coverage.read[index] && spans.contains { $0.range.contains(grid[index]) } }
+            return anyRead ? .notChecked : nil
         }
         let basis = Finding.Basis(runsAgreeing: compared, runsCompared: compared)
         let wooferSpan = spans.first { $0.band == .woofer }?.range
@@ -870,7 +996,8 @@ public enum SpeakerDiagnosis {
             distortionBelow: thresholds.distortionPercent,
             over: clean,
             uncheckedBelow: uncheckedBelow,
-            rollOffBelow: rollOffBelow
+            rollOffBelow: rollOffBelow,
+            highOrder: highOrderStatement
         )
         for item in leftOut { words.detail += " " + item.words }
         let finding = Finding(

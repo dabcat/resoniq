@@ -47,13 +47,20 @@ public struct TestSoundLayout: Sendable, Equatable {
 /// left then one on the right, or one on both channels for a single speaker.
 ///
 /// **The gaps tell the files apart.** One microphone cannot hear which speaker a sweep came from, so the files are
-/// told apart by timing instead. Each kind has its own silence between the tone and the first sweep
-/// (`toneGap(for:)`), so the time from the tone to any sweep heard says which file is playing and which of its sweeps
-/// that is (`identify(secondsAfterTone:)`); and each kind with more than one sweep has its own gap between sweeps
-/// (`gap(for:)`), so two sweeps heard without the tone say it too (`kind(forSpacing:)`). The kinds are half a second
-/// apart in both; a clock offset of `SweepFinder.maximumClockOffset` moves a timing by 20 ms at most and the
-/// distance between two speakers by a few, far inside `spacingTolerance`. What cannot be told is which speaker
-/// actually played: a left file played through a swapped cable sounds like a left file.
+/// told apart by timing instead. Each kind has its own silence between the tone's end and the first sweep
+/// (`toneGap(for:)`), so the time from the tone's end to any sweep heard says which file is playing and which of its
+/// sweeps that is (`identify(secondsAfterToneEnd:)`); and each kind with more than one sweep has its own gap between
+/// sweeps (`gap(for:)`), so two sweeps heard without the tone say it too (`kind(forSpacing:)`), and overrule the tone
+/// when the two disagree. The kinds are half a second apart in both; a clock offset of
+/// `SweepFinder.maximumClockOffset` moves a timing by 20 ms at most and the distance between two speakers by a few,
+/// far inside `spacingTolerance`. Timing from the tone's end, not its start, matters: many DACs and receivers mute
+/// the first few hundred milliseconds of sound after silence, which moves where the tone is heard to begin (a mute of
+/// half a second made the right speaker's file read as the left's) but not where it ends. The tone is 3 s long so a
+/// mute of a second still leaves enough of it to read the clock. What cannot be told is which speaker actually played:
+/// a left file played through a swapped cable sounds like a left file.
+///
+/// **Lengths** (seconds): a speaker test file 29 (left), 30.5 (right), 32 (both); a seat file 25 (pair), 17 (one
+/// speaker).
 ///
 /// **Why the gaps are as long as they are.** Each gap must hold the recording kept after a sweep
 /// (`recordedTail(for:)`: the configuration's `minimumTail` and `decayHold` and one block) and then let the room die
@@ -77,7 +84,8 @@ public struct TestSoundFile: Sendable, Hashable {
 
     /// The file's sample rate, hertz. A player that runs at 44.1 kHz resamples it; what is left is its clock's offset.
     public static let sampleRate: Double = 48000
-    /// Silence before the clock tone, seconds. *First guess*: 3 s, time for the press of play to die away.
+    /// Silence before the clock tone, seconds. *First guess*: 3 s, time for the press of play to die away and for a
+    /// player that mutes the start of a stream to open.
     public static let leadIn: Double = 3
     /// Silence between the clock tone's end and the first sweep, seconds: at least 2 s, for the tone's reverberation
     /// to die away, and different for each kind: 2 s for a left speaker test, 2.5 s right, 3 s both, 3.5 s a seat
@@ -93,12 +101,27 @@ public struct TestSoundFile: Sendable, Hashable {
 
     /// The kind of file, and which of its sweeps (0-based), that puts a sweep `seconds` after the start of its clock
     /// tone, within `spacingTolerance`; nil when none does. The seconds are the file's: divide what was heard by the
-    /// clock ratio when it is known (it moves them by 20 ms at most).
+    /// clock ratio when it is known (it moves them by 20 ms at most). The listening sessions time from the tone's end
+    /// instead (`identify(secondsAfterToneEnd:)`), which a player muting its first moments does not move.
     public static func identify(secondsAfterTone seconds: Double) -> (kind: Kind, index: Int)? {
+        identify(seconds) { layout in layout.tone.offset }
+    }
+
+    /// The kind of file, and which of its sweeps (0-based), that puts a sweep `seconds` after the end of its clock
+    /// tone, within `spacingTolerance`; nil when none does. The seconds are the file's, as for
+    /// `identify(secondsAfterTone:)`. A player or amplifier that mutes the first part of the tone (many do, for a few
+    /// hundred milliseconds after silence) moves where the tone is heard to start but not where it ends, so this is
+    /// what the listening sessions use; the gaps between the kinds' timings (half a second) are then unaffected by a
+    /// mute of any length that leaves enough of the tone to read.
+    public static func identify(secondsAfterToneEnd seconds: Double) -> (kind: Kind, index: Int)? {
+        identify(seconds) { layout in layout.tone.offset + layout.tone.count }
+    }
+
+    private static func identify(_ seconds: Double, from origin: (TestSoundLayout) -> Int) -> (kind: Kind, index: Int)? {
         for kind in allKinds {
             let layout = TestSoundFile(kind: kind).layout
             for (index, sweep) in layout.sweeps.enumerated() {
-                let expected = Double(sweep.offset - layout.tone.offset) / layout.sampleRate
+                let expected = Double(sweep.offset - origin(layout)) / layout.sampleRate
                 if abs(seconds - expected) <= spacingTolerance { return (kind, index) }
             }
         }

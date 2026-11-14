@@ -107,6 +107,29 @@ import Testing
         #expect(TestSoundFile.identify(secondsAfterTone: 8) == nil)
     }
 
+    /// The timing the listening sessions use, from the tone's end: half a second apart between kinds, so a misread
+    /// end, the follower's estimate of a sweep's start and the clock (20 ms at most) fit in the tolerance.
+    @Test func `every sweep of every file is told apart by its time after the tone's end`() {
+        for kind in TestSoundFileTests.kinds {
+            let layout = TestSoundFile(kind: kind).layout
+            for (index, sweep) in layout.sweeps.enumerated() {
+                let seconds = Double(sweep.offset - layout.tone.offset - layout.tone.count) / 48000
+                for error in [-0.15, 0, 0.15] {
+                    let found = TestSoundFile.identify(secondsAfterToneEnd: seconds + error)
+                    #expect(found?.kind == kind && found?.index == index, "\(kind) sweep \(index) at \(seconds + error) s")
+                }
+            }
+        }
+        #expect(TestSoundFile.identify(secondsAfterToneEnd: 1.5) == nil)
+    }
+
+    /// The layout and lengths stated in `docs/modules/ResoniqAudio.md`.
+    @Test func `the files' lengths are the documented ones`() {
+        let lengths = TestSoundFileTests.kinds.map { TestSoundFile(kind: $0).layout.duration }
+        #expect(lengths == [29, 30.5, 32, 25, 17])
+        #expect(TestSoundFile(kind: .speakerTest(.left)).layout.tone.count == 3 * 48000)
+    }
+
     @Test func `the files with more than one sweep are told apart by their spacing`() {
         for kind in TestSoundFileTests.kinds {
             guard let spacing = TestSoundFile(kind: kind).layout.spacing else { continue }
@@ -119,7 +142,7 @@ import Testing
     @Test func `the files have names and summaries`() {
         #expect(TestSoundFile(kind: .speakerTest(.left)).suggestedFileName == "Resoniq test sound - left speaker.wav")
         #expect(TestSoundFile(kind: .seat([.left, .right])).suggestedFileName == "Resoniq seat sound - left then right.wav")
-        #expect(TestSoundFile(kind: .speakerTest(.left)).summary == "Three sweeps on the left speaker, for testing it. About 28 seconds.")
+        #expect(TestSoundFile(kind: .speakerTest(.left)).summary == "Three sweeps on the left speaker, for testing it. About 29 seconds.")
         #expect(Set(TestSoundFileTests.kinds.map { TestSoundFile(kind: $0).suggestedFileName }).count == TestSoundFileTests.kinds.count)
     }
 }

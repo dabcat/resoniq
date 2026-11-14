@@ -223,9 +223,10 @@ public enum SweepFinder {
 
     /// The clock tone every test sound file carries before its sweeps: a steady sine, played on one path, whose
     /// frequency the phone measures to read the player's clock (`clockRatio(ofTone:sampleRate:)`). 1 kHz, which any
-    /// speaker plays well; 2 s; at −18 dBFS, under the sweep's safe level.
+    /// speaker plays well; at −18 dBFS, under the sweep's safe level; 3 s, so a player that mutes the first second of
+    /// sound after silence still leaves 2 s, well over `minimumToneDuration` once its ends are trimmed.
     public static let clockToneFrequency: Double = 1000
-    public static let clockToneDuration: Double = 2
+    public static let clockToneDuration: Double = 3
     public static let clockToneAmplitude: Float = 0.125
     /// The least steady tone `clockRatio(ofTone:sampleRate:)` reads, seconds, after its ends are trimmed.
     public static let minimumToneDuration: Double = 0.8
@@ -244,8 +245,18 @@ public enum SweepFinder {
 
     /// What `clockRatio(ofTone:sampleRate:)` reads, and where the tone began: the first 10 ms step at which it
     /// reached half its level, in samples from the start of `samples` (good to about 10 ms, the fade and the room's
-    /// build-up included). The listening sessions tell the files apart by the time from this onset to the first sweep.
+    /// build-up included). A player that mutes its first moments after silence moves the onset; `readClockToneSpan`
+    /// gives the end too, which it does not move.
     public static func readClockTone(_ samples: [Float], sampleRate: Double) -> (ratio: Double, onset: Double)? {
+        readClockToneSpan(samples, sampleRate: sampleRate).map { ($0.ratio, $0.onset) }
+    }
+
+    /// What `readClockTone(_:sampleRate:)` reads, and where the tone ended: the end of the last 10 ms step at which it
+    /// was at half its level or more, in samples from the start of `samples` (good to about 10 ms; a reverberant room
+    /// holds it up to a tenth of its reverberation time longer). The listening sessions tell the files apart by the
+    /// time from this end to the first sweep: many DACs and receivers mute the first few hundred milliseconds of sound
+    /// after silence, which moves the tone's onset but not its end.
+    public static func readClockToneSpan(_ samples: [Float], sampleRate: Double) -> (ratio: Double, onset: Double, end: Double)? {
         let step = max(1, Int((0.01 * sampleRate).rounded()))
         let chunks = samples.count / step
         guard chunks >= 4, LevelMeter.nonFiniteCount(samples) == 0 else { return nil }
@@ -302,7 +313,7 @@ public enum SweepFinder {
         guard (residual / Double(times.count)).squareRoot() < 0.3 else { return nil }
         let ratio = 1 + slope / (2 * Double.pi) / clockToneFrequency
         guard abs(ratio - 1) <= 2 * maximumClockOffset else { return nil }
-        return (ratio, Double(first * step))
+        return (ratio, Double(first * step), Double((last + 1) * step))
     }
 
     /// Whether `ratio` is close enough to 1 to be corrected and measured: within `maximumClockOffset`.

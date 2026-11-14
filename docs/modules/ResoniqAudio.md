@@ -141,7 +141,7 @@ The user plays a WAV file on their own system and the phone only listens. Plan: 
 | `settleDuration` | 0.2 | First guess |
 | `noiseFloorDuration` | 1 | From the plan |
 | `leadIn` | 0.05 | |
-| `maximumRouteDelay` | 2.5 | First guess; AirPlay is documented at about 2 s |
+| `maximumRouteDelay` | 4 | First guess; AirPlay is documented at about 2 s and the first route measured on a device came to 2.06 s, so 2.5 s was too close |
 | `decayHold` | 0.3 | First guess |
 | `minimumTail` | `HarmonicDistortion.minimumTail` (0.205) | So the distortion floor can be measured; was 0.2 |
 | `maximumDecay` | 1 | First guess |

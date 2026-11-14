@@ -300,7 +300,7 @@ the constant where it lives, with a test, and note it in the module's note. Path
 |---|---|---|---|
 | Sweep start, length, level | 10 Hz, 4 s, −12 dBFS | `ResoniqDSP/Foundation/LogSweep+Measurement.swift:33`, `LogSweep.swift:10` | 2.3 |
 | Recording verdict | peak, signal-to-noise, clipping | `QualityThresholds.standard`, `ResoniqDSP/Quality/QualityThresholds.swift:123` | 2.4 |
-| Route delay, pause and resume timing | `maximumRouteDelay` 2.5 s, `resumeOverlap`, `maximumPauses` 6, `maximumPauseWait` 30 s | `MeasurementConfiguration.standard`, `ResoniqAudio/MeasurementConfiguration.swift:135` | 2.5, 2.6 |
+| Route delay, pause and resume timing | `maximumRouteDelay` 4 s, `resumeOverlap`, `maximumPauses` 6, `maximumPauseWait` 30 s | `MeasurementConfiguration.standard`, `ResoniqAudio/MeasurementConfiguration.swift:135` | 2.5, 2.6 |
 | Noise while the sweep plays | analysis band, margins, `reverberationAllowance` | `SweepNoiseDetector`, `ResoniqAudio/SweepNoiseDetector.swift` | 2.6, 3.5 |
 | On-screen decibel offset | 110 dB | `SoundLevel.approximateOffsetDecibels`, `ResoniqAudio/SoundLevel.swift:16` | 2.4, 3.3 |
 | Phone still or moving | 0.2 rad/s, 0.05 g, 0.5 s | `MotionStillnessMonitor`, `ResoniqAudio/StillnessMonitor.swift:39` | 3.1 |

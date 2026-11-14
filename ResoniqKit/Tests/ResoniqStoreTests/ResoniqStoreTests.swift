@@ -56,6 +56,17 @@ struct ResoniqStoreTests {
         #expect(store.latestTest(for: .single, in: system) == nil)
     }
 
+    @Test func updateReplacesTheReportAndKeepsTheTest() throws {
+        let system = try store.defaultContext().system
+        let date = Date(timeIntervalSince1970: 1000)
+        let test = try store.keep(report("a"), speaker: .left, in: system, date: date)
+        let replacement = try report("b")
+        try store.update(test, report: replacement)
+        #expect(test.report == replacement)
+        #expect(test.date == date)
+        #expect(store.history(for: .left, in: system) == [test])
+    }
+
     @Test func discardRemovesTest() throws {
         let system = try store.defaultContext().system
         let test = try store.keep(report(), speaker: .single, in: system)

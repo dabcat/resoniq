@@ -322,7 +322,7 @@ struct FindingScreen: View {
     private var confidenceAndSteps: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top, spacing: ResoniqSpace.s3) {
-                ResoniqEvidenceMark(finding.evidenceKind, isDeviation: finding.kind.isDeviation)
+                ResoniqEvidenceMark(finding.evidenceKind, isDeviation: finding.isSuspectedDefect)
                     .padding(.top, Metrics.markInset)
                 Text(finding.confidenceStatement)
                     .font(ResoniqFont.bodySmall)

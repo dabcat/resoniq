@@ -404,6 +404,13 @@ final class DiagnoseCoordinator {
             sourceLines = SourceWords.lines(
                 (SourceWords.speaker(completed.position), report.source), (SourceWords.speaker(other.position), other.source))
         }
+        // The speaker tested first was read with nothing to compare with: now that this one is kept, its kept report
+        // is read again, so what the two share is said on both (`SpeakerDiagnosis.compared`).
+        if test != nil, let system, let other = memory.counterpartSource(for: completed.position, in: system.persistentModelID),
+           let earlier = store.latestTest(for: other.position, in: system), let kept = earlier.report {
+            let again = SpeakerDiagnosis.compared(kept, with: report)
+            if again != kept { try? store.update(earlier, report: again) }
+        }
         // Only a kept test is compared with the other speaker's later.
         if DiagnoseRules.shouldRemember(isKept: test != nil), let system {
             memory.record(completed.analyses, source: report.source, for: completed.position, in: system.persistentModelID)

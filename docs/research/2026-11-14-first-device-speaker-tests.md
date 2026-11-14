@@ -31,12 +31,13 @@ from 200 Hz up, and differ by up to 10 dB at 100–160 Hz.
 ## What it tells us
 
 - **The real engine path works**: playback, capture, deconvolution, three valid runs, a kept result, on a route
-  with a 2 s delay. `maximumRouteDelay` is 2.5 s, so this route is 0.4 s from being refused.
+  with a 2 s delay. `maximumRouteDelay` was 2.5 s, so this route was 0.4 s from being refused; the limit is now 4 s.
 - **A deviation that both speakers share is probably not a defect.** Two speakers with the same peaks and dips
   point at the room, the position or the phone's microphone. The verdicts were "I found 4 things worth a closer
   look." and "I found 3 things…", each finding `inferred`, medium confidence. That is honest per finding and too
-  alarming as a whole. Open: say so when the other speaker shows the same deviation, and whether 6 dB is the
-  right threshold away from 1 m.
+  alarming as a whole. Since fixed: a dip or peak both speakers have is no longer a suspected defect, and read
+  again these two reports say "I found no fault. Both speakers are uneven in the same 3 places,
+  which points to the room or the phone's position." Still open: whether 6 dB is the right threshold away from 1 m.
 - **Defect found: the top-end dip flipped.** The same roll-off was "Dip at 12–20 kHz" (inferred) for the left
   and "Very top notes dip" (inconclusive, could be the phone's angle) for the right, because the rule looked at
   where the dip crosses the threshold (just under and just over 14 kHz). The rule now looks at where the dip is

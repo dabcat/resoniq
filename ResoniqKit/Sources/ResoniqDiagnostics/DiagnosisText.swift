@@ -191,6 +191,19 @@ public enum DiagnosisText {
     static let topEndConfidence =
         "Inconclusive. A phone microphone that isn't pointing straight at the speaker hears less of the very top, so I can't tell the speaker from the phone's angle."
 
+    /// The sentence a dip or peak gains when the other speaker has the same one.
+    static func sharedWithOther(isPeak: Bool) -> String {
+        "The other speaker has the same \(isPeak ? "peak" : "dip") there, so the room or where the phone was is the likelier cause."
+    }
+
+    static let sharedConfidence =
+        "Inferred. Both speakers show it at the same place, which a fault in one speaker would not explain. The room or where the phone was is the likelier cause, but from here I can't tell which."
+
+    /// What the verdict adds when both speakers are uneven in the same places.
+    static func sharedVerdict(_ count: Int) -> String {
+        "Both speakers are uneven in the same \(count == 1 ? "place" : "\(count) places"), which points to the room or the phone's position."
+    }
+
     static func leftRight(range: FrequencyRange, difference: Float) -> Words {
         let direction = difference < 0 ? "quieter" : "louder"
         return Words(
@@ -336,6 +349,7 @@ public enum DiagnosisText {
 
     static let inconclusiveVerdict = "I couldn't get clean enough recordings to judge this speaker."
     static let healthyVerdict = "Sounds healthy."
+    static let noFaultVerdict = "I found no fault."
 
     /// The clause a suspected defect adds to the verdict: "the woofer may be buzzing".
     static func clause(for finding: Finding) -> String {
@@ -358,11 +372,31 @@ public enum DiagnosisText {
     /// `checked` the rest. `uncleared` are checked drivers that are neither in the even statement nor named by any
     /// finding (a response 3 to 6 dB off its trend, such as a bass roll-off): no fault was found in them, but they are
     /// not called healthy either. "Healthy" is said only of the checked drivers that are not uncleared.
+    ///
+    /// `shared` is how many dips and peaks the other speaker has too: they are not among `suspected`, their drivers
+    /// are among `uncleared`, and the verdict ends by saying what they point to.
     static func verdict(
         suspected: [Finding],
         unchecked: [DriverBand] = [],
         checked: [DriverBand] = DriverBand.allCases.reversed(),
-        uncleared: [DriverBand] = []
+        uncleared: [DriverBand] = [],
+        shared: Int = 0
+    ) -> String {
+        guard shared > 0 else {
+            return verdictOverAssessed(suspected: suspected, unchecked: unchecked, checked: checked, uncleared: uncleared)
+        }
+        // The verdict is a headline: with nothing suspected and every driver checked, what the speakers share is the
+        // whole of it, and the drivers left out are in the findings below.
+        if suspected.isEmpty, unchecked.isEmpty { return "\(noFaultVerdict) \(sharedVerdict(shared))" }
+        let verdict = verdictOverAssessed(suspected: suspected, unchecked: unchecked, checked: checked, uncleared: uncleared)
+        return "\(verdict) \(sharedVerdict(shared))"
+    }
+
+    private static func verdictOverAssessed(
+        suspected: [Finding],
+        unchecked: [DriverBand],
+        checked: [DriverBand],
+        uncleared: [DriverBand]
     ) -> String {
         let uncleared = uncleared.filter { checked.contains($0) && !unchecked.contains($0) }
         let healthy = checked.filter { !uncleared.contains($0) }
@@ -370,7 +404,11 @@ public enum DiagnosisText {
         case 0: healthyVerdict
         case 1: "Sounds healthy, except \(clause(for: suspected[0]))."
         case 2: "Sounds healthy, except \(clause(for: suspected[0])) and \(clause(for: suspected[1]))."
-        default: "I found \(suspected.count) things worth a closer look."
+        // Three or more dips and peaks and nothing else is an uneven response, which one spot cannot pin on the
+        // speaker; a buzz, a rattle or a quiet driver among them keeps the plainer line.
+        default: suspected.allSatisfy { $0.kind == .responseDip || $0.kind == .responsePeak }
+            ? "It's uneven in \(suspected.count) places. From one spot I can't tell the speaker from the room."
+            : "I found \(suspected.count) things worth a closer look."
         }
         if suspected.isEmpty, healthy.isEmpty, !uncleared.isEmpty {
             let missing = unchecked.isEmpty ? "" : " I couldn't check the \(bandList(unchecked))."

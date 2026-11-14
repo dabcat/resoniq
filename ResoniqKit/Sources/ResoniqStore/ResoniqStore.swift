@@ -166,6 +166,14 @@ public final class ResoniqStore {
         return test
     }
 
+    /// Replaces a kept test's report with the same test read again (`SpeakerDiagnosis.compared`, once the other
+    /// speaker of the pair has been tested). The test keeps its date and its place.
+    public func update(_ test: SpeakerTest, report: SpeakerReport) throws {
+        test.reportData = try JSONEncoder().encode(report)
+        test.reportSchemaVersion = SpeakerTest.currentReportSchemaVersion
+        try context.save()
+    }
+
     /// "Don't keep".
     public func discard(_ test: SpeakerTest) throws {
         context.delete(test)

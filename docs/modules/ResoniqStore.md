@@ -57,7 +57,7 @@ To change a model again: add `ResoniqSchemaV3`, move the typealiases, add a stag
 | `rooms()`, `defaultContext()`, `addRoom`, `addSystem`, `rename` | `ResoniqStore.swift:52–95` | as in phase 2 |
 | `delete(_ room:)`, `delete(_ system:)` | `ResoniqStore.swift:102`, `:111` | cascade; the room's scan file is deleted too |
 | `selectedSystem`, `select(_:)` | `ResoniqStore.swift:120`, `:124` | selection in the database |
-| `keep(_ report: SpeakerReport, speaker:in:date:)`, `discard(_ test:)`, `latestTest`, `history` | `ResoniqStore.swift:149–174` | speaker tests |
+| `keep(_ report: SpeakerReport, speaker:in:date:)`, `update(_ test:report:)`, `discard(_ test:)`, `latestTest`, `history` | `ResoniqStore.swift` ("Tests") | speaker tests; `update` replaces a kept test's report with the same test read again (`SpeakerDiagnosis.compared`), keeping its date |
 | `layout(of:)` | `ResoniqStore+Optimize.swift:84` | the room's `RoomModel`, nil when none, throws when unreadable |
 | `setLayout(_:for:scanFile:date:)` | `ResoniqStore+Optimize.swift:94` | the raw write: stores the layout and its date; a new `scanFile` replaces the reference and deletes the old file; nil keeps it, except for a hand-entered layout (`RoomSource.manual`), which drops the room's scan and deletes its file |
 | `confirmLayout(_:for:scanFile:date:)` | `ResoniqStore+Optimize.swift:112` | "Looks right": `setLayout`, after closing as `superseded` every open optimisation of the room's systems the new layout makes stale (`OptimizeRules.staysOpen`: an edit that is exactly the recorded move keeps it open; a rescan, entry by hand or any other edit does not) |

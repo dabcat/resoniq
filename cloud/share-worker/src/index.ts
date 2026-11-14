@@ -78,7 +78,9 @@ async function authenticate(request: Request, env: Env, installId: string): Prom
 // again when another request got there first, so parallel requests cannot all read the same count. A counter
 // that does not exist yet has no etag to hold, so its very first writes can still race; that lets through at most
 // the number of requests that arrive before the first write lands.
-async function countOne(env: Env, key: string, max: number, windowSeconds: number): Promise<number | null> {
+async function countOne(
+  env: Env, key: string, max: number, windowSeconds: number, whenContended: "refuse" | "allow",
+): Promise<number | null> {
   for (let attempt = 0; attempt < 5; attempt++) {
     const now = Math.floor(Date.now() / 1000);
     let windowStart = now;
@@ -102,21 +104,26 @@ async function countOne(env: Env, key: string, max: number, windowSeconds: numbe
     });
     if (written !== null) return null;
   }
-  // Five lost races in a row is a burst: refuse rather than let it through uncounted.
-  return 1;
+  // Five lost races in a row. For one address that is a burst from that address, and it is refused rather than let
+  // through uncounted. For the counter everyone shares it only means many honest requests arrived together, and
+  // refusing there would let a few clients keep everyone else out, so the request passes uncounted.
+  return whenContended === "refuse" ? 1 : null;
 }
 
 // Two limits on making installations: one per address (per /64 for IPv6), and one for everyone together, so that
-// many addresses cannot fill the bucket with installations.
+// many addresses cannot fill the bucket with installations. The shared limit is a deliberate trade: someone with
+// many addresses can use it up and keep new installations out until the next day (existing ones keep working),
+// which is preferred to unbounded storage on the owner's account. Registration is not authenticated; App Attest
+// is what removes both problems, and is needed before this is opened beyond the owner's own builds.
 async function rateLimited(request: Request, env: Env): Promise<number | null> {
   const address = clientKey(request.headers.get("cf-connecting-ip") ?? "unknown");
   const perAddress = Number.parseInt(env.RATE_LIMIT_MAX ?? "", 10) || RATE_LIMIT_MAX;
   const wait = await countOne(
-    env, `ratelimit/${(await sha256Hex(address)).slice(0, 32)}.json`, perAddress, RATE_LIMIT_WINDOW_SECONDS,
+    env, `ratelimit/${(await sha256Hex(address)).slice(0, 32)}.json`, perAddress, RATE_LIMIT_WINDOW_SECONDS, "refuse",
   );
   if (wait !== null) return wait;
   const everyone = Number.parseInt(env.GLOBAL_DAILY_MAX ?? "", 10) || GLOBAL_DAILY_MAX;
-  return countOne(env, "ratelimit/everyone.json", everyone, 24 * 3600);
+  return countOne(env, "ratelimit/everyone.json", everyone, 24 * 3600, "allow");
 }
 
 async function register(request: Request, env: Env): Promise<Response> {

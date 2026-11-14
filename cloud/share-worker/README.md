@@ -78,7 +78,10 @@ same through the Worker.)
   check made before any of them was stored. The cost is two list calls (Class A) per 1000 objects, normally two.
 - Registration: 10 installations an hour per address (an IPv6 address counts as its /64, since one customer holds
   the whole prefix), and 500 a day from everyone together (`GLOBAL_DAILY_MAX`), so many addresses cannot fill the
-  bucket with installations. I checked Cloudflare's docs: the Workers Rate Limiting binding
+  bucket with installations. That shared limit is a trade: someone with many addresses can use it up and keep new
+  installations out until the next day (existing ones keep uploading). That is preferred to unbounded storage on
+  your account. Contention on the shared counter never refuses a request. Raise `GLOBAL_DAILY_MAX` with
+  `--var` or in `wrangler.toml` if honest use reaches it; App Attest is what removes the problem. I checked Cloudflare's docs: the Workers Rate Limiting binding
   is in open beta and the pages I read do not say it is free on the Workers Free plan, so I did not rely on it.
   Instead the Worker keeps one tiny object per hashed address at `ratelimit/<hash>.json` (a window start and a
   count) in the same bucket. It costs one read and one write (a Class B and a Class A operation) per registration,

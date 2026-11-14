@@ -14,6 +14,7 @@ let package = Package(
         .library(name: "ResoniqDiagnostics", targets: ["ResoniqDiagnostics"]),
         .library(name: "ResoniqRoom", targets: ["ResoniqRoom"]),
         .library(name: "ResoniqStore", targets: ["ResoniqStore"]),
+        .library(name: "ResoniqShare", targets: ["ResoniqShare"]),
     ],
     targets: [
         .target(name: "ResoniqDesign", resources: [.process("Resources")], swiftSettings: swift6),
@@ -22,11 +23,14 @@ let package = Package(
         .target(name: "ResoniqDiagnostics", dependencies: ["ResoniqDSP"], swiftSettings: swift6),
         .target(name: "ResoniqRoom", swiftSettings: swift6),
         .target(name: "ResoniqStore", dependencies: ["ResoniqAudio", "ResoniqDiagnostics", "ResoniqRoom"], swiftSettings: swift6),
+        // The only module that may use the network (phase 10): `NetworkUseTests` fails if any other source names it.
+        .target(name: "ResoniqShare", dependencies: ["ResoniqStore"], swiftSettings: swift6),
         .testTarget(name: "ResoniqDesignTests", dependencies: ["ResoniqDesign"], swiftSettings: swift6),
         .testTarget(name: "ResoniqDSPTests", dependencies: ["ResoniqDSP"], swiftSettings: swift6),
         .testTarget(name: "ResoniqAudioTests", dependencies: ["ResoniqAudio"], swiftSettings: swift6),
         .testTarget(name: "ResoniqDiagnosticsTests", dependencies: ["ResoniqDiagnostics"], swiftSettings: swift6),
         .testTarget(name: "ResoniqRoomTests", dependencies: ["ResoniqRoom"], swiftSettings: swift6),
         .testTarget(name: "ResoniqStoreTests", dependencies: ["ResoniqStore"], swiftSettings: swift6),
+        .testTarget(name: "ResoniqShareTests", dependencies: ["ResoniqShare"], swiftSettings: swift6),
     ]
 )

@@ -37,7 +37,7 @@ project: ## Generate Resoniq.xcodeproj from project.yml
 
 # One target at a time: in one run the DSP suites' heavy synchronous work starved the audio sessions' tests of
 # threads on a three-core CI runner, and they ran past their time limits.
-TEST_TARGETS := ResoniqDesignTests ResoniqDSPTests ResoniqAudioTests ResoniqDiagnosticsTests ResoniqRoomTests ResoniqStoreTests
+TEST_TARGETS := ResoniqDesignTests ResoniqDSPTests ResoniqAudioTests ResoniqDiagnosticsTests ResoniqRoomTests ResoniqStoreTests ResoniqShareTests
 
 test: ## Run the ResoniqKit tests on the Mac
 	swift build --package-path $(PKG) --build-tests

@@ -94,6 +94,27 @@ public struct RecordingStore: Sendable {
             manifest: manifest, runs: try manifest.runs.map { try mono($0.file) }, noiseFloor: try mono(manifest.noiseFloor.file))
     }
 
+    /// Reads only an example's manifest, without its audio.
+    public func manifest(_ name: String) throws -> RecordingManifest {
+        guard Self.isPlain(name) else { throw CocoaError(.fileReadInvalidFileName) }
+        let url = folder.appendingPathComponent(name, isDirectory: true).appendingPathComponent(Self.manifestFileName)
+        return try RecordingManifest.decoder.decode(RecordingManifest.self, from: Data(contentsOf: url))
+    }
+
+    /// Where one file of an example is, for a reader that streams it (sharing); nil for an odd name.
+    public func fileURL(_ name: String, file: String) -> URL? {
+        guard Self.isPlain(name), Self.isPlain(file) else { return nil }
+        return folder.appendingPathComponent(name, isDirectory: true).appendingPathComponent(file)
+    }
+
+    /// Whether a complete example is kept under `name`.
+    public func contains(_ name: String) -> Bool {
+        guard Self.isPlain(name) else { return false }
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: folder.appendingPathComponent(name).path, isDirectory: &isDirectory)
+            && isDirectory.boolValue
+    }
+
     // MARK: What is there
 
     /// The complete examples, by name, sorted.

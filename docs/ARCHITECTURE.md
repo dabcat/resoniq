@@ -41,6 +41,7 @@ Dependencies are as in `ResoniqKit/Package.swift`; the app depends on all six.
 | [ResoniqDiagnostics](modules/ResoniqDiagnostics.md) | B | DSP | Findings and evidence tags from runs and spots, the portrait's shape, the seat result and before and after comparison, SoundAnalysis naming of interference, log-mel features and Core ML slots for defect and anomaly models; the words of every finding |
 | [ResoniqRoom](modules/ResoniqRoom.md) | C, D | — | The room model and manual room, RoomPlan conversion, layout guess, geometry and edits, room modes, placement advice, AR move guidance and alignment; the words of scan and AR |
 | [ResoniqStore](modules/ResoniqStore.md) | E | Audio, Diagnostics, Room | SwiftData schema (rooms, systems, speaker tests, seat measurements, optimisations; migration V1 to V2), scan files, kept recordings, counts and delete-all, the intro flag and the recordings setting |
+| [ResoniqShare](modules/ResoniqShare.md) | — | Store | The opt-in sharing of kept recordings (phase 10): `RecordingManifest.shared()` sent with the audio to the owner's Cloudflare Worker (`cloud/share-worker/`), the queue, the consent, and the only `URLSession` in the repository |
 
 `ResoniqDesign` is still the only module that imports SwiftUI: `grep -rn "import SwiftUI" ResoniqKit/Sources`
 finds 36 files, all under `ResoniqDesign/`. The other modules import Foundation, Accelerate, AVFoundation,
@@ -89,6 +90,7 @@ the app. The app's own layer is described in [App](modules/App.md) and below.
 | The app target has no tests; decisions live in the Kit | What the Mac can test, it tests; app code only maps and navigates. Anything that needs a microphone, LiDAR or AR is verified on a device ([checklist](device-checklist.md)). |
 | Texts that depend on a result live in the Kit | One definition, tested for the wording rules (hedging, no scores, units). |
 | Nothing leaves the device; scan files stay in Application Support and in the backup | A scan takes a walk round the room to recreate. |
+| Sharing kept recordings is opt-in and off by default: a Cloudflare Worker in front of R2, a foreground `URLSession`, Wi-Fi only; with sharing off or no `RESONIQ_SHARE_URL` no object that can make a request exists | Phase 10: the owner needs real recordings from more than one phone to tune thresholds. Consent is versioned, the shared manifest drops every name and the time of day, and "Delete what I shared" removes an installation's uploads. Registration is not authenticated: App Attest is required before the feature is opened beyond the owner's builds. |
 | Raw recordings only on request, in Documents, out of the backup, as 32-bit float WAV plus a JSON manifest | Phase 9: the owner needs real phone recordings and a first dataset; Documents is what Files and `devicectl` reach without any network code; an iCloud backup would send the room's sound off the phone unasked; float keeps the samples bit for bit, so features recomputed on the Mac match the phone's. The store owns them because an example lives and dies with its `SpeakerTest`; it gains a dependency on Audio for `MeasurementResult`. |
 
 ## Rules that follow

@@ -1,4 +1,4 @@
-// Signing for the Resoniq target.
+// Signing for the Resoniq target, and the one per-developer setting besides it.
 //
 // The Apple Developer Team ID is not committed. Put it in Config/Signing.local.xcconfig (gitignored):
 //
@@ -6,5 +6,16 @@
 //
 // Without it the simulator still builds and runs; only a device build needs the team.
 // Choosing the team in Xcode's Signing tab instead writes it into the generated project, which is not committed.
+
+// Where "Share recordings for research" sends kept tests (docs/plans/phase-10-share-recordings.md). Empty here, so a
+// build from the repository has no sharing at all: no Settings row, and no object that could make a request. The
+// owner sets it in Config/Signing.local.xcconfig. In an xcconfig `//` starts a comment, so write the slashes with an
+// empty `$()` between them:
+//
+//     RESONIQ_SHARE_URL = https:/$()/share.example.com
+//     RESONIQ_SHARE_URL = http:/$()/localhost:8787        (a Worker run with `wrangler dev`; Debug builds only)
+//
+// Never commit a real URL.
+RESONIQ_SHARE_URL =
 
 #include? "Signing.local.xcconfig"

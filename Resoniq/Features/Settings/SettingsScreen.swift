@@ -1,19 +1,26 @@
 import ResoniqDesign
+import ResoniqShare
 import ResoniqStore
 import SwiftData
 import SwiftUI
 
 /// Settings (no mockup; built from design/DESIGN_SYSTEM.md): what is kept on this iPhone and how to delete it, whether
 /// a kept test keeps its recordings (no mockup either: the same panel, rows and outlined button as "Your data"), how the
-/// test sound and the microphone should be understood, the intro, and the app's version and licences.
+/// test sound and the microphone should be understood, the intro, and the app's version and licences. In a build with a
+/// share URL, the Recordings panel also holds "Share recordings for research" (no mockup either: the same toggle, lines
+/// and outlined button), whose consent is `ShareConsentSheet`.
 ///
 /// Reads the store from the environment (`\.resoniqStore`) and its counts live with `@Query`.
 struct SettingsScreen: View {
     var onClose: () -> Void
     /// Where "Show the intro again" writes.
     var introGate = IntroGate()
+    /// Opens scrolled to the Recordings panel (debug screens, for screenshots of sharing).
+    var startsAtRecordings = false
 
     @Environment(\.resoniqStore) private var store
+    /// Sharing, in a build that has it.
+    @Environment(\.shareModel) private var share
     @Query private var rooms: [Room]
     @Query private var systems: [SoundSystem]
     @Query private var tests: [SpeakerTest]
@@ -28,11 +35,19 @@ struct SettingsScreen: View {
     @AppStorage(RecordingPreference.key) private var keepsRecordings = false
     /// Bytes the kept recordings take; read when the screen opens and after a delete.
     @State private var recordingsSize: Int64 = 0
+    @State private var showsConsent = false
+    /// Turning sharing on turned "Keep recordings" on: said once, under the toggle.
+    @State private var keepTurnedOn = false
+    @State private var sharedDeleted = false
+    @State private var shareDeleteFailed = false
+
+    private static let recordingsID = "recordings"
 
     private enum Deletion: Identifiable {
         case results
         case everything
         case recordings
+        case shared
         var id: Self { self }
     }
 
@@ -45,18 +60,23 @@ struct SettingsScreen: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: Metrics.sectionGap) {
-                header
-                dataSection
-                recordingsSection
-                measurementSection
-                introSection
-                aboutSection
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: Metrics.sectionGap) {
+                    header
+                    dataSection
+                    recordingsSection.id(Self.recordingsID)
+                    measurementSection
+                    introSection
+                    aboutSection
+                }
+                .padding(.horizontal, ResoniqSpace.screenInset)
+                .padding(.top, ResoniqSpace.s2)
+                .padding(.bottom, ResoniqSpace.s6)
             }
-            .padding(.horizontal, ResoniqSpace.screenInset)
-            .padding(.top, ResoniqSpace.s2)
-            .padding(.bottom, ResoniqSpace.s6)
+            .onAppear {
+                if startsAtRecordings { proxy.scrollTo(Self.recordingsID, anchor: .top) }
+            }
         }
         .scrollIndicators(.hidden)
         .background(ResoniqColor.ink)
@@ -81,6 +101,26 @@ struct SettingsScreen: View {
             Button(SettingsText.ok, role: .cancel) {}
         } message: {
             Text(SettingsText.failureMessage)
+        }
+        .alert(SettingsText.deleteSharedFailedTitle, isPresented: $shareDeleteFailed) {
+            Button(SettingsText.ok, role: .cancel) {}
+        } message: {
+            Text(SettingsText.deleteSharedFailedMessage)
+        }
+        .sheet(isPresented: $showsConsent) {
+            ShareConsentSheet(
+                onCancel: { showsConsent = false },
+                onConfirm: {
+                    keepTurnedOn = !keepsRecordings
+                    share?.confirmConsent()
+                    showsConsent = false
+                }
+            )
+        }
+        // Sharing needs the recordings it sends: "Keep recordings" off turns it off.
+        .onChange(of: keepsRecordings) { _, keeps in
+            if !keeps, share?.isOn == true { share?.turnOff() }
+            if !keeps { keepTurnedOn = false }
         }
     }
 
@@ -111,7 +151,7 @@ struct SettingsScreen: View {
                     CountRow(label: SettingsText.seatMeasurements, value: counts.seatMeasurements)
                     CountRow(label: SettingsText.roomScans, value: counts.roomScans, isLast: true)
                 }
-                Text(SettingsText.privacy).bodyText(colour: ResoniqColor.muted)
+                Text(SettingsText.privacy(canShare: share != nil)).bodyText(colour: ResoniqColor.muted)
                 VStack(spacing: Metrics.buttonGap) {
                     // The same outlined button twice (a filled one is the panel's own colour here and reads as a
                     // heading); the one with nothing to delete is dimmed and the line under the pair says why.
@@ -134,6 +174,7 @@ struct SettingsScreen: View {
         case .results: SettingsText.deleteResultsTitle
         case .everything: SettingsText.deleteEverythingTitle
         case .recordings: SettingsText.deleteRecordingsTitle
+        case .shared: SettingsText.deleteSharedTitle
         }
     }
 
@@ -142,6 +183,7 @@ struct SettingsScreen: View {
         case .results: SettingsText.deleteResultsConfirm
         case .everything: SettingsText.deleteEverythingConfirm
         case .recordings: SettingsText.deleteRecordingsConfirm
+        case .shared: SettingsText.deleteSharedConfirm
         }
     }
 
@@ -150,6 +192,7 @@ struct SettingsScreen: View {
         case .results: SettingsText.deleteResultsMessage(counts)
         case .everything: SettingsText.deleteEverythingMessage(counts)
         case .recordings: SettingsText.deleteRecordingsMessage(counts)
+        case .shared: SettingsText.deleteSharedMessage
         }
     }
 
@@ -158,12 +201,29 @@ struct SettingsScreen: View {
             switch deletion {
             case .results: try store?.deleteAllResults()
             case .everything: try store?.deleteEverything()
-            case .recordings: try store?.deleteRecordings()
+            case .recordings:
+                try store?.deleteRecordings()
+                share?.recordingsDeleted()
+            case .shared:
+                deleteShared()
             }
         } catch {
             failed = true
         }
         recordingsSize = store?.recordingsSize() ?? 0
+    }
+
+    /// "Delete what I shared": the service is asked; the line under the button says when it is done.
+    private func deleteShared() {
+        guard let share else { return }
+        sharedDeleted = false
+        Task {
+            if await share.deleteShared() {
+                sharedDeleted = true
+            } else {
+                shareDeleteFailed = true
+            }
+        }
     }
 
     // MARK: Recordings
@@ -176,14 +236,60 @@ struct SettingsScreen: View {
                 }
                 .tint(ResoniqColor.lime)
                 .frame(minHeight: ResoniqSize.touchMin)
-                Text(SettingsText.recordingsExplanation).bodyText(colour: ResoniqColor.muted)
+                Text(SettingsText.recordingsExplanation(canShare: share != nil)).bodyText(colour: ResoniqColor.muted)
                 ValueRow(label: SettingsText.recordingsSpace, value: SettingsText.size(recordingsSize), isLast: true)
                 Button(SettingsText.deleteRecordings) { confirming = .recordings }
                     .buttonStyle(ResoniqSecondaryButtonStyle(.outlined))
                     .disabled(!hasRecordings)
                     .opacity(hasRecordings ? 1 : Metrics.disabledOpacity)
+                if let share { shareRows(share) }
             }
         }
+    }
+
+    // MARK: Sharing
+
+    /// Under the recordings, after a hairline: the toggle (which opens the consent and never turns on by itself), what
+    /// it does, the status, the old recordings on request, and "Delete what I shared", which works with sharing off.
+    private func shareRows(_ share: ShareModel) -> some View {
+        VStack(alignment: .leading, spacing: Metrics.rowGap) {
+            Rectangle().fill(ResoniqColor.line).frame(height: ResoniqSize.strokeHairline)
+            Toggle(isOn: Binding(
+                get: { share.isOn },
+                set: { on in
+                    if on {
+                        showsConsent = true
+                    } else {
+                        share.turnOff()
+                        keepTurnedOn = false
+                    }
+                }
+            )) {
+                Text(SettingsText.shareRecordings).font(ResoniqFont.body).foregroundStyle(ResoniqColor.ivory)
+            }
+            .tint(ResoniqColor.lime)
+            .frame(minHeight: ResoniqSize.touchMin)
+            Text(SettingsText.shareExplanation).bodyText(colour: ResoniqColor.muted)
+            if keepTurnedOn {
+                Text(SettingsText.shareTurnedKeepOn).bodyText()
+            }
+            if share.isOn || share.status.sent > 0 || share.status.problem != nil {
+                Text(SettingsText.shareStatus(share.status, isOn: share.isOn)).bodyText()
+            }
+            if share.isOn, share.status.notQueued > 0 {
+                VStack(alignment: .leading, spacing: Metrics.labelGap) {
+                    Button(SettingsText.sendExisting) { share.sendExisting() }
+                        .buttonStyle(ResoniqInlineLinkStyle())
+                    Text(SettingsText.notQueued(share.status.notQueued)).bodyText(colour: ResoniqColor.muted)
+                }
+            }
+            Button(SettingsText.deleteShared) { confirming = .shared }
+                .buttonStyle(ResoniqSecondaryButtonStyle(.outlined))
+            if sharedDeleted {
+                Text(SettingsText.deleteSharedDone).font(ResoniqFont.caption).foregroundStyle(ResoniqColor.muted)
+            }
+        }
+        .task { await share.refresh() }
     }
 
     private var hasRecordings: Bool { recordingsSize > 0 || counts.recordings > 0 }

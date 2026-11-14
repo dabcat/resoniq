@@ -63,9 +63,46 @@ public struct RecordingManifest: Codable, Sendable, Equatable {
     }
 
     /// The routes the IO reported when the test opened. No output when another device played the sound.
+    ///
+    /// Each route's name ("Living Room", "Anna's AirPods") can hold a person's or a device's name, so it is optional:
+    /// the kept manifest has it, `shared()` leaves it out. On disk it is the same `{ kind, name }` as
+    /// `AudioOutputRoute` and `AudioInputRoute`, so manifests written before read back unchanged.
     public struct Route: Codable, Sendable, Equatable {
-        public var output: AudioOutputRoute?
-        public var input: AudioInputRoute?
+        public struct Output: Codable, Sendable, Equatable {
+            public var kind: AudioOutputRoute.Kind
+            public var name: String?
+
+            public init(kind: AudioOutputRoute.Kind, name: String? = nil) {
+                self.kind = kind
+                self.name = name
+            }
+
+            public init(_ route: AudioOutputRoute) {
+                self.init(kind: route.kind, name: route.name)
+            }
+        }
+
+        public struct Input: Codable, Sendable, Equatable {
+            public var kind: AudioInputRoute.Kind
+            public var name: String?
+
+            public init(kind: AudioInputRoute.Kind, name: String? = nil) {
+                self.kind = kind
+                self.name = name
+            }
+
+            public init(_ route: AudioInputRoute) {
+                self.init(kind: route.kind, name: route.name)
+            }
+        }
+
+        public var output: Output?
+        public var input: Input?
+
+        public init(output: Output?, input: Input?) {
+            self.output = output
+            self.input = input
+        }
     }
 
     public struct Speaker: Codable, Sendable, Equatable {
@@ -89,13 +126,23 @@ public struct RecordingManifest: Codable, Sendable, Equatable {
         }
     }
 
+    /// The system the test was kept in. `name` is what the person typed, so `shared()` leaves it out.
     public struct System: Codable, Sendable, Equatable {
-        public var name: String
+        public var name: String?
         public var kind: SoundSystemKind
+
+        public init(name: String?, kind: SoundSystemKind) {
+            self.name = name
+            self.kind = kind
+        }
     }
 
     public struct Room: Codable, Sendable, Equatable {
         public var name: String
+
+        public init(name: String) {
+            self.name = name
+        }
     }
 
     /// `LogSweep`'s parameters: what the runs are deconvolved against.
@@ -177,7 +224,8 @@ public struct RecordingManifest: Codable, Sendable, Equatable {
     public var audioRoute: Route
     public var speaker: Speaker
     public var system: System
-    public var room: Room
+    /// The room the system is in; nil in a shared manifest (its only field is the name the person typed).
+    public var room: Room?
     public var sweep: Sweep
     public var noiseFloor: NoiseFloor
     public var runs: [Run]
@@ -249,7 +297,10 @@ public struct RecordingExample: Sendable, Equatable {
             sampleRate: sampleRate,
             playback: result.source == .thisPhone ? .thisPhone : .anotherDevice,
             device: device,
-            audioRoute: .init(output: result.source == .thisPhone ? result.outputRoute : nil, input: result.inputRoute),
+            audioRoute: .init(
+                output: result.source == .thisPhone ? result.outputRoute.map(RecordingManifest.Route.Output.init) : nil,
+                input: result.inputRoute.map(RecordingManifest.Route.Input.init)
+            ),
             speaker: .init(position: speaker, channel: .init(result.channel)),
             system: .init(name: systemName, kind: systemKind),
             room: .init(name: roomName),

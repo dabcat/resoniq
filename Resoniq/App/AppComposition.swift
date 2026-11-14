@@ -11,6 +11,8 @@ struct AppComposition {
     let measure: MeasureCoordinator
     let optimize: OptimizeCoordinator
     let lifecycle: AppLifecycle
+    /// "Share recordings for research"; nil in a build without `RESONIQ_SHARE_URL`, or with an in-memory store.
+    let share: ShareModel?
 
     /// Opens the store (on disk, or in memory when `inMemory`), makes sure "My room · My speakers" exists, and wires
     /// the coordinator. Nil when the store cannot be opened.
@@ -54,7 +56,9 @@ struct AppComposition {
         TestSoundFolder.sweep()
         if !inMemory { ScanFileStore.removeTemporaryExports(in: URL.temporaryDirectory) }
         let memory = ComparisonMemory()
-        let coordinator = DiagnoseCoordinator(store: store, memory: memory, audio: audio)
+        // Sharing exists only in a build with a share URL, and only for recordings on disk.
+        let share = ShareModel.launch(recordings: recordings)
+        let coordinator = DiagnoseCoordinator(store: store, memory: memory, audio: audio, share: share)
         #if DEBUG
         if opensFlow { coordinator.startTest(.left) }
         #endif
@@ -70,17 +74,20 @@ struct AppComposition {
         lifecycle.onLeavingForeground { [measure] in measure.suspend() }
         // The scan and the AR guide close their covers, which stops the camera and the AR session.
         lifecycle.onLeavingForeground { [optimize] in optimize.suspend() }
+        // Back in the foreground, sharing tries what is waiting (a failure is retried only at moments like this).
+        if let share { lifecycle.onBecomingActive { share.becameActive() } }
 
         // "Delete all results" and "Delete everything": every coordinator drops what it holds about deleted data
         // (comparison memory, an unsaved result, a pushed screen, an open cover), from this one place.
-        store.onDataReset = { [coordinator, measure, optimize] in
+        store.onDataReset = { [coordinator, measure, optimize, share] in
             coordinator.resetAfterDataDeletion()
             measure.resetAfterDataDeletion()
             optimize.resetAfterDataDeletion()
+            share?.recordingsDeleted()
         }
         return AppComposition(
             store: store, memory: memory, coordinator: coordinator, measure: measure, optimize: optimize,
-            lifecycle: lifecycle)
+            lifecycle: lifecycle, share: share)
     }
 }
 
@@ -100,6 +107,7 @@ extension View {
             .environment(composition.measure)
             .environment(composition.optimize)
             .environment(\.appLifecycle, composition.lifecycle)
+            .environment(\.shareModel, composition.share)
     }
 }
 
@@ -110,7 +118,7 @@ struct StoreUnavailableScreen: View {
             Text("I can't open your saved results.")
                 .resoniqTitle(.medium)
                 .accessibilityAddTraits(.isHeader)
-            Text("Everything stays on this phone, and right now I can't read it. Close Resoniq and open it again. If this keeps happening, free up some space on the phone.")
+            Text("Your results are kept on this phone, and right now I can't read them. Close Resoniq and open it again. If this keeps happening, free up some space on the phone.")
                 .font(ResoniqFont.body)
                 .foregroundStyle(ResoniqColor.muted)
                 .fixedSize(horizontal: false, vertical: true)

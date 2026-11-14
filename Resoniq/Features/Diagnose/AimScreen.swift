@@ -68,7 +68,7 @@ struct AimScreen: View {
             VStack(spacing: ResoniqSpace.s3) {
                 Button("Start listening", action: onStart)
                     .buttonStyle(ResoniqPrimaryButtonStyle())
-                Text("Resoniq will ask for the microphone. Sound is analyzed on this iPhone and never leaves it.")
+                Text("Resoniq will ask for the microphone. Sound is analyzed on this iPhone and stays on it unless you choose to share your recordings.")
                     .font(ResoniqFont.caption)
                     .foregroundStyle(ResoniqColor.muted)
                     .multilineTextAlignment(.center)

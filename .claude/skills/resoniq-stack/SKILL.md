@@ -13,7 +13,7 @@ and the one way it is used here.
 | Tool | For | How |
 |---|---|---|
 | Swift 6, strict concurrency | All code | The app target is main-actor by default (`project.yml`); the Kit is not, so its APIs stay callable from anywhere |
-| `ResoniqKit` (Swift package) | Everything that decides something | Six modules, each with a test target; map in [ARCHITECTURE.md](../../../docs/ARCHITECTURE.md), interfaces in [docs/modules/](../../../docs/modules/) |
+| `ResoniqKit` (Swift package) | Everything that decides something | Seven modules, each with a test target; map in [ARCHITECTURE.md](../../../docs/ARCHITECTURE.md), interfaces in [docs/modules/](../../../docs/modules/) |
 | Swift Testing | Kit tests, on the Mac | `make test`, about five minutes (one test target at a time) |
 | XcodeGen | The Xcode project | Edit `project.yml`, then `make project`. `Resoniq.xcodeproj` is generated and ignored by git |
 | SwiftUI, iOS 26 minimum | Screens, in `Resoniq/Features/<Tab>/` | Built from the mockup in `design/screens/`, with `ResoniqDesign` tokens and components only |
@@ -22,7 +22,7 @@ and the one way it is used here.
 | GitHub Actions | Kit tests and a simulator build on each pull request | `.github/workflows/ci.yml` |
 | Obsidian vault in `docs/` | Project knowledge | Start at [docs/index.md](../../../docs/index.md) |
 
-No third-party Swift dependencies, no networking, no analytics.
+No third-party Swift dependencies and no analytics. The only networking is `ResoniqShare` (opt-in sharing of kept recordings, `CLAUDE.md` "Offline and private"); the service it talks to is the Worker in `cloud/share-worker/`, which has its own Node tooling (`npx npm@latest install`, `npx vitest run`) and is never part of the iOS build.
 
 ## The loop
 

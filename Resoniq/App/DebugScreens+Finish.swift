@@ -1,5 +1,6 @@
 #if DEBUG
 import ResoniqDesign
+import ResoniqShare
 import ResoniqStore
 import SwiftData
 import SwiftUI
@@ -7,7 +8,10 @@ import SwiftUI
 /// The intro, Settings and the rooms and systems sheet, for `make run SCREEN=<name>` and screenshots. Debug builds
 /// only. `rooms` is an in-memory store with two rooms and three systems, `rooms-empty` has just the default.
 enum FinishDebugScreens {
-    static let names = ["intro", "intro-2", "intro-3", "settings", "rooms", "rooms-empty", "app-first-launch"]
+    static let names = [
+        "intro", "intro-2", "intro-3", "settings", "settings-share-off", "settings-share-on", "settings-share-problem",
+        "share-consent", "rooms", "rooms-empty", "app-first-launch",
+    ]
 
     @MainActor
     static func view(named name: String) -> AnyView? {
@@ -16,6 +20,13 @@ enum FinishDebugScreens {
         case "intro-2": AnyView(IntroView(startingAtPage: 1) { _ in })
         case "intro-3": AnyView(IntroView(startingAtPage: 2) { _ in })
         case "settings": AnyView(SettingsHost())
+        // Sharing in a build that has it, on a model whose queue can reach nothing (`ShareModel.preview`).
+        case "settings-share-off": AnyView(SettingsHost(share: .preview(isOn: false, status: ShareStatus(notQueued: 2))))
+        case "settings-share-on":
+            AnyView(SettingsHost(share: .preview(isOn: true, status: ShareStatus(sent: 3, waiting: 1, notQueued: 2))))
+        case "settings-share-problem":
+            AnyView(SettingsHost(share: .preview(isOn: true, status: ShareStatus(sent: 12, waiting: 2, problem: .overQuota))))
+        case "share-consent": AnyView(ConsentHost())
         case "rooms": AnyView(RoomsHost(seeded: true))
         case "rooms-empty": AnyView(RoomsHost(seeded: false))
         case "app-first-launch": AnyView(FirstLaunchHost())
@@ -42,14 +53,30 @@ enum FinishDebugScreens {
         var isFinished = false
     }
 
-    /// Settings on a store with some data in it.
+    /// Settings on a store with some data in it; with sharing when `share` is given.
     private struct SettingsHost: View {
         @State private var store = roomsPreviewStore(seeded: true)
+        var share: ShareModel?
 
         var body: some View {
-            SettingsScreen(onClose: {})
+            SettingsScreen(onClose: {}, startsAtRecordings: share != nil)
                 .environment(\.resoniqStore, store)
+                .environment(\.shareModel, share)
+                .defaultAppStorage(share == nil ? .standard : ShareModel.previewDefaults)
                 .modelContainer(store.container)
+        }
+    }
+
+    /// The consent sheet over an empty screen, as it appears over Settings.
+    private struct ConsentHost: View {
+        @State private var isPresented = true
+
+        var body: some View {
+            ResoniqColor.ink
+                .ignoresSafeArea()
+                .sheet(isPresented: $isPresented) {
+                    ShareConsentSheet(onCancel: { isPresented = false }, onConfirm: { isPresented = false })
+                }
         }
     }
 

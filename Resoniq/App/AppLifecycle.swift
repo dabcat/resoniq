@@ -10,6 +10,7 @@ import SwiftUI
 @MainActor
 final class AppLifecycle {
     private var handlers: [() -> Void] = []
+    private var activeHandlers: [() -> Void] = []
 
     /// Registers something to run each time the scene leaves the foreground.
     func onLeavingForeground(_ handler: @escaping () -> Void) {
@@ -19,6 +20,15 @@ final class AppLifecycle {
     /// The scene is inactive or in the background: stop everything that makes or listens to sound.
     func sceneLeftForeground() {
         for handler in handlers { handler() }
+    }
+
+    /// Registers something to run each time the scene becomes active (sharing tries what is waiting).
+    func onBecomingActive(_ handler: @escaping () -> Void) {
+        activeHandlers.append(handler)
+    }
+
+    func sceneBecameActive() {
+        for handler in activeHandlers { handler() }
     }
 }
 

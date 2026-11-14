@@ -124,8 +124,8 @@ struct ExternalListener {
     static func hearing(after problem: ExternalPlayProblem?) -> ExternalHearing {
         switch problem {
         case .wrongFile: .notTheTestSound
-        case .run(.unusable(.tooQuiet)), .run(.didNotArrive), .missedSweeps, .clockUnknown, nil: .testSoundIncomplete
-        case .run: .testSound
+        case .run(.unusable(.tooQuiet)), .run(.didNotArrive), .missedSweeps, .clockUnknown, .stoppedPartWay, nil: .testSoundIncomplete
+        case .run, .runsDisagree, .phoneMovedDuringTone: .testSound
         }
     }
 
@@ -366,6 +366,9 @@ struct SweepInspection: Sendable {
     /// none were. With them `verdict` is `tooNoisy` and `cleanVerdict` what `RecordingQuality.assess` said.
     var noise: [ClosedRange<Double>] = []
     var cleanVerdict: RecordingVerdict?
+    /// Where the sweep stopped part-way, hertz (`SweepCompleteness.stopFrequency(of:)`); `problem` is then
+    /// `didNotArrive`. Nil when it did not.
+    var stoppedAt: Double?
 
     /// Checks `cut`: finds the sweep exactly, cuts it with `leadIn` before and `tail` after, corrects the player's
     /// clock when `ratio` is known, and checks the recording as a normal run is checked (`RunPerformer.inspect`:
@@ -425,8 +428,20 @@ struct SweepInspection: Sendable {
         }
         let response = Deconvolution.impulseResponse(recording: inspection.samples, sweep: sweep)
         inspection.measuredDelay = response.delay
-        if !response.capturesWholeSweep { inspection.problem = .didNotArrive }
+        if !response.capturesWholeSweep {
+            inspection.problem = .didNotArrive
+        } else if let stop = SweepCompleteness.stopFrequency(of: response) {
+            // Long enough, but the sweep stopped part-way (the player stopped or paused): not a whole run.
+            inspection.stoppedAt = stop
+            inspection.problem = .didNotArrive
+        }
         return inspection
+    }
+
+    /// How far each of `inspections`' responses strays from the others' (`SweepCompleteness.disagreement(_:)`), dB.
+    /// Off the main actor: each is deconvolved.
+    @concurrent nonisolated static func disagreement(_ inspections: [SweepInspection], sweep: LogSweep) async -> [Float]? {
+        SweepCompleteness.disagreement(inspections.map { Deconvolution.impulseResponse(recording: $0.samples, sweep: sweep) })
     }
 
     /// The first block of `samples` from `start` over `count` samples that `detector` finds too noisy.

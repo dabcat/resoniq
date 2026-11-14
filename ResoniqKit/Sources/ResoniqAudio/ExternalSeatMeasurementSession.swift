@@ -429,7 +429,7 @@ public final class ExternalSeatMeasurementSession {
                 seat.tiedNoise.record(id: seat.checkedRuns, stretches: inspection.noise)
                 if !keepTied(&seat, now: seat.checkedRuns), let problem = inspection.problem { seat.lastProblem = .run(problem) }
             } else if let problem = inspection.problem {
-                seat.lastProblem = .run(problem)
+                seat.lastProblem = inspection.stoppedAt != nil ? .stoppedPartWay : .run(problem)
             } else if case .valid = inspection.verdict {
                 seat.kept.append(Candidate(
                     play: cut.play, estimate: cut.estimate, identity: cut.identity, inspection: inspection,

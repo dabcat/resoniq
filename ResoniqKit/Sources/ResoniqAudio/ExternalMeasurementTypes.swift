@@ -15,6 +15,15 @@ public enum ExternalPlayProblem: Sendable, Equatable {
     /// Sweeps were heard but the clock tone at the start of the file was not, and no earlier play gave the player's
     /// clock; a run is never analysed uncorrected (`SweepFinder`).
     case clockUnknown
+    /// A sweep was heard for its whole length but stopped part-way (`SweepCompleteness.stopFrequency(of:)`): the
+    /// player was stopped or paused during it.
+    case stoppedPartWay
+    /// The runs in hand disagree with each other by more than `ExternalListening.runAgreementDecibels`: the one that
+    /// differs from the others was dropped (a stop late in the sweep, a dropout, the phone moved between runs).
+    case runsDisagree
+    /// The phone moved while the clock tone played, so the clock it gave carries the phone's Doppler shift (a seat
+    /// measurement, whose two sweeps take different paths, has only the tone to read the clock from).
+    case phoneMovedDuringTone
 }
 
 /// Why a listening session ended without a result.
@@ -62,6 +71,11 @@ public enum ExternalListening {
     /// than `nothingHeard`. "Louder" is `QualityThresholds.pauseMarginDecibels` over the floor, the pause rule's
     /// margin. *First guess*: 2 s.
     public static let unrecognisedSoundMinimum: Double = 2
+    /// How far, dB, a run's third-octave response may stray from the median of the runs in hand
+    /// (`SweepCompleteness.disagreement(_:)`) before the test finishes; a run beyond it is dropped and another play
+    /// asked for. Three runs of one speaker from one place agree within a fraction of a decibel; a sweep stopped in
+    /// its last half second strays by 60 dB above the stop. *First guess*: 6 dB, room for the phone moving a little.
+    public static let runAgreementDecibels: Float = 6
 }
 
 /// What the phone hears while it waits for the test sound, so the screen can tell the three cases apart.

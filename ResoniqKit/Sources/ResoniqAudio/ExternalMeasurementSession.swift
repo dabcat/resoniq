@@ -350,14 +350,19 @@ public final class ExternalMeasurementSession {
             test.tiedNoise.record(id: test.checkedRuns, stretches: inspection.noise)
             if !keepTied(&test, now: test.checkedRuns), let problem = inspection.problem { test.lastProblem = .run(problem) }
         } else if let problem = inspection.problem {
-            test.lastProblem = .run(problem)
+            test.lastProblem = inspection.stoppedAt != nil ? .stoppedPartWay : .run(problem)
         } else if case .valid = inspection.verdict {
             test.kept.append(Candidate(
                 play: cut.play, identity: identity, inspection: inspection, phoneMoved: cut.phoneMoved,
                 verdict: inspection.verdict ?? .valid(level: LevelMeter.measure(inspection.samples), signalToNoise: 0)
             ))
         }
-        if test.confirmed.count >= runCount { return await finish(&test) }
+        if test.confirmed.count >= runCount {
+            if let final = await finish(&test) { return final }
+            // A run was dropped (its clock unknown, or it strayed from the others); with the play over, the file has
+            // been asked for again.
+            if test.listener.currentPlay == nil { return nil }
+        }
         state = test.listener.currentPlay == nil ? .waitingForSound : .hearing(run: min(test.confirmed.count + 1, runCount))
         // Every sweep of the file has been heard: no need to wait for the play to time out.
         if let play = test.listener.plays.first(where: { $0.id == cut.play }),
@@ -391,7 +396,7 @@ public final class ExternalMeasurementSession {
         refreshIdentities(&test)
         let unknown = test.kept.contains { $0.play == play && $0.identity == nil }
         test.kept.removeAll { $0.play == play && $0.identity == nil }
-        if test.confirmed.count >= runCount { return await finish(&test) }
+        if test.confirmed.count >= runCount, let final = await finish(&test) { return final }
         if unknown, test.lastProblem == nil { test.lastProblem = .missedSweeps }
         let reason = test.lastProblem ?? .missedSweeps
         if test.latestHearing != .notTheTestSound { test.latestHearing = ExternalListener.hearing(after: reason) }
@@ -414,11 +419,12 @@ public final class ExternalMeasurementSession {
     }
 
     /// Three runs of the right file: each corrected for its play's clock (from the tone, else the spacing of the
-    /// play's sweeps, else the latest tone), then the result.
+    /// play's sweeps, else the latest tone), checked against each other (`ExternalListening.runAgreementDecibels`: a
+    /// run that strays from the others is dropped and another play asked for), then the result.
     private func finish(_ test: inout Listening) async -> State? {
         guard let floor = test.floor else { return nil }
-        var runs: [RunRecording] = []
-        for (number, candidate) in test.confirmed.prefix(runCount).enumerated() {
+        var corrected: [(candidate: Candidate, inspection: SweepInspection, ratio: Double)] = []
+        for candidate in test.confirmed.prefix(runCount) {
             var inspection = candidate.inspection
             guard let ratio = clockRatio(forPlay: candidate.play, in: test) else {
                 test.kept.removeAll { $0.play == candidate.play }
@@ -431,6 +437,22 @@ public final class ExternalMeasurementSession {
                 inspection = await SweepInspection.recorrected(inspection, ratio: ratio, sweep: test.sweep)
                 guard !Task.isCancelled else { return nil }
             }
+            corrected.append((candidate, inspection, ratio))
+        }
+        if let disagreement = await SweepInspection.disagreement(corrected.map(\.inspection), sweep: test.sweep) {
+            guard !Task.isCancelled else { return nil }
+            let strays = zip(corrected, disagreement).filter { $0.1 > ExternalListening.runAgreementDecibels }.map { $0.0.candidate.inspection.start }
+            if !strays.isEmpty {
+                test.kept.removeAll { strays.contains($0.inspection.start) }
+                test.lastProblem = .runsDisagree
+                state = test.listener.currentPlay == nil
+                    ? .needsAnotherPlay(have: test.confirmed.count, reason: .runsDisagree)
+                    : .hearing(run: min(test.confirmed.count + 1, runCount))
+                return nil
+            }
+        }
+        var runs: [RunRecording] = []
+        for (number, (candidate, inspection, ratio)) in corrected.enumerated() {
             runs.append(RunRecording(
                 run: number + 1,
                 samples: inspection.samples,

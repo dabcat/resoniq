@@ -1,7 +1,7 @@
 ---
 type: "module"
 spec_module: "app"
-phase: 6
+phase: 7
 status: "active"
 tags:
   - "module"
@@ -17,10 +17,11 @@ Paths are relative to `Resoniq/`.
 
 | Folder | Holds |
 |---|---|
-| `App/` | `ResoniqApp.swift` (entry; registers fonts, makes the composition), `AppComposition.swift`, `RootView.swift` (tab shell), `TabHome.swift` (the frame every home screen shares), `AudioEnvironment.swift`, `AppLifecycle.swift`, and, Debug only, `DebugScreens*.swift`, `*Fixtures.swift`, `ComponentGallery.swift` |
+| `App/` | `ResoniqApp.swift` (entry; registers fonts, makes the composition), `AppComposition.swift`, `RootView.swift` (tab shell), `TabHome.swift` (the frame every home screen shares), `AudioEnvironment.swift`, `AppLifecycle.swift`, `ScreenAwake.swift`, `SourceWords.swift`, and, Debug only, `DebugScreens*.swift`, `*Fixtures.swift`, `ComponentGallery.swift` |
 | `Features/Diagnose/` | Aim, Listening, Paused, Result, Finding, Diagnose home, the states with no mockup (`DiagnoseStates.swift`), `DiagnoseCoordinator`, `DiagnoseFlow`, `DiagnosticsDisplay.swift` |
 | `Features/Measure/` | Measure home, Sit and aim, Three spots, The numbers, Watch the sound live, `MeasureCoordinator`, `SeatFlow`, `SeatDisplay.swift`, `SeatStates.swift` |
 | `Features/Optimize/` | Optimize home, Confirm layout (`LayoutScreen`, `Room3DView`), manual room entry, Before and after (`VerifyScreen`), `OptimizeCoordinator`, `RoomDisplay.swift`; `Scan/` (RoomPlan) and `AR/` (ARKit and RealityKit). The tab's decisions are `OptimizeRules` and the optimisation calls in ResoniqStore |
+| `Features/TestSound/` | The test sound files screen (`TestSoundScreen`, `TestSoundText`): writes the WAV files and hands them to the share sheet |
 | `Features/Intro/` | The three intro screens and their illustrations |
 | `Features/Settings/` | Settings: what is stored, delete data, the intro again, About, licences |
 | `Features/Rooms/` | The rooms and systems sheet behind the switcher |
@@ -74,9 +75,26 @@ Screen names, by file (each file's `names` list is the authority):
 | `App/DebugScreens+Optimize.swift` | `optimize`, `optimize-empty`, `optimize-room`, `optimize-nothing`, `optimize-moved`, `layout`, `layout-guess`, `layout-3d`, `manual-room`, `verify`, `verify-worse`, `verify-unchanged`, `optimize-flow`, `optimize-flow-empty` |
 | `App/DebugScreens+Scan.swift` | `scan`, `scan-denied`, `scan-unsupported`, `scan-failed` |
 | `App/DebugScreens+AR.swift` | `ar`, `ar-floor`, `ar-mark`, `ar-mark-second`, `ar-disagree`, `ar-turn`, `ar-arrived`, `ar-limited` |
+| `App/DebugScreens+External.swift` | `test-sound`, `test-sound-seat`, `external-waiting`, `external-hearing`, `external-again`, `external-not-recognised`, `external-flow`, `external-seat-flow` (the last two are live flows with a simulated player; `-autostart YES` runs them to a kept result) |
 | `App/DebugScreens+Finish.swift` | `intro`, `intro-2`, `intro-3`, `settings`, `rooms`, `rooms-empty` |
 
 `App/DebugScreens.swift` asks each provider in turn, one line each. Fixtures (`DiagnoseFixtures.swift`, `MeasureFixtures.swift`, `OptimizeFixtures.swift`) are Kit reports built from the mockups' numbers.
+
+## Playing the test sound from another device
+
+The option for a system the iPhone cannot play through ([phase 7](../plans/phase-7-external-playback.md)). The Kit side is in [ResoniqAudio](ResoniqAudio.md) (`TestSoundFile`, `ExternalMeasurementSession`, `ExternalSeatMeasurementSession`) and [ResoniqDSP](ResoniqDSP.md) (`SweepFinder`).
+
+- **Ways in.** Aim and Sit and aim each carry a link under the start button; the "sound is coming from this iPhone" state offers it as its second button; Settings has "Test sound files". They call `DiagnoseCoordinator.startExternalTest(_:isQuickCheck:)` and `MeasureCoordinator.startExternalMeasurement()`.
+- **Flows.** `ExternalDiagnoseFlow` and `ExternalSeatFlow` follow the Kit's external sessions the way `DiagnoseFlow` and `SeatFlow` follow the normal ones, and end in the same report, kept by the same coordinator code. Their first step is `TestSoundScreen` (get the file), then `ExternalListeningScreen` (waiting, hearing, checking, play it again). The seat's spots are assembled by `SpotBuilder`.
+- **Files.** `TestSoundFolder` writes the WAV files into one temporary folder that lives for the app session, so a share sheet still open never points at a deleted file.
+- **What the result says.** A report measured this way carries `source: .anotherDevice`; `SourceWords.swift` adds the Kit's sentence to the result, to Measure home and, when two compared measurements were taken differently, to the comparison. Hold to hear is replaced by a sentence, because the phone cannot play through that system.
+- **In the simulator** `SimulatedExternalPlay` plays the file with a delay, a clock offset and room noise.
+
+## Screen on, and leaving the foreground
+
+- **`ScreenAwake`** (`App/ScreenAwake.swift`) counts holds and sets the idle timer once. A flow asks with `.keepsScreenAwake(while:)`: all four measurement flows, the live spectrum, the scan and the AR guide.
+- **Leaving the foreground** cancels a running measurement (`AppLifecycle`), and the flow then shows `StoppedInBackgroundScreen` ("I stopped because Resoniq went to the background.") with "Start again", instead of returning silently to its first screen.
+- **The microphone permission alert** makes the scene inactive for a moment. A flow that is waiting for that answer is not cancelled by it.
 
 ## First launch, Settings, rooms
 

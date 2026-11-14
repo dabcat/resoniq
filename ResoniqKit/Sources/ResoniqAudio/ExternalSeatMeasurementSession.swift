@@ -229,6 +229,9 @@ public final class ExternalSeatMeasurementSession {
         var inspection: SweepInspection
         var phoneMoved: Bool
         var verdict: RecordingVerdict
+        /// As in `ExternalMeasurementSession`: the run's number, and where it heard noise tied to the sweep.
+        var id = 0
+        var sweepTied: ClosedRange<Double>?
     }
 
     private struct Listening {
@@ -253,10 +256,15 @@ public final class ExternalSeatMeasurementSession {
         /// As in `ExternalMeasurementSession`.
         var latestHearing: ExternalHearing?
         var deferred: [SweepCut] = []
+        /// As in `ExternalMeasurementSession`: runs too noisy so far, at this spot, and where every run heard noise.
+        var noisy: [Candidate] = []
+        var tiedNoise: SweepTiedNoise
+        var checkedRuns = 0
 
         init(sampleRate: Double, kind: TestSoundFile.Kind, configuration: MeasurementConfiguration, thresholds: QualityThresholds) {
             self.sampleRate = sampleRate
             self.configuration = configuration
+            tiedNoise = SweepTiedNoise(tolerance: configuration.sweepTiedTolerance)
             sweep = configuration.sweep(sampleRate: sampleRate)
             let blockLength = configuration.samples(configuration.blockDuration, at: sampleRate)
             reblocker = Reblocker(length: blockLength)
@@ -283,6 +291,7 @@ public final class ExternalSeatMeasurementSession {
         seat.stillSamples = 0
         seat.waitedSamples = 0
         seat.kept = []
+        seat.noisy = []
         seat.lastProblem = nil
         seat.latestHearing = nil
         seat.deferred = []
@@ -378,6 +387,7 @@ public final class ExternalSeatMeasurementSession {
             return await recheckDeferred(play: play, floor: floor, in: &seat)
         case .wrongFile(let play, let heard):
             seat.kept.removeAll { $0.play == play }
+            seat.noisy.removeAll { $0.play == play }
             seat.lastProblem = .wrongFile(heard: heard)
             seat.latestHearing = .notTheTestSound
             state = .needsAnotherPlay(spot: seat.spot, reason: seat.lastProblem)
@@ -409,8 +419,17 @@ public final class ExternalSeatMeasurementSession {
         let wrong = seat.listener.plays.first { $0.id == cut.play }?.wrongFile
         if inspection.start == nil, wrong == nil, cut.identity == nil { seat.deferred.append(cut) }
         if inspection.start != nil, wrong == nil {
-            if let problem = inspection.problem {
-                seat.lastProblem = .run(problem)
+            seat.checkedRuns += 1
+            if case .unusable(.tooNoisy) = inspection.problem, !inspection.noise.isEmpty, let clean = inspection.cleanVerdict {
+                // Too noisy, unless the noise comes back at the same place in another run (`SweepTiedNoise`).
+                seat.noisy.append(Candidate(
+                    play: cut.play, estimate: cut.estimate, identity: cut.identity, inspection: inspection,
+                    phoneMoved: cut.phoneMoved, verdict: clean, id: seat.checkedRuns
+                ))
+                seat.tiedNoise.record(id: seat.checkedRuns, stretches: inspection.noise)
+                if !keepTied(&seat, now: seat.checkedRuns), let problem = inspection.problem { seat.lastProblem = .run(problem) }
+            } else if let problem = inspection.problem {
+                seat.lastProblem = inspection.stoppedAt != nil ? .stoppedPartWay : .run(problem)
             } else if case .valid = inspection.verdict {
                 seat.kept.append(Candidate(
                     play: cut.play, estimate: cut.estimate, identity: cut.identity, inspection: inspection,
@@ -434,6 +453,20 @@ public final class ExternalSeatMeasurementSession {
         return nil
     }
 
+    /// As `ExternalMeasurementSession.keepTied`.
+    @discardableResult
+    private func keepTied(_ seat: inout Listening, now: Int) -> Bool {
+        var keptNow = false
+        for candidate in seat.noisy where seat.tiedNoise.isTied(candidate.id) {
+            var tied = candidate
+            tied.sweepTied = SweepTiedNoise.frequencies(of: candidate.inspection.noise, sweep: seat.sweep)
+            seat.kept.append(tied)
+            if candidate.id == now { keptNow = true }
+        }
+        seat.noisy.removeAll { seat.tiedNoise.isTied($0.id) }
+        return keptNow
+    }
+
     /// The usable recording of each channel at this spot, by the file's timing; nil while one is missing.
     private func recordingsByChannel(_ seat: inout Listening) -> [SpeakerChannel: Candidate]? {
         for index in seat.kept.indices where seat.kept[index].identity == nil {
@@ -454,6 +487,14 @@ public final class ExternalSeatMeasurementSession {
         var recordings: [SpeakerChannel: RunRecording] = [:]
         for (index, channel) in channels.enumerated() {
             guard let candidate = byChannel[channel] else { return nil }
+            // The two sweeps take different paths, so their spacing cannot check the clock: only the tone gives it,
+            // and a tone read while the phone moved carries its Doppler shift. That play's recordings are refused.
+            let play = seat.listener.plays.first { $0.id == candidate.play }
+            if play?.toneMoved == true {
+                seat.kept.removeAll { $0.play == candidate.play }
+                seat.lastProblem = .phoneMovedDuringTone
+                return nil
+            }
             guard let ratio = seat.listener.ratio(forPlay: candidate.play) else {
                 seat.kept.removeAll { $0.play == candidate.play }
                 seat.lastProblem = .clockUnknown
@@ -465,7 +506,7 @@ public final class ExternalSeatMeasurementSession {
                 inspection = await SweepInspection.recorrected(inspection, ratio: ratio, sweep: seat.sweep)
                 guard !Task.isCancelled else { return nil }
             }
-            recordings[channel] = RunRecording(
+            var recording = RunRecording(
                 run: index + 1,
                 samples: inspection.samples,
                 sampleRate: seat.sampleRate,
@@ -475,9 +516,12 @@ public final class ExternalSeatMeasurementSession {
                 spliceCount: 0,
                 phoneMoved: candidate.phoneMoved,
                 attempt: 1,
+                sweepTiedSound: candidate.sweepTied,
                 measuredDelay: inspection.measuredDelay,
                 clockRatio: ratio
             )
+            recording.clockSource = play?.ratio != nil ? .tone : .earlierPlay
+            recordings[channel] = recording
         }
         seat.spots.append(SeatSpotRecording(
             spot: seat.spot,
@@ -511,6 +555,7 @@ public final class ExternalSeatMeasurementSession {
 
     private func playEnded(_ play: Int, in seat: inout Listening) -> State? {
         seat.deferred.removeAll { $0.play == play }
+        seat.noisy.removeAll { $0.play == play && $0.identity == nil }
         guard case .listening = seat.phase else { return nil }
         _ = recordingsByChannel(&seat)
         let unknown = seat.kept.contains { $0.play == play && $0.identity == nil }
@@ -541,6 +586,8 @@ public final class ExternalSeatMeasurementSession {
         var hearing: SpeakerChannel?
         if case .hearing(_, let channel) = state { hearing = channel }
         let ratio = listener.currentPlay?.ratio ?? listener.knownRatio
+        // While the test sound is heard, the room without it, as the normal test's progress reads it.
+        let room = !listener.isQuiet ? seat.detector.map { $0.assess(block.samples).roomLevel } ?? level : level
         progress = ExternalSeatMeasurementProgress(
             spot: seat.spot,
             spotsCaptured: seat.spots.count,
@@ -550,9 +597,9 @@ public final class ExternalSeatMeasurementSession {
             sweepFraction: listener.sweepFraction,
             isHearingTone: listener.isHearingTone,
             clockOffsetPPM: ratio.map { ($0 - 1) * 1e6 },
-            roomLevel: level,
+            roomLevel: room,
             quietEnoughLevel: mark,
-            isRoomQuiet: level.dBFS <= (mark?.dBFS ?? -.infinity),
+            isRoomQuiet: room.dBFS <= (mark?.dBFS ?? -.infinity),
             inputLevel: level,
             inputPeakDecibels: LevelMeter.measure(block.samples).peakDecibels,
             isClipping: clipped,

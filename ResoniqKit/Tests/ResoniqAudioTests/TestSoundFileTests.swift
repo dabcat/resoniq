@@ -107,6 +107,82 @@ import Testing
         #expect(TestSoundFile.identify(secondsAfterTone: 8) == nil)
     }
 
+    /// The timing the listening sessions use, from the tone's end: half a second apart between kinds, so a misread
+    /// end, the follower's estimate of a sweep's start and the clock (20 ms at most) fit in the tolerance.
+    @Test func `every sweep of every file is told apart by its time after the tone's end`() {
+        for kind in TestSoundFileTests.kinds {
+            let layout = TestSoundFile(kind: kind).layout
+            for (index, sweep) in layout.sweeps.enumerated() {
+                let seconds = Double(sweep.offset - layout.tone.offset - layout.tone.count) / 48000
+                for error in [-0.15, 0, 0.15] {
+                    let found = TestSoundFile.identify(secondsAfterToneEnd: seconds + error)
+                    #expect(found?.kind == kind && found?.index == index, "\(kind) sweep \(index) at \(seconds + error) s")
+                }
+            }
+        }
+        #expect(TestSoundFile.identify(secondsAfterToneEnd: 1.5) == nil)
+    }
+
+    @Test func `the 16-bit file reads back within half a step of the samples, its silence exactly zero`() throws {
+        let file = TestSoundFile(kind: .speakerTest(.right), format: .pcm16)
+        #expect(file.suggestedFileName == "Resoniq test sound - right speaker (16-bit).wav")
+        #expect(file.suggestedFileName != TestSoundFile(kind: .speakerTest(.right)).suggestedFileName)
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("resoniq-\(UUID().uuidString).wav")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try file.write(to: url)
+        let read = try AVAudioFile(forReading: url, commonFormat: .pcmFormatFloat32, interleaved: false)
+        #expect(read.fileFormat.settings[AVLinearPCMBitDepthKey] as? Int == 16)
+        #expect(read.fileFormat.sampleRate == 48000 && read.fileFormat.channelCount == 2)
+        let layout = file.layout
+        #expect(Int(read.length) == layout.totalSamples)
+        let buffer = try #require(AVAudioPCMBuffer(pcmFormat: read.processingFormat, frameCapacity: AVAudioFrameCount(read.length)))
+        try read.read(into: buffer)
+        let left = Array(UnsafeBufferPointer(start: buffer.floatChannelData![0], count: Int(buffer.frameLength)))
+        let right = Array(UnsafeBufferPointer(start: buffer.floatChannelData![1], count: Int(buffer.frameLength)))
+        let (_, written) = file.channels()
+        // Rounded: within half a step.
+        let worst = zip(right, written).map { abs($0 - $1) }.max() ?? 1
+        #expect(worst <= 0.5 / 32768 + 1e-9)
+        #expect(left.allSatisfy { $0 == 0 })
+        #expect(right[0..<layout.tone.offset].allSatisfy { $0 == 0 })
+        let data = file.data()
+        #expect(data.count == 44 + layout.totalSamples * 4)
+        #expect(data[34] == 16 && data[32] == 4)
+    }
+
+    /// The 16-bit file's own distortion floor, read through the analysis as a run is read: the sweep quantised to 16
+    /// bits with and without dither, against the 24-bit file's. The figures are in `docs/modules/ResoniqAudio.md`.
+    @Test func `the 16-bit file's distortion floor is far under any speaker's`() {
+        let sweep = Fixture.sweep
+        let samples = sweep.samples()
+        func floor(_ written: [Float]) -> (median: Float, worst: Float) {
+            let recording = [Float](repeating: 0, count: 4800) + written + [Float](repeating: 0, count: 48000)
+            let response = Deconvolution.impulseResponse(recording: recording, sweep: sweep)
+            let distortion = HarmonicDistortion.analyze(impulseResponse: response, sweep: sweep)
+            let thd = Smoothing.fractionalOctave(distortion.thd, fraction: 3)
+            let points = stride(from: log2(100.0), through: log2(5000.0), by: 1.0 / 6).map { Float(pow(2, $0)) }
+            let values = points.map { thd.decibels(at: $0) }.map { Float(100 * pow(10, Double($0) / 20)) }.sorted()
+            return (values[values.count / 2], values.last ?? .infinity)
+        }
+        let full = floor(samples.map(TestSoundFile.quantised))
+        let dithered = floor(TestSoundFile.codes16(samples, seed: 1).map { Float($0) / 32768 })
+        let rounded = floor(TestSoundFile.codes16(samples, seed: 1, dither: false).map { Float($0) / 32768 })
+        print("THD floor, 100 Hz–5 kHz (median / worst %): 24-bit \(full), 16-bit dithered \(dithered), 16-bit rounded \(rounded)")
+        // The analysis's own floor sets the worst point (the same for all three); the median is the file's. A speaker's
+        // distortion worth reporting is a tenth of a per cent and up.
+        #expect(dithered.median < 0.005)
+        #expect(rounded.median < 0.005)
+        #expect(rounded.median <= dithered.median)
+        #expect(abs(rounded.worst - full.worst) < 0.002)
+    }
+
+    /// The layout and lengths stated in `docs/modules/ResoniqAudio.md`.
+    @Test func `the files' lengths are the documented ones`() {
+        let lengths = TestSoundFileTests.kinds.map { TestSoundFile(kind: $0).layout.duration }
+        #expect(lengths == [29, 30.5, 32, 25, 17])
+        #expect(TestSoundFile(kind: .speakerTest(.left)).layout.tone.count == 3 * 48000)
+    }
+
     @Test func `the files with more than one sweep are told apart by their spacing`() {
         for kind in TestSoundFileTests.kinds {
             guard let spacing = TestSoundFile(kind: kind).layout.spacing else { continue }
@@ -119,7 +195,7 @@ import Testing
     @Test func `the files have names and summaries`() {
         #expect(TestSoundFile(kind: .speakerTest(.left)).suggestedFileName == "Resoniq test sound - left speaker.wav")
         #expect(TestSoundFile(kind: .seat([.left, .right])).suggestedFileName == "Resoniq seat sound - left then right.wav")
-        #expect(TestSoundFile(kind: .speakerTest(.left)).summary == "Three sweeps on the left speaker, for testing it. About 28 seconds.")
+        #expect(TestSoundFile(kind: .speakerTest(.left)).summary == "Three sweeps on the left speaker, for testing it. About 29 seconds.")
         #expect(Set(TestSoundFileTests.kinds.map { TestSoundFile(kind: $0).suggestedFileName }).count == TestSoundFileTests.kinds.count)
     }
 }

@@ -44,6 +44,19 @@ func tiedRuns(_ tied: [Int: SweepTiedSound], count: Int = 3, run: () -> RunAnaly
         #expect(rattle.confidenceStatement == "Inferred, medium confidence. It came back at the same place every run, but from one microphone position I can't rule out the room or something near the speaker vibrating.")
     }
 
+    /// What the listening session heard of the same rattle played from another device
+    /// (`ResoniqAudioTests.ExternalSweepTiedTests`): every run marked at about 121–469 Hz. The report says so as for a
+    /// normal test, and says the sound came from another device.
+    @Test func `a rattle heard while another device played is reported as a possible rattle`() throws {
+        let band = SweepTiedSound(range: FrequencyRange(lower: 121, upper: 469))
+        let report = SpeakerDiagnosis.diagnose(runs: tiedRuns([0: band, 1: band, 2: band]), counterpart: nil, source: .anotherDevice)
+        let rattle = try #require(report.findings.first { $0.kind == .rattle })
+        #expect(rattle.tag == .inferred)
+        #expect(rattle.basis.text == "3 of 3 runs")
+        #expect(rattle.headline == "Possible rattle at 120–470 Hz")
+        #expect(report.source == .anotherDevice)
+    }
+
     @Test func `in one run only it is dropped`() {
         let once = SpeakerDiagnosis.diagnose(runs: tiedRuns([1: rattleBand]), counterpart: nil)
         let never = SpeakerDiagnosis.diagnose(runs: tiedRuns([:]), counterpart: nil)

@@ -11,6 +11,28 @@ func lowPass(at frequency: Double, q: Double = 0.707, sampleRate: Double = 48000
     return Biquad(b0: (1 - cos(w)) / 2 / a0, b1: (1 - cos(w)) / a0, b2: (1 - cos(w)) / 2 / a0, a1: -2 * cos(w) / a0, a2: (1 - alpha) / a0)
 }
 
+/// `signal` with everything outside `band` (hertz) removed: an ideal band-pass, by zeroing transform bins, with a
+/// twelfth of an octave's raised-cosine edge.
+func bandLimited(_ signal: [Float], to band: ClosedRange<Double>, sampleRate: Double = 48000) -> [Float] {
+    let plan = FFT.Plan(size: FFT.nextPowerOfTwo(signal.count))
+    let spectrum = plan.forward(signal)
+    var real = spectrum.real
+    var imaginary = spectrum.imaginary
+    let edge = pow(2, 1.0 / 12)
+    for bin in 0...(plan.size / 2) {
+        let frequency = max(Double(bin) * sampleRate / Double(plan.size), 1e-3)
+        let gain = RaisedCosine.rise(log(frequency / band.lowerBound) + log(edge), over: log(edge))
+            * RaisedCosine.rise(log(band.upperBound / frequency) + log(edge), over: log(edge))
+        real[bin] *= Float(gain)
+        imaginary[bin] *= Float(gain)
+        if bin > 0, bin < plan.size / 2 {
+            real[plan.size - bin] *= Float(gain)
+            imaginary[plan.size - bin] *= Float(gain)
+        }
+    }
+    return Array(plan.inverse(ComplexSpectrum(real: real, imaginary: imaginary)).prefix(signal.count))
+}
+
 /// The speakers the app exists to diagnose, as filters: each an eighth-order edge (four sections, 48 dB an octave).
 enum FaultySpeaker: String, CaseIterable, CustomTestStringConvertible {
     /// A dead tweeter: nothing above 2 kHz (48 dB down by 4 kHz).
@@ -52,10 +74,37 @@ enum FaultySpeaker: String, CaseIterable, CustomTestStringConvertible {
         let strict = SweepFinder.find(in: recording, sampleRate: Self.sampleRate, sweep: Self.sweep)
         print("\(speaker): \(anchored.count) found anchored, \(strict.count) unanchored")
         #expect(anchored.count == 3)
+        // The band check asks whether the sweep stands over the noise in a band, not how loud it is there: the
+        // leakage of an eighth-order edge is enough for three of the four strict bands in a quiet room. The case the
+        // anchored rule is needed for is below.
+        #expect(strict.count == 3)
         for (found, start) in zip(anchored, Self.starts) {
             // An eighth-order edge delays its own band by a few milliseconds.
             #expect(abs(found.start - start) < 0.01 * Self.sampleRate, "found at \(found.start), played at \(start)")
             #expect(found.isComplete)
+        }
+    }
+
+    /// The case the anchored rule exists for: a speaker heard only from 60 Hz to 1.25 kHz with nothing at all beyond
+    /// (a two-way crossed over low with its tweeter dead, in a room whose noise hides the woofer's leakage) holds two of
+    /// the four strict bands, so the strict rule refuses it, and four of the eight anchored ones, so the anchored rule
+    /// finds it; dry and in a reverberant room at the listening seat.
+    @Test(arguments: [nil, ReverberantRoom(directToReverberant: -6, reverberationTime: 0.6)])
+    func `a speaker heard only under 1.25 kHz needs the anchored rule`(room: ReverberantRoom?) {
+        let dry = bandLimited(
+            ExternalRecording(starts: Self.starts, filters: FaultySpeaker.deadTweeter.filters, duration: 22).record(),
+            to: 60...1250
+        )
+        var recording = room.map { $0.apply(dry, sampleRate: Self.sampleRate) } ?? dry
+        var generator = SeededGenerator(state: 17)
+        recording = zip(recording, generator.noise(count: recording.count, rms: 0.001)).map { $0 + Float($1) }
+        let strict = SweepFinder.find(in: recording, sampleRate: Self.sampleRate, sweep: Self.sweep)
+        let anchored = SweepFinder.find(in: recording, sampleRate: Self.sampleRate, sweep: Self.sweep, anchored: true)
+        print("heard only under 1.25 kHz, \(room.map(String.init(describing:)) ?? "dry"): \(anchored.count) anchored, \(strict.count) strict")
+        #expect(strict.isEmpty)
+        #expect(anchored.count == 3)
+        for (found, start) in zip(anchored, Self.starts) {
+            #expect(abs(found.start - start) < 0.01 * Self.sampleRate, "found at \(found.start), played at \(start)")
         }
     }
 

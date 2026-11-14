@@ -15,6 +15,15 @@ public enum ExternalPlayProblem: Sendable, Equatable {
     /// Sweeps were heard but the clock tone at the start of the file was not, and no earlier play gave the player's
     /// clock; a run is never analysed uncorrected (`SweepFinder`).
     case clockUnknown
+    /// A sweep was heard for its whole length but stopped part-way (`SweepCompleteness.stopFrequency(of:)`): the
+    /// player was stopped or paused during it.
+    case stoppedPartWay
+    /// The runs in hand disagree with each other by more than `ExternalListening.runAgreementDecibels`: the one that
+    /// differs from the others was dropped (a stop late in the sweep, a dropout, the phone moved between runs).
+    case runsDisagree
+    /// The phone moved while the clock tone played, so the clock it gave carries the phone's Doppler shift (a seat
+    /// measurement, whose two sweeps take different paths, has only the tone to read the clock from).
+    case phoneMovedDuringTone
 }
 
 /// Why a listening session ended without a result.
@@ -62,6 +71,22 @@ public enum ExternalListening {
     /// than `nothingHeard`. "Louder" is `QualityThresholds.pauseMarginDecibels` over the floor, the pause rule's
     /// margin. *First guess*: 2 s.
     public static let unrecognisedSoundMinimum: Double = 2
+    /// How far, dB, a run's third-octave response may stray from the median of the runs in hand
+    /// (`SweepCompleteness.disagreement(_:)`) before the test finishes; a run beyond it is dropped and another play
+    /// asked for. Three runs of one speaker from one place agree within a fraction of a decibel; a sweep stopped in
+    /// its last half second strays by 60 dB above the stop. *First guess*: 6 dB, room for the phone moving a little.
+    public static let runAgreementDecibels: Float = 6
+    /// How far apart the clock from the tone and the clock from the sweeps' spacing may be, parts per million, for the
+    /// tone's to be used (it is the more precise when the phone is still). Beyond it the spacing is used: two baselines
+    /// of 7 s or more, which a phone drifting during the 3 s tone barely moves, while the tone reads 30 ppm per cm/s of
+    /// drift. A wrong clock of 50 ppm bends the response by about 1 dB at 20 Hz. *First guess*: 20 ppm.
+    public static let clockAgreementPPM: Double = 20
+    /// Beyond this, ppm, the progress says the two disagree (`ExternalMeasurementProgress.clockDisagreementPPM`): the
+    /// phone probably moved while the tone played. *First guess*: 50 ppm, a drift of about 1.7 cm/s.
+    public static let clockDisagreementLimitPPM: Double = 50
+    /// How far the found starts of a play's sweeps may stray from a straight line, samples RMS, for their spacing to be
+    /// trusted as a clock (`SweepFinder.clockFit`). *First guess*: 2, a twentieth of a millisecond.
+    public static let maximumSpacingResidual: Double = 2
 }
 
 /// What the phone hears while it waits for the test sound, so the screen can tell the three cases apart.
@@ -94,8 +119,8 @@ public struct ExternalMeasurementProgress: Sendable, Equatable {
     public var isHearingTone: Bool
     /// The player's clock offset measured so far, parts per million (positive: it runs fast); nil until known.
     public var clockOffsetPPM: Double?
-    /// The room's level: before the sound, the block's; while a sweep plays, the same block (there is no sweep to
-    /// take out, since its timing is not known in advance).
+    /// The room's level: while the tone, a sweep or its tail is heard, the noise left when the test sound is taken out
+    /// (`SweepNoiseDetector`, as the normal test's progress); otherwise the block's level.
     public var roomLevel: SoundLevel
     /// The "quiet enough" mark; nil before the noise floor is known.
     public var quietEnoughLevel: SoundLevel?
@@ -116,6 +141,11 @@ public struct ExternalMeasurementProgress: Sendable, Equatable {
     /// What is heard: nothing, sound that is not the test sound, the test sound, or the latest play heard but too
     /// quiet or partly missing. Each has its sentence (`ExternalSessionText.hearingLine(_:file:)`).
     public var hearing: ExternalHearing
+    /// How far apart, ppm, the clock read from the tone and the one read from the sweeps' spacing are in the current
+    /// or latest play, when they differ by more than `ExternalListening.clockDisagreementLimitPPM`; nil otherwise. The
+    /// spacing's is used; the screen may say the phone seems to be moving
+    /// (`ExternalSessionText.clockDisagreementLine`).
+    public var clockDisagreementPPM: Double? = nil
 }
 
 /// What the Three spots screens show while a seat measurement listens to another device.

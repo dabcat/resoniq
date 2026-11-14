@@ -51,6 +51,12 @@ struct ExternalListener {
         /// The capture position at which the clock tone began, and the clock it gave.
         var toneOnset: Double?
         var ratio: Double?
+        /// The capture position at which the clock tone ended: the files are told apart by the time from it to a
+        /// sweep (`TestSoundFile.identify(secondsAfterToneEnd:)`), which a player muting the tone's start does not move.
+        var toneEnd: Double?
+        /// Whether the stillness monitor reported the phone moving while the tone played: its clock reading then
+        /// carries the phone's Doppler shift (30 ppm per cm/s).
+        var toneMoved = false
         /// The sweeps heard, by the follower's estimate of their start.
         var sweeps: [(estimate: Int64, identity: SweepIdentity?)] = []
         /// The kind of the other file this play turned out to be.
@@ -81,6 +87,8 @@ struct ExternalListener {
     /// Cuts waiting for their tail: the sweep's estimated start, its play and identity, and whether the phone moved.
     private var waiting: [(estimate: Int64, play: Int, identity: SweepIdentity?, phoneMoved: Bool)] = []
     private var movedDuringSweep = false
+    /// The blocks in which the phone was not held still, as capture ranges, the last `bufferHorizon` of them.
+    private var unsteady: [Range<Int64>] = []
     /// Cuts whose tail is in, in order.
     private(set) var ready: [SweepCut] = []
 
@@ -116,8 +124,8 @@ struct ExternalListener {
     static func hearing(after problem: ExternalPlayProblem?) -> ExternalHearing {
         switch problem {
         case .wrongFile: .notTheTestSound
-        case .run(.unusable(.tooQuiet)), .run(.didNotArrive), .missedSweeps, .clockUnknown, nil: .testSoundIncomplete
-        case .run: .testSound
+        case .run(.unusable(.tooQuiet)), .run(.didNotArrive), .missedSweeps, .clockUnknown, .stoppedPartWay, nil: .testSoundIncomplete
+        case .run, .runsDisagree, .phoneMovedDuringTone: .testSound
         }
     }
 
@@ -156,6 +164,10 @@ struct ExternalListener {
         }
         var events: [Event] = []
         if follower.activeSweepStart != nil, !steady { movedDuringSweep = true }
+        if !steady {
+            unsteady.append(block.position..<block.end)
+            unsteady.removeAll { $0.upperBound < block.end - Int64(ExternalListening.bufferHorizon * sampleRate) }
+        }
         for heard in follower.feed(block.samples, at: block.position) {
             switch heard {
             case .toneStarted:
@@ -228,17 +240,22 @@ struct ExternalListener {
         let margin = Int64(0.2 * sampleRate)
         let from = max(bufferStart, start - margin)
         let to = min(bufferStart + Int64(buffer.count), end + margin)
-        var reading: (ratio: Double, onset: Double)?
+        var reading: (ratio: Double, onset: Double, end: Double)?
         if to > from {
-            reading = SweepFinder.readClockTone(Array(buffer[Int(from - bufferStart)..<Int(to - bufferStart)]), sampleRate: sampleRate)
+            reading = SweepFinder.readClockToneSpan(Array(buffer[Int(from - bufferStart)..<Int(to - bufferStart)]), sampleRate: sampleRate)
         }
-        if let ratio = reading?.ratio { knownRatio = ratio }
-        plays.append(Play(
+        let moved = unsteady.contains { $0.overlaps(start..<end) }
+        // A tone read while the phone moved carries its Doppler shift: it stays its play's, never the session's.
+        if let ratio = reading?.ratio, !moved { knownRatio = ratio }
+        var play = Play(
             id: plays.count + 1,
             toneOnset: reading.map { Double(from) + $0.onset } ?? Double(start),
             ratio: reading?.ratio,
             lastHeard: position
-        ))
+        )
+        play.toneEnd = reading.map { Double(from) + $0.end } ?? Double(end)
+        play.toneMoved = moved
+        plays.append(play)
         events.append(.toneRead(ratio: reading?.ratio))
         return events
     }
@@ -249,9 +266,21 @@ struct ExternalListener {
         if let index = plays.indices.last, !plays[index].isOver {
             let play = plays[index]
             let ratio = play.ratio ?? knownRatio ?? 1
-            if let onset = play.toneOnset,
-               let found = TestSoundFile.identify(secondsAfterTone: (Double(estimate) - onset) / sampleRate * ratio) {
-                identity = SweepIdentity(kind: found.kind, index: found.index)
+            let fromTone = play.toneEnd.flatMap { end in
+                TestSoundFile.identify(secondsAfterToneEnd: (Double(estimate) - end) / sampleRate * ratio)
+            }
+            let spacingKind = play.sweeps.last.flatMap { previous in
+                TestSoundFile.kind(forSpacing: Double(estimate - previous.estimate) / sampleRate * ratio)
+            }
+            // What the tone's timing says this play is: from this sweep, or from the play's earlier ones.
+            let toneKind = fromTone?.kind ?? (play.toneEnd != nil ? play.sweeps.last?.identity?.kind : nil)
+            if let fromTone, spacingKind == nil || spacingKind == fromTone.kind {
+                identity = SweepIdentity(kind: fromTone.kind, index: fromTone.index)
+            } else if let toneKind, let spacingKind, toneKind != spacingKind {
+                // The tone's timing and the sweeps' spacing disagree: the spacing, two sweeps of the file on the same
+                // clock, overrules. The sweeps heard so far are this kind's, the first of them its first sweep.
+                identity = relabel(play: index, as: spacingKind, estimate: estimate, ratio: ratio)
+                if spacingKind == expected { plays[index].wrongFile = nil }
             } else if let previous = play.sweeps.last {
                 identity = Self.identifyBySpacing(previous, estimate: estimate, ratio: ratio, sampleRate: sampleRate)
                 if identity == nil {
@@ -277,6 +306,20 @@ struct ExternalListener {
             events.append(.wrongFile(play: plays[index].id, heard: identity.kind))
         }
         return events
+    }
+
+    /// Play `index`'s sweeps relabelled as `kind`'s, counting from its first sweep and its spacing; the identity of the
+    /// sweep at `estimate`. Nil when it does not fit in that kind of file.
+    private mutating func relabel(play index: Int, as kind: TestSoundFile.Kind, estimate: Int64, ratio: Double) -> SweepIdentity? {
+        let count = TestSoundFile(kind: kind).layout.sweeps.count
+        guard let first = plays[index].sweeps.first else { return nil }
+        for sweep in plays[index].sweeps.indices {
+            let position = plays[index].sweeps[sweep].estimate
+            let place = position == first.estimate ? 0 : Self.steps(first.estimate, position, kind: kind, ratio: ratio, sampleRate: sampleRate)
+            plays[index].sweeps[sweep].identity = place < count ? SweepIdentity(kind: kind, index: place) : nil
+        }
+        let place = Self.steps(first.estimate, estimate, kind: kind, ratio: ratio, sampleRate: sampleRate)
+        return place < count ? SweepIdentity(kind: kind, index: place) : nil
     }
 
     /// The identity of a sweep heard `estimate` after `previous`, from their spacing; nil when the spacing is no
@@ -319,13 +362,22 @@ struct SweepInspection: Sendable {
     var leadIn: Int = 0
     var measuredDelay: Double?
     var ratio: Double?
+    /// Where in the sweep, seconds from its start, blocks were too noisy (`SweepNoiseDetector`), merged; empty when
+    /// none were. With them `verdict` is `tooNoisy` and `cleanVerdict` what `RecordingQuality.assess` said.
+    var noise: [ClosedRange<Double>] = []
+    var cleanVerdict: RecordingVerdict?
+    /// Where the sweep stopped part-way, hertz (`SweepCompleteness.stopFrequency(of:)`); `problem` is then
+    /// `didNotArrive`. Nil when it did not.
+    var stoppedAt: Double?
 
     /// Checks `cut`: finds the sweep exactly, cuts it with `leadIn` before and `tail` after, corrects the player's
     /// clock when `ratio` is known, and checks the recording as a normal run is checked (`RunPerformer.inspect`:
     /// `RecordingQuality.assess`, then the whole sweep in the deconvolved response). Between the two, since nothing
     /// paused the sweep for noise, every block of the sweep is put to `detector` (`SweepNoiseDetector`, the normal
     /// test's pause rule): a block too noisy makes the run `tooNoisy`, with the sweep's level over the room's in that
-    /// block as its ratio. Off the main actor: a cut is several seconds of audio and is deconvolved.
+    /// block as its ratio, and every noisy block's place in the sweep is kept (`noise`) so the session can tell noise
+    /// tied to the sweep from the room's (`SweepTiedNoise`). Off the main actor: a cut is several seconds of audio and
+    /// is deconvolved.
     @concurrent nonisolated static func inspect(
         _ cut: SweepCut,
         sweep: LogSweep,
@@ -359,29 +411,62 @@ struct SweepInspection: Sendable {
             inspection.problem = .unusable(verdict)
             return inspection
         }
-        if let detector, let noisy = noisyBlock(in: inspection.raw, from: Int(inspection.rawLeadIn), count: sweep.sampleCount, detector: detector) {
-            let tooNoisy = RecordingVerdict.tooNoisy(signalToNoise: noisy.blockLevel.dBFS - noisy.roomLevel.dBFS, noiseFloor: floor)
-            inspection.verdict = tooNoisy
-            inspection.problem = .unusable(tooNoisy)
-            return inspection
+        if let detector {
+            let noisy = noisyBlocks(in: inspection.raw, from: Int(inspection.rawLeadIn), count: sweep.sampleCount, detector: detector)
+            if let worst = noisy.first {
+                // Too noisy for now; kept aside in case the same noise comes back at the same place of the sweep in
+                // another run, which makes it sound tied to the sweep rather than the room's (`SweepTiedNoise`).
+                let tooNoisy = RecordingVerdict.tooNoisy(signalToNoise: worst.assessment.blockLevel.dBFS - worst.assessment.roomLevel.dBFS, noiseFloor: floor)
+                inspection.cleanVerdict = verdict
+                inspection.verdict = tooNoisy
+                inspection.problem = .unusable(tooNoisy)
+                inspection.noise = SweepTiedNoise.merged(noisy.map { block in
+                    let from = (Double(block.offset) - inspection.rawLeadIn) / sweep.sampleRate
+                    return max(0, from)...min(sweep.duration, from + Double(detector.blockLength) / sweep.sampleRate)
+                })
+            }
         }
         let response = Deconvolution.impulseResponse(recording: inspection.samples, sweep: sweep)
         inspection.measuredDelay = response.delay
-        if !response.capturesWholeSweep { inspection.problem = .didNotArrive }
+        if !response.capturesWholeSweep {
+            inspection.problem = .didNotArrive
+        } else if let stop = SweepCompleteness.stopFrequency(of: response) {
+            // Long enough, but the sweep stopped part-way (the player stopped or paused): not a whole run.
+            inspection.stoppedAt = stop
+            inspection.problem = .didNotArrive
+        }
         return inspection
+    }
+
+    /// How far each of `inspections`' responses strays from the others' (`SweepCompleteness.disagreement(_:)`), dB.
+    /// Off the main actor: each is deconvolved.
+    @concurrent nonisolated static func disagreement(_ inspections: [SweepInspection], sweep: LogSweep) async -> [Float]? {
+        SweepCompleteness.disagreement(inspections.map { Deconvolution.impulseResponse(recording: $0.samples, sweep: sweep) })
     }
 
     /// The first block of `samples` from `start` over `count` samples that `detector` finds too noisy.
     nonisolated static func noisyBlock(in samples: [Float], from start: Int, count: Int, detector: SweepNoiseDetector) -> SweepNoiseDetector.Assessment? {
+        noisyBlocks(in: samples, from: start, count: count, detector: detector, all: false).first?.assessment
+    }
+
+    /// Every block of `samples` from `start` over `count` samples that `detector` finds too noisy (only the first when
+    /// `all` is false), with its offset in `samples`.
+    nonisolated static func noisyBlocks(
+        in samples: [Float], from start: Int, count: Int, detector: SweepNoiseDetector, all: Bool = true
+    ) -> [(offset: Int, assessment: SweepNoiseDetector.Assessment)] {
         let length = detector.blockLength
         var position = max(0, start)
         let end = min(samples.count, start + count)
+        var noisy: [(offset: Int, assessment: SweepNoiseDetector.Assessment)] = []
         while position + length <= end {
             let assessment = detector.assess(Array(samples[position..<(position + length)]))
-            if assessment.isTooNoisy { return assessment }
+            if assessment.isTooNoisy {
+                noisy.append((position, assessment))
+                if !all { break }
+            }
             position += length
         }
-        return nil
+        return noisy
     }
 
     /// `raw` corrected by `ratio`: `samples`, `leadIn` and `ratio` set.
@@ -397,5 +482,64 @@ struct SweepInspection: Sendable {
         corrected.apply(ratio: ratio, sweep: sweep)
         corrected.measuredDelay = Deconvolution.impulseResponse(recording: corrected.samples, sweep: sweep).delay
         return corrected
+    }
+}
+
+/// Tells noise tied to the sweep from the room's in the listening sessions, which cannot pause the player to find out
+/// as the normal test does (`RunRecorder`, `RunRecording.sweepTiedSound`): noise heard at the same place of the sweep
+/// in two or more runs, within a play or across plays, follows the sweep (a rattle, a buzz, the room's reverberation
+/// beyond the detector's allowance), while the room's noise does not come back where it was.
+///
+/// Every run with noisy blocks is recorded with where in the sweep they were (`SweepInspection.noise`). A run is tied
+/// once every one of its noisy stretches overlaps, within `MeasurementConfiguration.sweepTiedTolerance`, a noisy
+/// stretch of another recorded run: it is then kept, marked with the frequencies of those stretches. A run with a
+/// stretch heard nowhere else (a door, a voice) stays room noise and is not kept.
+struct SweepTiedNoise {
+    struct Entry {
+        var id: Int
+        var stretches: [ClosedRange<Double>]
+    }
+
+    let tolerance: Double
+    private(set) var entries: [Entry] = []
+
+    init(tolerance: Double) {
+        self.tolerance = tolerance
+    }
+
+    mutating func record(id: Int, stretches: [ClosedRange<Double>]) {
+        guard !stretches.isEmpty else { return }
+        entries.removeAll { $0.id == id }
+        entries.append(Entry(id: id, stretches: stretches))
+    }
+
+    /// Whether every noisy stretch of run `id` was heard at the same place in another run.
+    func isTied(_ id: Int) -> Bool {
+        guard let entry = entries.first(where: { $0.id == id }) else { return false }
+        return entry.stretches.allSatisfy { stretch in
+            entries.contains { other in
+                other.id != id && other.stretches.contains { $0.lowerBound - tolerance <= stretch.upperBound && stretch.lowerBound - tolerance <= $0.upperBound }
+            }
+        }
+    }
+
+    /// The frequencies the sweep passes through over `stretches`, hertz: from the first's start to the last's end, as
+    /// `RunRecording.sweepTiedSound` holds them.
+    static func frequencies(of stretches: [ClosedRange<Double>], sweep: LogSweep) -> ClosedRange<Double>? {
+        guard let low = stretches.map(\.lowerBound).min(), let high = stretches.map(\.upperBound).max() else { return nil }
+        return sweep.frequency(at: max(0, low))...sweep.frequency(at: min(sweep.duration, high))
+    }
+
+    /// `stretches` joined where they touch or overlap, in order.
+    static func merged(_ stretches: [ClosedRange<Double>]) -> [ClosedRange<Double>] {
+        var merged: [ClosedRange<Double>] = []
+        for stretch in stretches.sorted(by: { $0.lowerBound < $1.lowerBound }) {
+            if let last = merged.last, stretch.lowerBound <= last.upperBound + 1e-6 {
+                merged[merged.count - 1] = last.lowerBound...max(last.upperBound, stretch.upperBound)
+            } else {
+                merged.append(stretch)
+            }
+        }
+        return merged
     }
 }

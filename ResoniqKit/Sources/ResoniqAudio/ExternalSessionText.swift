@@ -18,6 +18,16 @@ public enum ExternalSessionText {
         }
     }
 
+    /// The name to save a file of `format` under: as `fileName(for:)` for 24-bit, with " (16-bit)" before the extension
+    /// for 16-bit, so both can sit in one folder.
+    public static func fileName(for kind: TestSoundFile.Kind, format: TestSoundFile.Format) -> String {
+        let name = fileName(for: kind)
+        switch format {
+        case .pcm24: return name
+        case .pcm16: return name.replacingOccurrences(of: ".wav", with: " (16-bit).wav")
+        }
+    }
+
     /// A short name for a file in a sentence: "the left speaker file".
     public static func fileTitle(for kind: TestSoundFile.Kind) -> String {
         switch kind {
@@ -89,6 +99,11 @@ public enum ExternalSessionText {
     /// While the clock tone is heard, before the first sweep.
     public static let toneLine = "I can hear your player. The sweeps start in a moment."
 
+    /// When the clock read from the tone and the one read from the sweeps disagree
+    /// (`ExternalMeasurementProgress.clockDisagreementPPM`): the phone probably moved while the tone played.
+    public static let clockDisagreementLine =
+        "The phone seems to have moved while the short tone played, so I'm timing your player from the sweeps instead. Hold it still."
+
     /// Why the file must be played again, with what is in hand ("I have 2 of 3 runs."). `file` is the file the
     /// session listens for.
     public static func anotherPlayText(_ problem: ExternalPlayProblem?, have: Int, needed: Int, file: TestSoundFile.Kind) -> String {
@@ -98,6 +113,7 @@ public enum ExternalSessionText {
 
     static func reason(_ problem: ExternalPlayProblem?, file: TestSoundFile.Kind) -> String {
         let again = "play the file again from the start."
+        let playAgain = "play the file again from the start"
         switch problem {
         case .run(.unusable(let verdict)):
             switch verdict {
@@ -108,13 +124,19 @@ public enum ExternalSessionText {
             case .silent, .valid: return "I couldn't hear one of them properly. Please \(again)"
             }
         case .run(.didNotArrive), .missedSweeps:
-            return "I missed part of it. Please \(again) and let it run to the end."
+            return "I missed part of it. Please \(playAgain) and let it run to the end."
         case .run(.interruptedRepeatedly):
             return "Noise kept getting in the way. When it's quiet, \(again)"
         case .wrongFile(let heard):
             return "That sounds like \(fileTitle(for: heard)). Please play \"\(fileName(for: file))\" instead."
         case .clockUnknown:
             return "I missed the short tone at the start, which tells me how fast your player runs. Please play the file again from the very start."
+        case .stoppedPartWay:
+            return "The test sound stopped part-way through one of them. Please \(playAgain) and let it run to the end without pausing."
+        case .runsDisagree:
+            return "One of them didn't match the others, so I left it out. Hold the phone still and \(again)"
+        case .phoneMovedDuringTone:
+            return "The phone moved while the short tone played, and that tone tells me how fast your player runs. Hold the phone still and \(again)"
         case nil:
             return "Please \(again)"
         }

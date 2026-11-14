@@ -126,8 +126,33 @@ let bookshelfFilters = [
     @Test func `nothing is found in a minute of a synthetic tune`() {
         let tune = syntheticTune(seconds: 60, sampleRate: Self.sampleRate)
         let found = SweepFinder.find(in: tune, sampleRate: Self.sampleRate, sweep: Self.sweep)
-        print("tune:", found)
         #expect(found.isEmpty)
+    }
+
+    /// Speech and a chord progression with vibrato and glides, synthesised (`syntheticSpeech`, `syntheticChords`):
+    /// nothing is found by either rule, dry or in a reverberant room, and the follower follows nothing.
+    @Test(arguments: ["speech", "chords"])
+    func `nothing is found in speech or in chords with vibrato and glides`(material: String) {
+        let sound = material == "speech"
+            ? syntheticSpeech(seconds: 40, sampleRate: Self.sampleRate)
+            : syntheticChords(seconds: 40, sampleRate: Self.sampleRate)
+        let strict = SweepFinder.find(in: sound, sampleRate: Self.sampleRate, sweep: Self.sweep)
+        let anchored = SweepFinder.find(in: sound, sampleRate: Self.sampleRate, sweep: Self.sweep, anchored: true)
+        print("\(material): strict \(strict), anchored \(anchored)")
+        #expect(strict.isEmpty)
+        #expect(anchored.isEmpty)
+        let room = ReverberantRoom(directToReverberant: -6, reverberationTime: 0.6).apply(sound, sampleRate: Self.sampleRate)
+        #expect(SweepFinder.find(in: room, sampleRate: Self.sampleRate, sweep: Self.sweep, anchored: true).isEmpty)
+        #expect(SweepFollowerTests.follow(sound).isEmpty)
+        #expect(SweepFollowerTests.follow(room).isEmpty)
+    }
+
+    @Test func `a sweep is found under speech`() {
+        let sweep = ExternalRecording(starts: [5 * Self.sampleRate], filters: bookshelfFilters, duration: 20).record()
+        let recording = vDSP.add(syntheticSpeech(seconds: 20, sampleRate: Self.sampleRate), vDSP.multiply(0.5, sweep))
+        let found = SweepFinder.find(in: recording, sampleRate: Self.sampleRate, sweep: Self.sweep)
+        #expect(found.count == 1)
+        #expect(abs((found.first?.start ?? 0) - 5 * Self.sampleRate) < 24)
     }
 
     @Test func `a sweep is found under music`() {
@@ -168,6 +193,17 @@ let bookshelfFilters = [
         #expect(abs((estimate ?? 0) - ratio) < 1e-7)
         #expect(SweepFinder.clockRatio(starts: [0, 5 * 48000], expectedSpacing: 7, sampleRate: 48000) == nil)
         #expect(SweepFinder.clockRatio(starts: [1000], expectedSpacing: 7, sampleRate: 48000) == nil)
+    }
+
+    @Test func `the fit says how far three starts stray from a line`() throws {
+        let ratio = 1.0002
+        let starts = (0..<3).map { 48000 + Double($0) * 7 * 48000 / ratio }
+        let fit = try #require(SweepFinder.clockFit(starts: starts, expectedSpacing: 7, sampleRate: 48000))
+        #expect(abs(fit.ratio - ratio) < 1e-9)
+        #expect(fit.residual < 1e-6)
+        // The middle sweep placed on a reflection 3 ms late.
+        let misplaced = try #require(SweepFinder.clockFit(starts: [starts[0], starts[1] + 144, starts[2]], expectedSpacing: 7, sampleRate: 48000))
+        #expect(misplaced.residual > 50)
     }
 
     @Test(arguments: [-500.0, -100.0, 0.0, 300.0, 1000.0])

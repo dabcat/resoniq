@@ -30,7 +30,7 @@ import Testing
         #expect(tone.count == 1)
         if let (start, end) = tone.first {
             #expect(abs(Double(start) - 1.5 * Self.sampleRate) <= 4800)
-            #expect(abs(Double(end) - 3.5 * Self.sampleRate) <= 4800)
+            #expect(abs(Double(end) - (1.5 + SweepFinder.clockToneDuration) * Self.sampleRate) <= 4800)
         }
         let started = events.compactMap { if case .sweepStarted(let start) = $0.event { (start, $0.at) } else { nil } }
         let ended = events.compactMap { if case .sweepEnded(let start) = $0.event { (start, $0.at) } else { nil } }
@@ -72,9 +72,29 @@ import Testing
         #expect(Self.follow(tune).isEmpty)
     }
 
-    @Test func `one block costs well under a millisecond`() {
-        let recording = ExternalRecording(starts: [0.5 * Self.sampleRate], noiseRMS: 0.003, duration: 5).record()
-        var follower = SweepFollower(sweep: Self.sweep)
+    @Test func `in a reverberant room the start is placed late by the reverberation, inside the cut's margin`() {
+        // The strongest frequency of a block lags the sweep while the room rings with what it has just played, so the
+        // estimate is late by tens of milliseconds; the listening sessions cut with `startTolerance` + 0.1 s of room
+        // either side and `SweepFinder.find` places the sweep exactly.
+        let start = 6 * Self.sampleRate + 0.3
+        for time in [0.6, 1.0, 1.5] {
+            let room = ReverberantRoom(directToReverberant: -12, reverberationTime: time)
+            let recording = reverberantRecording(room: room, sweepStart: start)
+            let started = Self.follow(recording).compactMap { if case .sweepStarted(let start) = $0.event { start } else { nil } }
+            print("follower in \(room): started at \(started.map { (Double($0) - start) / Self.sampleRate }) s from the arrival")
+            #expect(started.count == 1)
+            if let first = started.first { #expect(abs(Double(first) - start) < (SweepFollower.startTolerance + 0.1) * Self.sampleRate) }
+        }
+    }
+}
+
+/// Wall-clock checks, apart from the behaviour tests so a loaded machine cannot fail those: each bound is many times
+/// what a debug build measures (`docs/modules/ResoniqDSP.md` has the figures), so only a gross regression trips it.
+@Suite(.serialized) struct SweepFinderPerformanceChecks {
+    @Test func `one follower block stays far under a block's duration`() {
+        let sweep = LogSweep.measurement(sampleRate: 48000)
+        let recording = ExternalRecording(starts: [0.5 * 48000], noiseRMS: 0.003, duration: 5).record()
+        var follower = SweepFollower(sweep: sweep)
         let blocks = recording.count / 4800
         let clock = ContinuousClock()
         let elapsed = clock.measure {
@@ -84,12 +104,11 @@ import Testing
         }
         let perBlock = elapsed / blocks
         print("follower: \(perBlock) per 100 ms block (this build; release is faster)")
-        #expect(perBlock < .milliseconds(5))
+        // A block is 100 ms of audio; a debug build takes about a millisecond.
+        #expect(perBlock < .milliseconds(50))
     }
-}
 
-@Suite struct SweepFinderSpeedTests {
-    @Test func `a minute of recording is searched quickly`() {
+    @Test func `a minute of recording is searched in seconds`() {
         let sweep = LogSweep.measurement(sampleRate: 48000)
         let starts = [3.0, 10.0, 17.0].map { $0 * 48000 }
         let recording = ExternalRecording(starts: starts, filters: bookshelfFilters, noiseRMS: 0.003, duration: 60).record()
@@ -98,7 +117,6 @@ import Testing
         let elapsed = clock.measure { found = SweepFinder.find(in: recording, sampleRate: 48000, sweep: sweep) }
         print("finder: 60 s searched in \(elapsed) (this build; release is faster)")
         #expect(found.count == 3)
-        // A debug build; a release build is faster (measured: docs/modules/ResoniqDSP.md).
-        #expect(elapsed < .seconds(5))
+        #expect(elapsed < .seconds(30))
     }
 }

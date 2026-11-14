@@ -45,6 +45,14 @@ import Testing
         #expect(ExternalSessionText.anotherPlayText(.wrongFile(heard: .speakerTest(.right)), have: 0, needed: 3, file: left)
             == "That sounds like the right speaker file. Please play \"Resoniq test sound - left speaker.wav\" instead.")
         #expect(ExternalSessionText.anotherPlayText(.clockUnknown, have: 0, needed: 3, file: left).contains("short tone at the start"))
+        #expect(ExternalSessionText.anotherPlayText(.stoppedPartWay, have: 2, needed: 3, file: left)
+            == "I have 2 of 3. The test sound stopped part-way through one of them. Please play the file again from the start and let it run to the end without pausing.")
+        #expect(ExternalSessionText.anotherPlayText(.missedSweeps, have: 0, needed: 3, file: left)
+            == "I missed part of it. Please play the file again from the start and let it run to the end.")
+        #expect(ExternalSessionText.anotherPlayText(.runsDisagree, have: 2, needed: 3, file: left)
+            == "I have 2 of 3. One of them didn't match the others, so I left it out. Hold the phone still and play the file again from the start.")
+        #expect(ExternalSessionText.seatAnotherPlayText(.phoneMovedDuringTone, file: .seat([.left, .right]))
+            == "The phone moved while the short tone played, and that tone tells me how fast your player runs. Hold the phone still and play the file again from the start.")
     }
 
     @Test func `every failure has words, cancelled none`() {

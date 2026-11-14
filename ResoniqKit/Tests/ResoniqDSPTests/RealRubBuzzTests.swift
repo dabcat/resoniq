@@ -11,6 +11,7 @@ enum RubBuzzRecordings {
     static let folder = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         .appendingPathComponent("data/listen-rub-buzz")
+    /// Serial numbers: 57 has strong distortion, 76 is borderline, 97 is the good reference.
     static let units = ["57", "76", "97"]
 
     static func url(_ unit: String) -> URL {
@@ -53,5 +54,7 @@ struct RealRubBuzzTests {
         // What gives it away is the energy above the tenth harmonic.
         #expect(bad.nonHarmonicResidue > borderline.nonHarmonicResidue + 10)
         #expect(bad.nonHarmonicResidue > good.nonHarmonicResidue + 10)
+        // The borderline unit reads over the good one, by a few dB only.
+        #expect(borderline.nonHarmonicResidue > good.nonHarmonicResidue)
     }
 }

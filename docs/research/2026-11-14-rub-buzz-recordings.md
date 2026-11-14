@@ -17,18 +17,17 @@ what the sources the owner collected on 2026-11-14 add to the [datasets note](20
 Three WAV files from Listen, Inc. (maker of the SoundCheck test system), given by the owner as a reference unit, a
 unit with strong distortion and a borderline unit of one loudspeaker model, recorded for rub and buzz testing.
 
-| File | Format | Content |
-|---|---|---|
-| `rtw-tone-sn-57-scaled-10E0-Pa-FSD.wav` | 44.1 kHz, 24-bit, mono, 10.1 s | A steady 256 Hz tone |
-| `rtw-tone-sn-76-scaled-10E0-Pa-FSD.wav` | same | same |
-| `rtw-tone-sn-97-scaled-10E0-Pa-FSD.wav` | same | same |
+| File | Unit (as the owner gave it from the source) | Format | Content |
+|---|---|---|---|
+| `rtw-tone-sn-97-scaled-10E0-Pa-FSD.wav` | Good, the reference | 44.1 kHz, 24-bit, mono, 10.1 s | A steady 256 Hz tone |
+| `rtw-tone-sn-76-scaled-10E0-Pa-FSD.wav` | Borderline distortion | same | same |
+| `rtw-tone-sn-57-scaled-10E0-Pa-FSD.wav` | Strong distortion | same | same |
 
 - **They are not in the repository.** The page they come from states no licence, only "Copyright © Listen, Inc.",
   and this repository is public. They live in `data/listen-rub-buzz/`, which git ignores; a test that needs them
   is skipped when they are absent.
-- **Which serial number is which unit is not stated in the file names.** The measurements below make sn-57 the bad
-  unit beyond doubt. That sn-76 is the borderline one and sn-97 the reference is inferred from a 3.5 dB difference
-  and should be confirmed against the source.
+- **The labels were given after the measurement.** The figures below were taken without knowing which unit was
+  which, and ordered them the same way: sn-57 worst by far, sn-76 a little over sn-97.
 - They are a measurement microphone close to the driver, a steady tone, no room. The app records a sweep with a
   phone in a living room. What follows shows what the measure can separate in the best case, not what the app
   will achieve.
@@ -40,9 +39,9 @@ unit with strong distortion and a borderline unit of one loudspeaker model, reco
 
 | Unit | THD, orders 2–10 | Non-harmonic residue (everything above the tenth harmonic, noise share removed) |
 |---|---|---|
-| sn-57 | 4.18 % | −40.3 dB |
-| sn-76 | 1.55 % | −58.1 dB |
-| sn-97 | 1.51 % | −61.6 dB |
+| sn-57, strong distortion | 4.18 % | −40.3 dB |
+| sn-76, borderline | 1.55 % | −58.1 dB |
+| sn-97, good | 1.51 % | −61.6 dB |
 
 An independent script (numpy, not the Kit) gave the same figures and two more: in sn-57 the energy above ten times
 the tone repeats once every cycle of the tone (correlation 0.99 at one period; 0.49 and 0.61 for the others), which
@@ -73,7 +72,7 @@ is what a part touching once per excursion does; its level there is −40.6 dB a
 
 ## Open questions
 
-1. Which serial number is the borderline unit? Confirm on the source page.
+1. Is 3.5 dB between the borderline and the good unit repeatable? One recording of each says nothing about spread.
 2. Can the high-order residue be read from the sweep the app already plays (the harmonic impulse responses above
    order 10 land before the linear one), or does it need a steady tone step added to the test? Not measured.
 3. What does the residue read for a healthy speaker through a phone in a room? The floor decides whether −40 dB

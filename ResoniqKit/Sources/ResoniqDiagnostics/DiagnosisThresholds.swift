@@ -72,6 +72,15 @@ public struct DiagnosisThresholds: Sendable, Equatable {
     /// floor by `SweepDistortion.measurableMarginDecibels`), smoothed as THD is (`distortionSmoothingFraction`).
     public var highOrderDecibels: Float
 
+    /// Rub and buzz from the high orders are looked for from this frequency up, in hertz, though the DSP reads the level
+    /// from 40 Hz. **First guess**: 80 Hz, from real sweeps of a healthy studio monitor (Geithain RL900A) in a room: at
+    /// 50–80 Hz it read about −41 dB re the tone (frames to −34 dB), 9 to 11 dB over its noise, and the excess fell
+    /// about twice as fast as the drive when the drive was halved, so it is the woofer's own nonlinearity at large
+    /// excursion, not the room (linear, and below the tone) or the measure's leakage (which would follow the tone).
+    /// From 80 Hz up the same speaker read at its noise (−53 to −63 dB). A smaller speaker played louder may distort
+    /// so higher up; that is not measured. Where THD starts with the measurement sweep is 80 Hz too.
+    public var highOrderLowerFrequency: Float
+
     // MARK: Repetition
 
     /// Two runs' deviations are "at the same place" when their ranges overlap once each is widened by this many
@@ -146,10 +155,12 @@ public struct DiagnosisThresholds: Sendable, Equatable {
         quietBandDecibels: Float = 15,
         quietBandLowerFrequency: Float = 100,
         rollOffToleranceDecibels: Float = 0.5,
-        highOrderDecibels: Float = -50
+        highOrderDecibels: Float = -50,
+        highOrderLowerFrequency: Float = 80
     ) {
         self.rollOffToleranceDecibels = rollOffToleranceDecibels
         self.highOrderDecibels = highOrderDecibels
+        self.highOrderLowerFrequency = highOrderLowerFrequency
         self.quietBandDecibels = quietBandDecibels
         self.quietBandLowerFrequency = quietBandLowerFrequency
         self.smoothingFraction = smoothingFraction
@@ -193,6 +204,7 @@ public struct DiagnosisThresholds: Sendable, Equatable {
         quietBandDecibels: 15,
         quietBandLowerFrequency: 100,
         rollOffToleranceDecibels: 0.5,
-        highOrderDecibels: -50
+        highOrderDecibels: -50,
+        highOrderLowerFrequency: 80
     )
 }

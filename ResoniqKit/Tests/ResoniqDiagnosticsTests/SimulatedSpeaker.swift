@@ -115,6 +115,9 @@ struct SimulatedSpeaker {
     var seed: UInt64 = 1
     /// A rub (see `Rub`), acting while the sweep plays `rub.band`; nil for none.
     var rub: Rub?
+    /// The room's noise RMS when the floor was measured before the runs; nil: `noiseRMS`, the room unchanged. Lower
+    /// than `noiseRMS` for a noise that started after the floor (a fridge, a fan, a kettle).
+    var floorRMS: Double?
 
     func record(_ sweep: LogSweep) -> [Float] {
         let length = sweep.sampleCount + Int(delaySamples.rounded(.up)) + Int(tailSeconds * sweep.sampleRate)
@@ -257,7 +260,7 @@ enum Bench {
         RunAnalyzer.analyze(
             recording: speaker.record(sweep),
             sweep: sweep,
-            noiseFloor: noiseFloor(rms: max(speaker.noiseRMS, 1e-6))
+            noiseFloor: noiseFloor(rms: max(speaker.floorRMS ?? speaker.noiseRMS, 1e-6))
         )
     }
 

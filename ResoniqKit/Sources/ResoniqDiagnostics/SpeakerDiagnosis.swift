@@ -456,7 +456,7 @@ public enum SpeakerDiagnosis {
             }
             measured[run] = RegionFinder.regions(
                 in: values,
-                span: FrequencyRange(lower: thresholds.distortionLowerFrequency, upper: ResponseGrid.upperFrequency),
+                span: FrequencyRange(lower: thresholds.highOrderLowerFrequency, upper: ResponseGrid.upperFrequency),
                 threshold: thresholds.highOrderDecibels,
                 edge: thresholds.highOrderDecibels,
                 minimumOctaves: thresholds.minimumDistortionOctaves
@@ -474,7 +474,7 @@ public enum SpeakerDiagnosis {
         thresholds: DiagnosisThresholds
     ) -> (ruledOut: [Bool], read: [Bool]) {
         let grid = ResponseGrid.frequencies
-        let usable = grid.indices.map { audible[$0] && grid[$0] >= thresholds.distortionLowerFrequency }
+        let usable = grid.indices.map { audible[$0] && grid[$0] >= thresholds.highOrderLowerFrequency }
         let ruledOut = grid.indices.map { index in
             usable[index] && measurements.values.allSatisfy { measurement in
                 switch measurement.highOrder(atIndex: index) {

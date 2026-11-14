@@ -79,6 +79,9 @@ import Testing
         for frequency: Float in [90, 110, 130] {
             #expect(thd.thdPercent(at: frequency) < 10, "THD at \(frequency) Hz")
         }
+        let locking = Self.medianLocking(high, in: 70...140)
+        print("rub, dry: locking \(locking) at 70–140 Hz, \(Self.medianLocking(high, in: 300...1500)) at 300 Hz–1.5 kHz (noise)")
+        #expect(locking > HighOrderDistortion.lockingThreshold)
         for frequency: Float in [300, 600, 1200] {
             #expect(high.levelDecibels(at: frequency) < -70, "\(frequency) Hz")
             #expect(!high.isMeasurable(at: frequency), "\(frequency) Hz")
@@ -98,6 +101,48 @@ import Testing
         #expect(!high.level.frequencies.contains { high.isMeasurable(at: $0) })
     }
 
+    /// A fridge or a fan that started after the floor was measured: the floor measured before the runs is far under
+    /// it, but the recording's own tail holds it, and the higher of the two is the floor.
+    @Test(arguments: [0.001, 0.003, 0.01])
+    func `steady noise that started after the floor was measured is held out by the run's own tail`(rms: Double) {
+        var speaker = Self.clean
+        speaker.noiseRMS = rms
+        speaker.seed = 78
+        let (high, _) = Self.analyse(speaker.record(Self.sweep), noiseRMS: 1e-5)
+        let floor = high.noiseFloor!
+        let differences = zip(high.level.decibels, floor.decibels).map { $0 - $1 }
+        print("noise \(rms) after a floor of 1e-5: level − floor from \(differences.min()!) to \(differences.max()!) dB")
+        #expect(!high.level.frequencies.contains { high.isMeasurable(at: $0) })
+    }
+
+    /// A noise that played during the sweep and stopped before its tail (a kettle switching off): neither floor holds
+    /// it, but it stands as far over its floor everywhere, where a rub stands out only where the excursion is large.
+    @Test(arguments: [0.001, 0.003])
+    func `noise during the sweep alone is held out by its flat profile`(rms: Double) {
+        var recording = Self.clean.record(Self.sweep)
+        var generator = SeededGenerator(state: 79)
+        let end = Int((0.05 + Self.sweep.duration) * Self.sampleRate)
+        for (index, value) in generator.noise(count: end, rms: rms).enumerated() { recording[index] += Float(value) }
+        let (high, _) = Self.analyse(recording, noiseRMS: 1e-5)
+        let excess = zip(high.level.decibels, high.noiseFloor!.decibels).map { $0 - $1 }
+        print("noise \(rms) during the sweep only: \(high.levelDecibels(at: 100)) dB at 100 Hz, level − floor from \(excess.min()!) to \(excess.max()!) dB")
+        // The noise lifts the reading over the threshold and far over both floors (the quiet room's reads about −80);
+        // the profile and the locking hold it out: no frame stands the margin over its floor.
+        print("noise \(rms) during the sweep only: locking at most \(high.locking.max()!), median \(high.locking.sorted()[high.locking.count / 2])")
+        #expect(high.levelDecibels(at: 100) > -50)
+        #expect(excess.allSatisfy { $0 < SweepDistortion.measurableMarginDecibels })
+        #expect(!high.level.frequencies.contains { high.isMeasurable(at: $0) })
+    }
+
+    @Test func `a recording with too little tail has no floor, so nothing is a measurement`() {
+        var speaker = Self.rubbing()
+        speaker.tailSeconds = 0.05
+        let (high, _) = Self.analyse(speaker.record(Self.sweep), noiseRMS: 1e-5)
+        #expect(high.noiseFloor == nil)
+        #expect(high.levelDecibels(at: 100) > -35)
+        #expect(!high.isMeasurable(at: 100))
+    }
+
     @Test func `a reverberant room does not raise it: what it adds lies below the tone`() {
         let room = ReverberantRoom(directToReverberant: -6, reverberationTime: 0.6)
         var dry = Self.clean
@@ -113,17 +158,38 @@ import Testing
         #expect(!high.level.frequencies.contains { high.isMeasurable(at: $0) })
     }
 
-    @Test func `a rub still reads in a reverberant room`() {
-        let room = ReverberantRoom(directToReverberant: -6, reverberationTime: 0.6)
+    static func reverberantRub(directToReverberant: Double) -> SweepHighOrderDistortion {
+        let room = ReverberantRoom(directToReverberant: directToReverberant, reverberationTime: 0.6)
         var dry = Self.rubbing()
         dry.noiseRMS = 0
         dry.tailSeconds = 1
         var generator = SeededGenerator(state: 32)
         let wet = room.apply(dry.record(Self.sweep), sampleRate: Self.sampleRate)
         let recording = zip(wet, generator.noise(count: wet.count, rms: 1e-5)).map { $0 + Float($1) }
-        let (high, _) = Self.analyse(recording, noiseRMS: 1e-5)
+        return Self.analyse(recording, noiseRMS: 1e-5).high
+    }
+
+    static func medianLocking(_ high: SweepHighOrderDistortion, in range: ClosedRange<Float>) -> Float {
+        let values = high.level.frequencies.indices.filter { range.contains(high.level.frequencies[$0]) }.map { high.locking[$0] }.sorted()
+        return values.isEmpty ? .nan : values[values.count / 2]
+    }
+
+    /// Near the speaker, as the app measures it (direct sound 6 dB over the room's), the rub's bursts stay locked to
+    /// the tone and it is measured.
+    @Test func `a rub still reads near the speaker in a reverberant room`() {
+        let high = Self.reverberantRub(directToReverberant: 6)
+        print("rub, D/R +6 dB: \(high.levelDecibels(at: 100)) dB at 100 Hz, locking \(Self.medianLocking(high, in: 80...140))")
         #expect(high.levelDecibels(at: 100) > -40)
         #expect(high.isMeasurable(at: 100))
+    }
+
+    /// At a listening seat (direct sound 6 dB under the room's) the room's decay smears the bursts over the cycle; the
+    /// rub is then not locked enough to count, which errs towards no finding.
+    @Test func `far from the speaker the room smears a rub until it no longer counts`() {
+        let high = Self.reverberantRub(directToReverberant: -6)
+        print("rub, D/R −6 dB: \(high.levelDecibels(at: 100)) dB at 100 Hz, locking \(Self.medianLocking(high, in: 80...140))")
+        #expect(high.levelDecibels(at: 100) > -40)
+        #expect(!high.isMeasurable(at: 100))
     }
 
     @Test(arguments: [0.03, 0.1, 0.3])

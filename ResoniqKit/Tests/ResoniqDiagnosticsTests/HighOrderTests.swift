@@ -32,6 +32,7 @@ func highOrder(at range: ClosedRange<Float>) -> (Float) -> (decibels: Float, mea
 
     @Test func `the threshold is one definition, between the borderline and the bad recording`() {
         #expect(DiagnosisThresholds.standard.highOrderDecibels == -50)
+        #expect(DiagnosisThresholds.standard.highOrderLowerFrequency == 80)
         #expect(DiagnosisThresholds.standard.highOrderDecibels > -59.4 && DiagnosisThresholds.standard.highOrderDecibels < -40.3)
     }
 
@@ -47,7 +48,9 @@ func highOrder(at range: ClosedRange<Float>) -> (Float) -> (decibels: Float, mea
         let rub = try #require(report.findings.first { $0.kind == .highOrderDistortion }, "\(report.findings.map(\.headline))")
         let range = try #require(rub.frequencyRange)
         print("rub finding: \(rub.headline) — \(rub.detail) [\(rub.numbers!.extreme) dB]")
-        #expect(range.lower < 75 && range.upper > 100 && range.upper < 160)
+        // Looked for from 80 Hz (`highOrderLowerFrequency`), though the rub starts at 60 Hz, as THD is.
+        #expect(range.lower >= 79 && range.lower < 85 && range.upper > 100 && range.upper < 160)
+        #expect(rub.headline == "Possible rub or buzz at 80–120 Hz")
         #expect(rub.tag == .inferred)
         #expect(rub.basis.text == "3 of 3 runs")
         #expect(rub.confidence == .medium)
@@ -109,6 +112,42 @@ func highOrder(at range: ClosedRange<Float>) -> (Float) -> (decibels: Float, mea
         #expect(report.verdict == "Sounds healthy.")
     }
 
+    /// A steady noise that starts after the floor was measured (a fridge, a fan, a kettle) and lasts through the runs
+    /// raises the band above the tenth harmonic in every frame. The floor measured before the runs does not see it; the
+    /// run's own tail does, and it is never a rub.
+    static let noiseAfterFloorCases: [HealthyCase] = [
+        HealthyCase(seed: 21, signalToNoise: 20), HealthyCase(seed: 22, signalToNoise: 25),
+        HealthyCase(seed: 23, signalToNoise: 30), HealthyCase(seed: 24, signalToNoise: 35),
+    ]
+
+    @Test(arguments: noiseAfterFloorCases)
+    func `steady noise that started after the floor was measured raises no rub or buzz`(_ item: HealthyCase) {
+        var speaker = Bench.noisy(Bench.healthy, signalToNoise: item.signalToNoise!)
+        speaker.floorRMS = Bench.healthy.noiseRMS
+        let runs = Bench.runs(speaker, seed: item.seed)
+        let measurement = runs[0].measurement!
+        print("noise after the floor, \(item): at 100 Hz \(measurement.highOrder(atIndex: ResponseGrid.nearestIndex(to: 100)))")
+        for run in runs {
+            guard let measurement = run.measurement else { continue }
+            for index in ResponseGrid.frequencies.indices {
+                if case .measured(let level) = measurement.highOrder(atIndex: index) { #expect(level < -50, "\(ResponseGrid.frequencies[index]) Hz") }
+            }
+        }
+        let report = SpeakerDiagnosis.diagnose(runs: runs, counterpart: nil)
+        #expect(!report.findings.contains { $0.kind == .highOrderDistortion }, "\(report.findings.map(\.headline))")
+    }
+
+    @Test(arguments: [UInt64(31), 32])
+    func `steady noise in two of three runs raises no rub or buzz`(seed: UInt64) {
+        let runs = Bench.runs(Bench.healthy, seed: seed) { index, speaker in
+            guard index < 2 else { return }
+            speaker = Bench.noisy(speaker, signalToNoise: 25)
+            speaker.floorRMS = Bench.healthy.noiseRMS
+        }
+        let report = SpeakerDiagnosis.diagnose(runs: runs, counterpart: nil)
+        #expect(!report.findings.contains { $0.kind == .highOrderDistortion }, "\(report.findings.map(\.headline))")
+    }
+
     @Test(arguments: HealthySpeakerTests.allCases)
     func `a healthy speaker never reads a measured level over the threshold`(_ item: HealthyCase) {
         for run in Bench.healthyRuns[item]! {
@@ -136,7 +175,7 @@ func highOrder(at range: ClosedRange<Float>) -> (Float) -> (decibels: Float, mea
         let runs = (0..<3).map { _ in withHighOrder(Handmade.run(), cleanHighOrder) }
         let report = SpeakerDiagnosis.diagnose(runs: runs, counterpart: nil)
         let even = try #require(report.findings.first { $0.kind == .even })
-        #expect(even.detail.hasSuffix(" I found no sign of rub or buzz from 50 Hz to 1.7 kHz."), "\(even.detail)")
+        #expect(even.detail.hasSuffix(" I found no sign of rub or buzz from 80 Hz to 1.7 kHz."), "\(even.detail)")
     }
 
     @Test func `a record stored without the high orders says nothing about them`() throws {

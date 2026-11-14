@@ -408,6 +408,11 @@ struct SplitMix: Sendable {
         let v = Double(next() >> 11) / 9_007_199_254_740_992
         return (-2 * log(u)).squareRoot() * cos(2 * Double.pi * v)
     }
+
+    /// Uniform in [0, 1).
+    mutating func uniform() -> Double {
+        Double(next() >> 11) / 9_007_199_254_740_992
+    }
 }
 
 struct SimulationState: Sendable {

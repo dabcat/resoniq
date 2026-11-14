@@ -18,6 +18,16 @@ public enum ExternalSessionText {
         }
     }
 
+    /// The name to save a file of `format` under: as `fileName(for:)` for 24-bit, with " (16-bit)" before the extension
+    /// for 16-bit, so both can sit in one folder.
+    public static func fileName(for kind: TestSoundFile.Kind, format: TestSoundFile.Format) -> String {
+        let name = fileName(for: kind)
+        switch format {
+        case .pcm24: return name
+        case .pcm16: return name.replacingOccurrences(of: ".wav", with: " (16-bit).wav")
+        }
+    }
+
     /// A short name for a file in a sentence: "the left speaker file".
     public static func fileTitle(for kind: TestSoundFile.Kind) -> String {
         switch kind {

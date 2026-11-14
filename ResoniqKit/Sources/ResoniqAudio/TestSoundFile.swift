@@ -67,11 +67,11 @@ public struct TestSoundLayout: Sendable, Equatable {
 /// away for `roomDecayAllowance` before the next sweep; a seat recording keeps 2 s after its sweep for the bass decay
 /// estimate (`MeasurementConfiguration.seat`), so the seat file's gap is the longest. The checks are in the tests.
 ///
-/// **Format.** WAV, PCM, 48 kHz, stereo, 24-bit, written by hand (`data()`), byte for byte testable. 24-bit because
-/// the samples then pass through unchanged to 2⁻²³ (−138 dBFS), 120 dB under the sweep's −12 dBFS peak, so no dither
-/// is needed and no quantisation distortion can enter the distortion figures. 16-bit would be adequate for the noise
-/// (−98 dBFS) but without dither its error is correlated with the sweep and reads as distortion around −90 dB.
-/// Some old players read only 16-bit WAV; that is for the device checklist.
+/// **Format.** WAV, PCM, 48 kHz, stereo, written by hand (`data()`), byte for byte testable. 24-bit by default
+/// (`Format.pcm24`): the samples pass through unchanged to 2⁻²³ (−138 dBFS), 120 dB under the sweep's −12 dBFS peak.
+/// 16-bit on request (`Format.pcm16`, named "… (16-bit).wav"), for players that refuse 24-bit: rounded, its noise at
+/// −101 dBFS, its distortion floor through the analysis 0.0017 % (`codes16(_:seed:dither:)` says why it is not
+/// dithered). No 44.1 kHz variant (`sampleRate` says why).
 public struct TestSoundFile: Sendable, Hashable {
     /// What the file is for.
     public enum Kind: Sendable, Hashable {
@@ -82,7 +82,31 @@ public struct TestSoundFile: Sendable, Hashable {
         case seat([SpeakerChannel])
     }
 
+    /// How the samples are written.
+    public enum Format: Sendable, Hashable, CaseIterable {
+        /// 24-bit PCM, the default: the samples pass through unchanged to −138 dBFS, no dither.
+        case pcm24
+        /// 16-bit PCM, rounded without dither, for players that refuse 24-bit (some hardware players, car stereos and
+        /// older streamers). Its rounding noise sits at −101 dBFS RMS, about 86 dB under the sweep and far under any
+        /// room; measured through the analysis it adds no distortion a speaker could be blamed for (`codes16`).
+        case pcm16
+
+        public var bitDepth: Int {
+            switch self {
+            case .pcm24: 24
+            case .pcm16: 16
+            }
+        }
+    }
+
     /// The file's sample rate, hertz. A player that runs at 44.1 kHz resamples it; what is left is its clock's offset.
+    ///
+    /// **No 44.1 kHz variant.** The phone's sweep runs to 22 kHz, past a 44.1 kHz file's Nyquist frequency (22.05 kHz)
+    /// with no room for its fade, so a 44.1 kHz file would need its own sweep, ending lower, which the listening
+    /// sessions would have to know apart from the phone's: a second deconvolution reference and a second clock range
+    /// (48 against 44.1 kHz is 8.8 %, far outside `SweepFinder.maximumClockOffset`). A player that runs at 44.1 kHz
+    /// resamples a 48 kHz file anyway (every current one does); one that cannot is rare enough to leave to the device
+    /// checklist.
     public static let sampleRate: Double = 48000
     /// Silence before the clock tone, seconds. *First guess*: 3 s, time for the press of play to die away and for a
     /// player that mutes the start of a stream to open.
@@ -138,12 +162,15 @@ public struct TestSoundFile: Sendable, Hashable {
     public static let speakerTestSweepCount = 3
 
     public let kind: Kind
+    /// 24-bit unless asked otherwise.
+    public let format: Format
 
-    public init(kind: Kind) {
+    public init(kind: Kind, format: Format = .pcm24) {
         if case .seat(let channels) = kind {
             precondition(channels == [.left, .right] || channels == [.both], "a seat file plays left then right, or both once")
         }
         self.kind = kind
+        self.format = format
     }
 
     /// Silence between one sweep's end and the next's start, seconds: 3 s for a left speaker test, 3.5 s for the right,
@@ -233,15 +260,17 @@ public struct TestSoundFile: Sendable, Hashable {
 
     // MARK: The WAV file
 
-    /// Bits per sample.
+    /// Bits per sample of the default format (`Format.pcm24`); a file's own is `format.bitDepth`.
     public static let bitDepth = 24
 
-    /// The whole file: a 44-byte RIFF/WAVE header (`fmt ` chunk, PCM format 1, 2 channels, `sampleRate`, 24 bits)
-    /// and the interleaved samples, little-endian, each `round(x · 2²³)` held to the 24-bit range.
+    /// The whole file: a 44-byte RIFF/WAVE header (`fmt ` chunk, PCM format 1, 2 channels, `sampleRate`, the format's
+    /// bits) and the interleaved samples, little-endian: at 24 bits each `round(x · 2²³)` held to the 24-bit range, at
+    /// 16 bits each `round(x · 2¹⁵)` held to the 16-bit range (`codes16(_:seed:dither:)`).
     public func data() -> Data {
         let (left, right) = channels()
         let frames = left.count
-        let bytesPerSample = Self.bitDepth / 8
+        let bitDepth = format.bitDepth
+        let bytesPerSample = bitDepth / 8
         let channelCount = 2
         let dataSize = frames * channelCount * bytesPerSample
         var data = Data(capacity: 44 + dataSize)
@@ -257,27 +286,27 @@ public struct TestSoundFile: Sendable, Hashable {
         append32(UInt32(Self.sampleRate))
         append32(UInt32(Int(Self.sampleRate) * channelCount * bytesPerSample))
         append16(UInt16(channelCount * bytesPerSample))
-        append16(UInt16(Self.bitDepth))
+        append16(UInt16(bitDepth))
         data.append(contentsOf: Array("data".utf8))
         append32(UInt32(dataSize))
 
         var bytes = [UInt8](repeating: 0, count: dataSize)
-        let leftCodes = Self.codes(left)
-        let rightCodes = Self.codes(right)
+        let leftCodes = format == .pcm24 ? Self.codes(left) : Self.codes16(left, seed: 1, dither: false)
+        let rightCodes = format == .pcm24 ? Self.codes(right) : Self.codes16(right, seed: 2, dither: false)
         bytes.withUnsafeMutableBufferPointer { buffer in
             // Per sample, so written for a debug build too: plain stores, no temporary arrays.
             var index = 0
             var frame = 0
-            while frame < frames {
-                var bits = UInt32(bitPattern: leftCodes[frame])
+            func store(_ code: Int32) {
+                let bits = UInt32(bitPattern: code)
                 buffer[index] = UInt8(truncatingIfNeeded: bits)
                 buffer[index + 1] = UInt8(truncatingIfNeeded: bits >> 8)
-                buffer[index + 2] = UInt8(truncatingIfNeeded: bits >> 16)
-                bits = UInt32(bitPattern: rightCodes[frame])
-                buffer[index + 3] = UInt8(truncatingIfNeeded: bits)
-                buffer[index + 4] = UInt8(truncatingIfNeeded: bits >> 8)
-                buffer[index + 5] = UInt8(truncatingIfNeeded: bits >> 16)
-                index += 6
+                if bytesPerSample == 3 { buffer[index + 2] = UInt8(truncatingIfNeeded: bits >> 16) }
+                index += bytesPerSample
+            }
+            while frame < frames {
+                store(leftCodes[frame])
+                store(rightCodes[frame])
                 frame += 1
             }
         }
@@ -301,10 +330,32 @@ public struct TestSoundFile: Sendable, Hashable {
         Float(codes([sample])[0]) / Float(1 << 23)
     }
 
+    /// The 16-bit code of each sample: `round(x · 2¹⁵ + d)`, held to −2¹⁵ … 2¹⁵ − 1, where `d` is TPDF dither when
+    /// `dither` (the sum of two independent uniform values in ±½ LSB, from a generator seeded with `seed`, so a file
+    /// is the same every time) and 0 otherwise. Digital silence stays exactly zero: only samples that are not zero are
+    /// dithered.
+    ///
+    /// **Why the files are not dithered.** Dither makes rounding error independent of the signal, which matters when
+    /// a signal spans a few steps; the sweep, at −12 dBFS peak, spans about 8000, and it is never periodic in the
+    /// samples, so its rounding error is already noise in effect. Measured through the analysis (the sweep quantised,
+    /// deconvolved and read for harmonics, `TestSoundFileTests`), the median THD floor from 100 Hz to 5 kHz is 0.0017 %
+    /// rounded and 0.0027 % dithered (24-bit: 0.00004 %): dither only adds its 4.8 dB of noise (−96 against −101 dBFS
+    /// RMS). Both are 30 dB and more under the smallest distortion the diagnosis reports. The clock tone repeats every
+    /// 48 samples, so its rounding error lands on its harmonics, at about −100 dBFS; only its phase is read.
+    static func codes16(_ samples: [Float], seed: UInt64, dither: Bool = true) -> [Int32] {
+        let full = Float(1 << 15)
+        var random = SplitMix(state: seed)
+        return samples.map { sample in
+            guard sample != 0 else { return 0 }
+            let d: Float = dither ? Float(random.uniform() + random.uniform() - 1) : 0
+            return Int32(min(max((sample * full + d).rounded(), -full), full - 1))
+        }
+    }
+
     // MARK: Words
 
-    /// The name to save the file under ("Resoniq test sound - left speaker.wav").
-    public var suggestedFileName: String { ExternalSessionText.fileName(for: kind) }
+    /// The name to save the file under ("Resoniq test sound - left speaker.wav"; "… (16-bit).wav" for 16-bit).
+    public var suggestedFileName: String { ExternalSessionText.fileName(for: kind, format: format) }
 
     /// One line on what the file is for ("Three sweeps on the left speaker, for testing it. About 28 seconds.").
     public var summary: String { ExternalSessionText.fileSummary(for: kind, duration: layout.duration) }

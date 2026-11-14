@@ -48,6 +48,9 @@ struct SeatRunDisplay: Equatable {
     var interference: InterferenceNote? = nil
     /// "I'll start by myself once the phone is still." or "Stay quiet while the tones play."
     var footerLine: String
+    /// When another device plays the sound: what is heard that is not the test sound, or why the file must be played
+    /// again at this spot (`ExternalSessionText`); shown in place of the two readings. Nil for the normal way.
+    var externalNotice: ExternalNotice? = nil
 
     init(
         state: SeatMeasurementSession.State,
@@ -55,7 +58,6 @@ struct SeatRunDisplay: Equatable {
         channels: [SpeakerChannel],
         building: SeatBuilding?
     ) {
-        let total = SeatSpot.allCases.count
         var captured = progress?.spotsCaptured ?? 0
         var note: RunNote?
         var resume: Double?
@@ -76,11 +78,92 @@ struct SeatRunDisplay: Equatable {
         case .spotCaptured(let spot):
             captured = max(captured, spot.index + 1)
         case .finished:
-            captured = total
+            captured = SeatSpot.allCases.count
         default:
             break
         }
-        captured = min(captured, total)
+
+        let isWaiting: Bool
+        switch state {
+        case .idle, .measuringNoiseFloor, .waitingForStillness: isWaiting = true
+        default: isWaiting = false
+        }
+
+        self.init(
+            captured: captured, activeSpot: activeSpot, channels: channels, building: building,
+            instruction: MeasureText.instruction(for: state, wait: progress?.wait, channels: channels),
+            footerLine: isWaiting ? MeasureText.waitingLine : MeasureText.playingLine,
+            pausedChannel: pausedChannel, resumeHertz: resume, note: note,
+            readings: progress.map {
+                Readings(
+                    roomLevel: $0.roomLevel, isRoomQuiet: $0.isRoomQuiet, quietEnoughLevel: $0.quietEnoughLevel,
+                    isClipping: $0.isClipping, frequency: $0.frequency, peakDecibels: $0.inputPeakDecibels
+                )
+            } ?? .notMeasured
+        )
+    }
+
+    /// Room and Level, and the room-noise bar, from what a session reports: the two readings Three spots has.
+    struct Readings: Equatable {
+        var room: RunDisplay.Reading
+        var level: RunDisplay.Reading
+        var roomNoise: RunDisplay.RoomNoise
+
+        init(
+            roomLevel: SoundLevel, isRoomQuiet: Bool, quietEnoughLevel: SoundLevel?, isClipping: Bool, frequency: Double?,
+            peakDecibels: Float
+        ) {
+            room = RunDisplay.Reading(
+                title: "Room",
+                value: DiagnoseText.room(roomLevel, isQuiet: isRoomQuiet),
+                spoken: DiagnoseText.spokenRoom(roomLevel, isQuiet: isRoomQuiet)
+            )
+            let levelText = MeasureText.level(isClipping: isClipping, frequency: frequency, peakDecibels: peakDecibels)
+            let advice = InputLevel(isClipping: isClipping, frequency: frequency, peakDecibels: peakDecibels).advice
+            level = RunDisplay.Reading(
+                title: "Level", value: levelText,
+                spoken: ["Level: \(levelText.lowercased()).", advice].compactMap { $0 }.joined(separator: " "),
+                hint: advice
+            )
+            roomNoise = RunDisplay.RoomNoise(
+                value: DiagnoseText.decibels(roomLevel),
+                level: DiagnoseText.barFraction(roomLevel),
+                mark: quietEnoughLevel.map(DiagnoseText.barFraction) ?? 0,
+                isQuiet: isRoomQuiet
+            )
+        }
+
+        private init(room: RunDisplay.Reading, level: RunDisplay.Reading, roomNoise: RunDisplay.RoomNoise) {
+            self.room = room
+            self.level = level
+            self.roomNoise = roomNoise
+        }
+
+        /// Before the first block.
+        static let notMeasured = Readings(
+            room: RunDisplay.Reading(title: "Room", value: "–", spoken: "Room: not measured yet."),
+            level: RunDisplay.Reading(title: "Level", value: "–", spoken: "Level: not measured yet."),
+            roomNoise: RunDisplay.RoomNoise(value: "–", level: 0, mark: 0, isQuiet: false)
+        )
+    }
+
+    /// The spots, pills, diagram and curves for `captured` spots in and the phone at `activeSpot`, with the sentence and
+    /// readings the caller has already chosen. What `init(state:...)` and the listening seat measurement
+    /// (`ExternalSeatFlow`) both build on, so Three spots looks the same for either.
+    init(
+        captured capturedCount: Int,
+        activeSpot: SeatSpot?,
+        channels: [SpeakerChannel],
+        building: SeatBuilding?,
+        instruction: String,
+        footerLine: String,
+        pausedChannel: SpeakerChannel? = nil,
+        resumeHertz: Double? = nil,
+        note: RunNote? = nil,
+        readings: Readings
+    ) {
+        let total = SeatSpot.allCases.count
+        let captured = min(capturedCount, total)
 
         // The spot being worked on is the first one not captured.
         let active: SeatSpot? = captured < total ? SeatSpot.allCases[captured] : nil
@@ -105,19 +188,13 @@ struct SeatRunDisplay: Equatable {
             captured: SeatSpot.allCases.filter { $0.index < captured },
             active: current
         )
-        capturedCount = captured
+        self.capturedCount = captured
         progressLabel = MeasureText.progress(captured: captured, of: total)
-        instruction = MeasureText.instruction(for: state, wait: progress?.wait, channels: channels)
-        pausedTitle = MeasureText.pausedTitle(spot: current ?? .seat, channel: pausedChannel, of: channels)
-        resumeFrequency = resume.map { SeatText.frequency(Float($0)) }
+        self.instruction = instruction
+        pausedTitle = MeasureText.pausedTitle(spot: current ?? .seat, channel: pausedChannel ?? channels[0], of: channels)
+        resumeFrequency = resumeHertz.map { SeatText.frequency(Float($0)) }
         self.note = note
-
-        let isWaiting: Bool
-        switch state {
-        case .idle, .measuringNoiseFloor, .waitingForStillness: isWaiting = true
-        default: isWaiting = false
-        }
-        footerLine = isWaiting ? MeasureText.waitingLine : MeasureText.playingLine
+        self.footerLine = footerLine
 
         // The curves: the Kit's own, from the spots analysed so far, as far as they may be drawn.
         let curves = (building?.spotCurves ?? []).map { SeatReport.heldAtEdges($0).map(Double.init) }
@@ -125,35 +202,9 @@ struct SeatRunDisplay: Equatable {
         average = building?.average.map { SeatReport.heldAtEdges($0).map(Double.init) } ?? []
         curveLabel = MeasureText.curveLabel(captured: captured, drawn: curves.count, of: total)
 
-        // The readings.
-        if let progress {
-            room = RunDisplay.Reading(
-                title: "Room",
-                value: DiagnoseText.room(progress.roomLevel, isQuiet: progress.isRoomQuiet),
-                spoken: DiagnoseText.spokenRoom(progress.roomLevel, isQuiet: progress.isRoomQuiet)
-            )
-            let levelText = MeasureText.level(
-                isClipping: progress.isClipping, frequency: progress.frequency, peakDecibels: progress.inputPeakDecibels
-            )
-            let advice = InputLevel(
-                isClipping: progress.isClipping, frequency: progress.frequency, peakDecibels: progress.inputPeakDecibels
-            ).advice
-            level = RunDisplay.Reading(
-                title: "Level", value: levelText,
-                spoken: ["Level: \(levelText.lowercased()).", advice].compactMap { $0 }.joined(separator: " "),
-                hint: advice
-            )
-            roomNoise = RunDisplay.RoomNoise(
-                value: DiagnoseText.decibels(progress.roomLevel),
-                level: DiagnoseText.barFraction(progress.roomLevel),
-                mark: progress.quietEnoughLevel.map(DiagnoseText.barFraction) ?? 0,
-                isQuiet: progress.isRoomQuiet
-            )
-        } else {
-            room = RunDisplay.Reading(title: "Room", value: "–", spoken: "Room: not measured yet.")
-            level = RunDisplay.Reading(title: "Level", value: "–", spoken: "Level: not measured yet.")
-            roomNoise = RunDisplay.RoomNoise(value: "–", level: 0, mark: 0, isQuiet: false)
-        }
+        room = readings.room
+        level = readings.level
+        roomNoise = readings.roomNoise
     }
 
     /// Memberwise, for previews.
@@ -224,10 +275,12 @@ final class SeatFlow {
         case analysing
         case finished(SeatReport)
         case failed(Failure)
+        /// The scene left the foreground during the measurement; it was stopped, and the screen says why.
+        case stopped
 
         /// Which screen shows, for transitions: two steps with the same screen are not a change of screen.
         enum Screen: Hashable {
-            case guide, running, paused, analysing, finished, denied, failed
+            case guide, running, paused, analysing, finished, denied, failed, stopped
         }
 
         var screen: Screen {
@@ -239,6 +292,15 @@ final class SeatFlow {
             case .finished: .finished
             case .failed(.permissionDenied): .denied
             case .failed: .failed
+            case .stopped: .stopped
+            }
+        }
+
+        /// Whether the screen must stay on: the phone is held still at a spot, or the spots are being put together.
+        var needsScreenAwake: Bool {
+            switch self {
+            case .running, .paused, .analysing: true
+            default: false
             }
         }
     }
@@ -247,6 +309,8 @@ final class SeatFlow {
         case guide
         case running(SeatMeasurementSession)
         case finished(SeatReport)
+        /// Stopped because the app left the foreground; `start()` measures again.
+        case stopped
     }
 
     let kind: SoundSystemKind
@@ -258,13 +322,11 @@ final class SeatFlow {
     @ObservationIgnored private let configuration: MeasurementConfiguration
     @ObservationIgnored private var runTask: Task<Void, Never>?
     @ObservationIgnored private var spotsTask: Task<Void, Never>?
-    /// Each captured spot's analysis, by its place in the order; and how many spots have been sent to be analysed.
-    @ObservationIgnored private var analyses: [Int: SpotAnalysis] = [:]
-    @ObservationIgnored private var requested = 0
+    /// Each captured spot's analysis as it comes, and the running average of them for the curve panel.
+    private let spots = SpotBuilder()
 
     private var phase: Phase = .guide
-    /// The running average of the spots analysed so far, for the curve panel.
-    private var building: SeatBuilding?
+    private var building: SeatBuilding? { spots.building }
 
     /// While a sweep is paused for noise: what the noise sounded like ("It sounds like someone talking." and its tag
     /// line), from the Kit's sound classifier on the session's paused audio; nil until it is known, when nothing clear
@@ -297,6 +359,7 @@ final class SeatFlow {
         switch phase {
         case .guide: .guide
         case .finished(let report): .finished(report)
+        case .stopped: .stopped
         case .running(let session): Self.step(for: session.state)
         }
     }
@@ -348,7 +411,6 @@ final class SeatFlow {
     /// been asked.
     func start() {
         stopWork()
-        building = nil
         let seat = audio.makeSeat()
         let session = SeatMeasurementSession(
             io: seat.io,
@@ -363,7 +425,7 @@ final class SeatFlow {
         // A spot is captured between two progress updates; each update checks for new ones.
         spotsTask = Task { [weak self] in
             for await _ in updates {
-                self?.analyseNewSpots(of: session)
+                self?.spots.analyseNew(in: session.captured)
                 self?.listenToNoise(session)
             }
         }
@@ -379,13 +441,21 @@ final class SeatFlow {
     /// Stops playback and the session and goes back to Sit and aim.
     func stop() {
         stopWork()
-        building = nil
         phase = .guide
     }
 
     /// Stops playback and the session without changing the screen: for leaving the flow.
     func cancel() {
         stopWork()
+    }
+
+    /// The app left the foreground. A measurement under way is stopped and says why (`.stopped`), instead of quietly
+    /// going back to Sit and aim; one that has ended, or not begun, is left as it is. Not while the microphone is
+    /// being asked for (`.idle`): the system's alert takes the scene's focus.
+    func suspend() {
+        guard case .running(let session) = phase, session.state != .idle, !session.state.isFinal else { return }
+        stopWork()
+        phase = .stopped
     }
 
     /// "Skip to result": ends with the spots captured so far. With fewer than three the report says it is
@@ -405,26 +475,7 @@ final class SeatFlow {
         spotsTask?.cancel()
         runTask = nil
         spotsTask = nil
-        analyses = [:]
-        requested = 0
-    }
-
-    /// Analyses each spot the session has captured since the last look, off the main actor, and grows the running
-    /// average from the spots analysed so far, in order.
-    private func analyseNewSpots(of session: SeatMeasurementSession) {
-        guard case .running(let current) = phase, current === session, let captured = session.captured else { return }
-        while requested < captured.spots.count {
-            let index = requested
-            requested += 1
-            let spot = captured.spots[index]
-            Task { [weak self] in
-                let analysis = await Self.analyse(spot, channels: captured.channels, sweep: captured.sweep, floor: captured.noiseFloor)
-                guard let self, case .running(let current) = self.phase, current === session, let analysis else { return }
-                self.analyses[index] = analysis
-                let inOrder = (0..<self.requested).prefix { self.analyses[$0] != nil }.compactMap { self.analyses[$0] }
-                self.building = SeatDiagnosis.building(spots: inOrder)
-            }
-        }
+        spots.reset()
     }
 
     /// Asks the Kit what the noise sounds like once a pause holds enough audio, once per pause.
@@ -448,13 +499,13 @@ final class SeatFlow {
 
     private func finish(_ session: SeatMeasurementSession) async {
         guard case .finished(let result) = session.state else { return }
-        let report = await Self.analyse(result, room: roomHint, known: analyses)
+        let report = await Self.analyse(result, room: roomHint, known: spots.analyses)
         guard !Task.isCancelled, case .running(let current) = phase, current === session else { return }
         phase = .finished(report)
     }
 
     /// One spot's response, distortion and decay (about a second). Off the main actor.
-    @concurrent nonisolated private static func analyse(
+    @concurrent nonisolated static func analyse(
         _ spot: SeatSpotRecording, channels: [SpeakerChannel], sweep: LogSweep, floor: NoiseFloorReport
     ) async -> SpotAnalysis? {
         guard let left = spot.recording(for: channels[0]) else { return nil }
@@ -466,7 +517,10 @@ final class SeatFlow {
 
     /// Each spot not analysed yet (`known` holds those that are), the spots side by side, then the diagnosis of the
     /// seat. Off the main actor.
-    @concurrent nonisolated private static func analyse(
+    ///
+    /// Also what `ExternalSeatFlow` runs on the result of a listening seat measurement: the result carries how the sound
+    /// was played, and the report says so (`SoundSource`).
+    @concurrent nonisolated static func analyse(
         _ result: SeatMeasurementResult, room: RoomHint?, known: [Int: SpotAnalysis]
     ) async -> SeatReport {
         let channels = result.channels
@@ -483,6 +537,48 @@ final class SeatFlow {
             }
             return collected.sorted { $0.0 < $1.0 }.map(\.1)
         }
-        return SeatDiagnosis.diagnose(spots: analyses, room: room)
+        return SeatDiagnosis.diagnose(spots: analyses, room: room, source: result.source.soundSource)
+    }
+}
+
+// MARK: - The spots as they come in
+
+/// The analysis of each spot a seat session has captured, run off the main actor as soon as the spot is in, and the
+/// running average of them (`SeatDiagnosis.building`) for the curve panel. Shared by `SeatFlow` and `ExternalSeatFlow`.
+/// `reset()` drops what was analysed and ignores analyses still running.
+@MainActor
+@Observable
+final class SpotBuilder {
+    /// The running average of the spots analysed so far.
+    private(set) var building: SeatBuilding?
+    /// Each captured spot's analysis, by its place in the order.
+    @ObservationIgnored private(set) var analyses: [Int: SpotAnalysis] = [:]
+    @ObservationIgnored private var requested = 0
+    @ObservationIgnored private var generation = 0
+
+    func reset() {
+        analyses = [:]
+        requested = 0
+        generation += 1
+        building = nil
+    }
+
+    /// Analyses each spot of `captured` not sent yet, and grows the running average from the spots analysed so far, in
+    /// order. Nothing to do for nil (no spot is in).
+    func analyseNew(in captured: SeatMeasurementResult?) {
+        guard let captured else { return }
+        let current = generation
+        while requested < captured.spots.count {
+            let index = requested
+            requested += 1
+            let spot = captured.spots[index]
+            Task { [weak self] in
+                let analysis = await SeatFlow.analyse(spot, channels: captured.channels, sweep: captured.sweep, floor: captured.noiseFloor)
+                guard let self, current == self.generation, let analysis else { return }
+                self.analyses[index] = analysis
+                let inOrder = (0..<self.requested).prefix { self.analyses[$0] != nil }.compactMap { self.analyses[$0] }
+                self.building = SeatDiagnosis.building(spots: inOrder)
+            }
+        }
     }
 }

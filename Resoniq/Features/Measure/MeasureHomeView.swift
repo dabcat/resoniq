@@ -104,6 +104,14 @@ struct MeasureHomeView: View {
 
         curvePanel(report)
 
+        // How it was measured, when it was not the normal way: the report carries it, so a kept result says it too.
+        if let note = SeatText.sourceNote(report.source) {
+            Text(note)
+                .font(ResoniqFont.caption)
+                .foregroundStyle(ResoniqColor.muted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+
         let findings = report.displayedFindings
         if !findings.isEmpty {
             VStack(spacing: 0) {

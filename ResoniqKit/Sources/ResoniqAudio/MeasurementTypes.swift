@@ -79,6 +79,34 @@ public struct RunRecording: Sendable, Equatable {
     /// Seconds from the recording's first sample to the deconvolved response's peak: the route's delay plus
     /// `leadIn`, exact where `arrivalDelay` is a live estimate. Nil when it was not measured.
     public var measuredDelay: Double? = nil
+    /// When the sound was played by another device: its clock against the phone's (above 1: it ran fast), which
+    /// `samples` have already been corrected for (`SweepFinder.corrected(_:ratio:)`). Nil when the phone played it.
+    public var clockRatio: Double? = nil
+    /// Where `clockRatio` came from; nil when the phone played the sound.
+    public var clockSource: ClockSource? = nil
+    /// When both the clock tone and the spacing of the play's sweeps gave the clock, how far apart they were, parts
+    /// per million; nil otherwise. More than `ExternalListening.clockAgreementPPM` and the spacing was used: the phone
+    /// probably moved while the tone played.
+    public var clockDisagreementPPM: Double? = nil
+}
+
+/// Where a run played by another device got its clock from.
+public enum ClockSource: Sendable, Hashable {
+    /// The clock tone at the start of its play (`SweepFinder.clockRatio(ofTone:sampleRate:)`).
+    case tone
+    /// The spacing of its play's sweeps (`SweepFinder.clockFit(starts:expectedSpacing:sampleRate:)`): when there was
+    /// no tone, or when the tone disagreed with it.
+    case sweepSpacing
+    /// The tone of an earlier play, when its own play gave neither.
+    case earlierPlay
+}
+
+/// What played the test sound.
+public enum PlaybackSource: Sendable, Hashable {
+    /// The phone, through the user's speakers: the normal test.
+    case thisPhone
+    /// Another device playing a `TestSoundFile` while the phone listened (`ExternalMeasurementSession`).
+    case anotherDevice
 }
 
 /// The outcome of a finished test: every run's recording, and what they were measured against.
@@ -87,6 +115,8 @@ public struct MeasurementResult: Sendable, Equatable {
     public var sweep: LogSweep
     public var noiseFloor: NoiseFloorReport
     public var runs: [RunRecording]
+    /// What played the sound; the runs' `clockRatio` says how far another device's clock was off.
+    public var source: PlaybackSource = .thisPhone
 }
 
 /// What the Listening and Paused screens show while a test runs.

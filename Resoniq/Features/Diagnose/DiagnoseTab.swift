@@ -64,6 +64,9 @@ private struct DiagnoseCover: View {
         case .test(let flow):
             TestRoot(flow: flow)
                 .id(coordinator.contentID)
+        case .external(let flow):
+            ExternalTestRoot(flow: flow)
+                .id(coordinator.contentID)
         case .stored:
             ResultRoot()
                 .id(coordinator.contentID)
@@ -148,7 +151,7 @@ private struct TestRoot: View {
     @Environment(DiagnoseCoordinator.self) private var coordinator
 
     var body: some View {
-        DiagnoseFlowView(flow: flow, onClose: coordinator.close) { _ in
+        DiagnoseFlowView(flow: flow, onClose: coordinator.close, onExternal: { coordinator.switchToExternal(from: flow) }) { _ in
             ResultRoot()
         }
         .onChange(of: flow.step) { _, step in
@@ -181,6 +184,41 @@ private struct TestRoot: View {
     #endif
 }
 
+/// A test whose sound another device plays: the flow's screens, and its result when it finishes. The counterpart of
+/// `TestRoot`; the result is the same `ResultRoot`.
+private struct ExternalTestRoot: View {
+    let flow: ExternalDiagnoseFlow
+    @Environment(DiagnoseCoordinator.self) private var coordinator
+
+    var body: some View {
+        ExternalDiagnoseFlowView(flow: flow, onClose: coordinator.close) { _ in
+            ResultRoot()
+        }
+        .onChange(of: flow.step) { _, step in
+            if case .finished(let completed) = step { coordinator.testFinished(completed) }
+        }
+        // VoiceOver starts at the top of each new screen of the flow; what changes inside the listening screen
+        // announces itself.
+        .onChange(of: flow.step.screen) { _, new in
+            if new != .finished { UIAccessibility.post(notification: .screenChanged, argument: nil) }
+        }
+        #if DEBUG
+        .task(id: flow.step.screen) { await autostartIfAsked() }
+        #endif
+    }
+
+    #if DEBUG
+    /// `-autostart YES` presses "I have the file" one second after the files appear; the simulated player then presses
+    /// play by itself (`simulatedPlayer`), so an unattended launch runs a whole test to the Result screen.
+    private func autostartIfAsked() async {
+        guard UserDefaults.standard.bool(forKey: "autostart"), case .files = flow.step else { return }
+        try? await Task.sleep(for: .seconds(1))
+        guard !Task.isCancelled, case .files = flow.step else { return }
+        flow.start()
+    }
+    #endif
+}
+
 /// The Result screen of `coordinator.outcome`, with the rename alert.
 private struct ResultRoot: View {
     @Environment(DiagnoseCoordinator.self) private var coordinator
@@ -193,6 +231,8 @@ private struct ResultRoot: View {
                 speaker: outcome.position,
                 keptIn: coordinator.keptIn,
                 phoneMovedNote: ReadingText.phoneMovedNote(runs: outcome.movedRuns),
+                sourceNote: DiagnosisText.sourceNote(outcome.report.source),
+                counterpartSourceLines: outcome.sourceLines,
                 primaryTitle: outcome.next.title,
                 onPrimary: coordinator.primary,
                 onOpenFinding: coordinator.openFinding,

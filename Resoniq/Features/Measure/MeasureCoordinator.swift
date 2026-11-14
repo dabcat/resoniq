@@ -15,6 +15,8 @@ final class MeasureCoordinator {
     enum Content {
         /// A measurement, from Sit and aim to its end.
         case measurement(SeatFlow)
+        /// A measurement whose sound another device plays: the file, then Three spots, then the same result.
+        case externalMeasurement(ExternalSeatFlow)
         /// "Watch the sound live".
         case live(LiveSpectrumModel)
     }
@@ -115,6 +117,27 @@ final class MeasureCoordinator {
         show(.measurement(flow))
     }
 
+    /// Starts a seat measurement whose sound another device plays, from its file. Ignored while a flow or the live view
+    /// is already on screen.
+    func startExternalMeasurement() {
+        guard content == nil else { return }
+        show(.externalMeasurement(makeExternalFlow()))
+        unsaved = nil
+    }
+
+    /// "My speakers can't play from this iPhone" and "Play the test sound from another device": the measurement on screen
+    /// carries on as one whose sound another device plays, from its file. The one it leaves is stopped.
+    func switchToExternal(from flow: SeatFlow) {
+        guard case .measurement(let current) = content, current === flow else { return }
+        flow.cancel()
+        show(.externalMeasurement(makeExternalFlow()))
+    }
+
+    private func makeExternalFlow() -> ExternalSeatFlow {
+        let system = system
+        return ExternalSeatFlow(kind: system?.kind ?? .stereoPair, roomHint: roomHint(for: system), audio: audio)
+    }
+
     /// "Watch the sound live".
     func watchLive() {
         guard content == nil else { return }
@@ -169,6 +192,16 @@ final class MeasureCoordinator {
     /// the one on screen is ignored.
     func measurementFinished(_ report: SeatReport, from flow: SeatFlow) {
         guard case .measurement(let current) = content, current === flow else { return }
+        keep(report)
+    }
+
+    /// The external flow produced a report: kept exactly like a normal measurement (`measurementFinished`).
+    func measurementFinished(_ report: SeatReport, from flow: ExternalSeatFlow) {
+        guard case .externalMeasurement(let current) = content, current === flow else { return }
+        keep(report)
+    }
+
+    private func keep(_ report: SeatReport) {
         var kept: SeatMeasurement?
         if report.isConclusive, let system {
             do {
@@ -208,10 +241,15 @@ final class MeasureCoordinator {
         onSeatKept?(kept)
     }
 
-    /// The scene left the foreground: stop anything that plays or listens. A measurement goes back to Sit and aim, the
-    /// live view stops until it is shown again.
+    /// The scene left the foreground: stop anything that plays or listens. A measurement stops and its screen says why
+    /// (the flow's `suspend()`); the live view stops until it is shown again.
     func suspend() {
-        stopWork()
+        switch content {
+        case .measurement(let flow): flow.suspend()
+        case .externalMeasurement(let flow): flow.suspend()
+        case .live(let model): model.stop()
+        case nil: break
+        }
     }
 
     /// "Delete all results" or "Delete everything": the cover closes, and an unsaved result, a comparison, The numbers
@@ -231,6 +269,7 @@ final class MeasureCoordinator {
     private func stopWork() {
         switch content {
         case .measurement(let flow): flow.cancel()
+        case .externalMeasurement(let flow): flow.cancel()
         case .live(let model): model.stop()
         case nil: break
         }

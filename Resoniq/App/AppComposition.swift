@@ -41,6 +41,8 @@ struct AppComposition {
         // No scan is in progress at launch: a scan file no room refers to (the app stopped on Confirm layout) and a
         // temporary export RoomPlan left behind go.
         _ = try? store.sweepScanFiles()
+        // The test sound files a share sheet handed out last session are not needed any more.
+        TestSoundFolder.sweep()
         if !inMemory { ScanFileStore.removeTemporaryExports(in: URL.temporaryDirectory) }
         let memory = ComparisonMemory()
         let coordinator = DiagnoseCoordinator(store: store, memory: memory, audio: audio)
@@ -53,9 +55,7 @@ struct AppComposition {
         // When the scene leaves the foreground, a running test or measurement is cancelled and the live stream
         // stops. Diagnose's flow is cancelled in place (a result on screen stays); this does not touch its files.
         let lifecycle = AppLifecycle()
-        lifecycle.onLeavingForeground { [coordinator] in
-            if case .test(let flow) = coordinator.content { flow.cancel() }
-        }
+        lifecycle.onLeavingForeground { [coordinator] in coordinator.suspendFlow() }
         // A hold-to-hear tone on a finding (VoiceOver can start one with no finger to lift) stops too.
         lifecycle.onLeavingForeground { [coordinator] in coordinator.stopTone() }
         lifecycle.onLeavingForeground { [measure] in measure.suspend() }

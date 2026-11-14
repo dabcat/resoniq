@@ -57,7 +57,9 @@ struct ThreeSpotsScreen: View {
                     trailing: ResoniqSpace.panelPadding
                 ))
 
-                if let note = display.note {
+                if let notice = display.externalNotice {
+                    ExternalNoticePanel(notice: notice)
+                } else if let note = display.note {
                     SpotNoticePanel(note: note)
                 } else {
                     HStack(alignment: .top, spacing: Metrics.readingGap) {
@@ -78,6 +80,8 @@ struct ThreeSpotsScreen: View {
         .onChange(of: display.level.hint) { _, hint in
             if let hint { AccessibilityNotification.Announcement("\(display.level.value). \(hint)").post() }
         }
+        // What the phone hears that is not the test sound, or why the file is to be played again at this spot.
+        .announcesNotice(display.externalNotice)
         // The haptic marks a spot captured; the headline changes to "Got the seat spot." and is announced above.
         .sensoryFeedback(.impact(flexibility: .rigid), trigger: display.capturedCount) { old, new in new > old }
     }

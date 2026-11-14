@@ -21,6 +21,7 @@ launch the app and test a speaker immediately.
 | 4 | Optimize: room scan and layout | done | [phase-4-room](plans/phase-4-room.md) | #4 |
 | 5 | Optimize: AR guidance and before/after | done | [phase-5-ar](plans/phase-5-ar.md) | #4 |
 | 6 | AI diagnostics and finish | done | [phase-6-ai-finish](plans/phase-6-ai-finish.md) | #4 |
+| 7 | Playing the test sound from another device | done | [phase-7-external-playback](plans/phase-7-external-playback.md) | #5 |
 
 Phases 2 to 6 are one pull request: the review fixes for phase 2 were made on the phase 3 branch, and the later
 phases followed on it. "Done" means the code and its tests exist, the screens run in the simulator on simulated

@@ -69,6 +69,9 @@ private struct MeasureCover: View {
             case .measurement(let flow):
                 MeasurementRoot(flow: flow)
                     .id(coordinator.contentID)
+            case .externalMeasurement(let flow):
+                ExternalMeasurementRoot(flow: flow)
+                    .id(coordinator.contentID)
             case .live(let model):
                 LiveSpectrumScreen(model: model, onClose: coordinator.close)
                     .id(coordinator.contentID)
@@ -89,7 +92,10 @@ private struct MeasurementRoot: View {
     @Environment(MeasureCoordinator.self) private var coordinator
 
     var body: some View {
-        SeatFlowView(flow: flow, room: coordinator.roomName, onClose: coordinator.close) { _ in
+        SeatFlowView(
+            flow: flow, room: coordinator.roomName, onClose: coordinator.close,
+            onExternal: { coordinator.switchToExternal(from: flow) }
+        ) { _ in
             ResoniqColor.ink.ignoresSafeArea()
         }
         .onChange(of: flow.step) { _, step in
@@ -115,6 +121,40 @@ private struct MeasurementRoot: View {
         guard UserDefaults.standard.bool(forKey: "autostart"), case .guide = flow.step else { return }
         try? await Task.sleep(for: .seconds(1))
         guard !Task.isCancelled, case .guide = flow.step else { return }
+        flow.start()
+    }
+    #endif
+}
+
+/// A measurement whose sound another device plays: the flow's screens, and a blank frame while it hands its report to
+/// the coordinator, which closes the cover. The counterpart of `MeasurementRoot`.
+private struct ExternalMeasurementRoot: View {
+    let flow: ExternalSeatFlow
+    @Environment(MeasureCoordinator.self) private var coordinator
+
+    var body: some View {
+        ExternalSeatFlowView(flow: flow, onClose: coordinator.close) { _ in
+            ResoniqColor.ink.ignoresSafeArea()
+        }
+        .onChange(of: flow.step) { _, step in
+            if case .finished(let report) = step { coordinator.measurementFinished(report, from: flow) }
+        }
+        // VoiceOver starts at the top of each new screen of the flow; what changes inside Three spots announces itself.
+        .onChange(of: flow.step.screen) { _, new in
+            if new != .finished { UIAccessibility.post(notification: .screenChanged, argument: nil) }
+        }
+        #if DEBUG
+        .task(id: flow.step.screen) { await autostartIfAsked() }
+        #endif
+    }
+
+    #if DEBUG
+    /// `-autostart YES` presses "I have the file" one second after the file appears; the simulated player then presses
+    /// play at each spot by itself (`simulatedPlayer`), so an unattended launch runs a whole measurement to the end.
+    private func autostartIfAsked() async {
+        guard UserDefaults.standard.bool(forKey: "autostart"), case .files = flow.step else { return }
+        try? await Task.sleep(for: .seconds(1))
+        guard !Task.isCancelled, case .files = flow.step else { return }
         flow.start()
     }
     #endif

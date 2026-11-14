@@ -121,33 +121,70 @@ struct RunDisplay: Equatable {
         }
 
         // The three readings.
+        let readings: Readings
         if let progress {
-            room = Reading(
-                title: "Room",
-                value: DiagnoseText.room(progress.roomLevel, isQuiet: progress.isRoomQuiet),
-                spoken: DiagnoseText.spokenRoom(progress.roomLevel, isQuiet: progress.isRoomQuiet)
-            )
-            let levelText = DiagnoseText.level(progress)
-            let advice = DiagnoseText.levelAdvice(progress)
-            level = Reading(
-                title: "Level", value: levelText,
-                spoken: ["Level: \(levelText.lowercased()).", advice].compactMap { $0 }.joined(separator: " "),
-                hint: advice
-            )
-            let phoneText = DiagnoseText.phone(isSteady: progress.isPhoneSteady)
-            phone = Reading(title: "Phone", value: phoneText, spoken: "Phone: \(phoneText.lowercased()).")
-            roomNoise = RoomNoise(
-                value: DiagnoseText.decibels(progress.roomLevel),
-                level: DiagnoseText.barFraction(progress.roomLevel),
-                mark: progress.quietEnoughLevel.map(DiagnoseText.barFraction) ?? 0,
-                isQuiet: progress.isRoomQuiet
+            readings = Readings(
+                roomLevel: progress.roomLevel, isRoomQuiet: progress.isRoomQuiet, quietEnoughLevel: progress.quietEnoughLevel,
+                isClipping: progress.isClipping, frequency: progress.frequency, peakDecibels: progress.inputPeakDecibels,
+                isPhoneSteady: progress.isPhoneSteady
             )
         } else {
-            room = Reading(title: "Room", value: "–", spoken: "Room: not measured yet.")
-            level = Reading(title: "Level", value: "–", spoken: "Level: not measured yet.")
-            phone = Reading(title: "Phone", value: "–", spoken: "Phone: not measured yet.")
-            roomNoise = RoomNoise(value: "–", level: 0, mark: 0, isQuiet: false)
+            readings = .notMeasured
         }
+        room = readings.room
+        level = readings.level
+        phone = readings.phone
+        roomNoise = readings.roomNoise
+    }
+
+    /// Room, Level and Phone, and the room-noise bar, from what a session reports. The one place the three are worded,
+    /// for the flows that listen to a sweep we play and those that listen to one another device plays.
+    struct Readings: Equatable {
+        var room: Reading
+        var level: Reading
+        var phone: Reading
+        var roomNoise: RoomNoise
+
+        init(
+            roomLevel: SoundLevel, isRoomQuiet: Bool, quietEnoughLevel: SoundLevel?, isClipping: Bool, frequency: Double?,
+            peakDecibels: Float, isPhoneSteady: Bool
+        ) {
+            room = Reading(
+                title: "Room",
+                value: DiagnoseText.room(roomLevel, isQuiet: isRoomQuiet),
+                spoken: DiagnoseText.spokenRoom(roomLevel, isQuiet: isRoomQuiet)
+            )
+            let input = InputLevel(isClipping: isClipping, frequency: frequency, peakDecibels: peakDecibels)
+            let advice = input.advice
+            level = Reading(
+                title: "Level", value: input.label,
+                spoken: ["Level: \(input.label.lowercased()).", advice].compactMap { $0 }.joined(separator: " "),
+                hint: advice
+            )
+            let phoneText = DiagnoseText.phone(isSteady: isPhoneSteady)
+            phone = Reading(title: "Phone", value: phoneText, spoken: "Phone: \(phoneText.lowercased()).")
+            roomNoise = RoomNoise(
+                value: DiagnoseText.decibels(roomLevel),
+                level: DiagnoseText.barFraction(roomLevel),
+                mark: quietEnoughLevel.map(DiagnoseText.barFraction) ?? 0,
+                isQuiet: isRoomQuiet
+            )
+        }
+
+        private init(room: Reading, level: Reading, phone: Reading, roomNoise: RoomNoise) {
+            self.room = room
+            self.level = level
+            self.phone = phone
+            self.roomNoise = roomNoise
+        }
+
+        /// Before the first block.
+        static let notMeasured = Readings(
+            room: Reading(title: "Room", value: "–", spoken: "Room: not measured yet."),
+            level: Reading(title: "Level", value: "–", spoken: "Level: not measured yet."),
+            phone: Reading(title: "Phone", value: "–", spoken: "Phone: not measured yet."),
+            roomNoise: RoomNoise(value: "–", level: 0, mark: 0, isQuiet: false)
+        )
     }
 
     /// Memberwise, for previews.
@@ -219,10 +256,12 @@ final class DiagnoseFlow {
         case analysing
         case finished(Completed)
         case failed(Failure)
+        /// The scene left the foreground while it listened; the test was stopped, and the screen says why.
+        case stopped
 
         /// Which screen shows, for transitions: two steps with the same screen are not a change of screen.
         enum Screen: Hashable {
-            case aim, listening, paused, analysing, finished, denied, failed
+            case aim, listening, paused, analysing, finished, denied, failed, stopped
         }
 
         var screen: Screen {
@@ -234,6 +273,15 @@ final class DiagnoseFlow {
             case .finished: .finished
             case .failed(.permissionDenied): .denied
             case .failed: .failed
+            case .stopped: .stopped
+            }
+        }
+
+        /// Whether the screen must stay on: the phone listens, or the runs are being put together.
+        var needsScreenAwake: Bool {
+            switch self {
+            case .listening, .paused, .analysing: true
+            default: false
             }
         }
     }
@@ -242,6 +290,8 @@ final class DiagnoseFlow {
         case aim
         case running(MeasurementSession)
         case finished(Completed)
+        /// Stopped because the app left the foreground; `start()` listens again.
+        case stopped
     }
 
     /// The speaker to test. Chosen on Aim, fixed once the test starts.
@@ -258,13 +308,10 @@ final class DiagnoseFlow {
     @ObservationIgnored private let configuration: MeasurementConfiguration
     @ObservationIgnored private var runTask: Task<Void, Never>?
     @ObservationIgnored private var progressTask: Task<Void, Never>?
-    @ObservationIgnored private var envelope: LevelEnvelope
-    @ObservationIgnored private var sweep: LogSweep
-    @ObservationIgnored private var envelopeRun = 1
 
     private var phase: Phase = .aim
-    private var liveWidths: [Double] = []
-    private var liveHeardUpTo: Double?
+    /// The portrait as it fills while a run plays.
+    private var live: LivePortrait
 
     /// While a run is paused for noise: what the noise sounded like ("It sounds like someone talking." and its tag
     /// line), from the Kit's sound classifier on the session's paused audio; nil until it is known, when nothing
@@ -296,8 +343,7 @@ final class DiagnoseFlow {
         self.configuration = configuration
         // The sweep is only used for its time-to-frequency map, which does not depend on the rate; 48 kHz keeps
         // its top frequency at the configured one.
-        self.sweep = configuration.sweep(sampleRate: 48_000)
-        self.envelope = LevelEnvelope(sampleRate: Self.envelopeRate)
+        self.live = LivePortrait(sweep: configuration.sweep(sampleRate: 48_000))
     }
 
     // MARK: What the screens read
@@ -306,6 +352,7 @@ final class DiagnoseFlow {
         switch phase {
         case .aim: .aim
         case .finished(let completed): .finished(completed)
+        case .stopped: .stopped
         case .running(let session): Self.step(for: session.state)
         }
     }
@@ -329,8 +376,8 @@ final class DiagnoseFlow {
             progress: progress,
             position: position,
             runCount: runCount,
-            widths: liveWidths,
-            heardUpTo: liveHeardUpTo
+            widths: live.widths,
+            heardUpTo: live.heardUpTo
         )
         if case .paused = state { display.interference = noiseNote }
         return display
@@ -401,6 +448,15 @@ final class DiagnoseFlow {
         stopWork()
     }
 
+    /// The app left the foreground. A test that was listening is stopped and says why (`.stopped`), instead of
+    /// quietly going back to Aim; a test that has ended, or not begun, is left as it is.
+    func suspend() {
+        // `.idle` is the moment the microphone is being asked for, and the system's own alert takes the scene's focus.
+        guard case .running(let session) = phase, session.state != .idle, !session.state.isFinal else { return }
+        stopWork()
+        phase = .stopped
+    }
+
     // MARK: Following the session
 
     private func stopWork() {
@@ -445,7 +501,10 @@ final class DiagnoseFlow {
 
     /// Each run's response and distortion (about a second a run, the runs side by side), then the comparison of the
     /// runs. Off the main actor.
-    @concurrent nonisolated private static func analyse(
+    ///
+    /// Also what `ExternalDiagnoseFlow` runs on the result of a listening session: the result carries how the sound was
+    /// played, and the report says so (`SoundSource`).
+    @concurrent nonisolated static func analyse(
         _ result: MeasurementResult,
         counterpart: [RunAnalysis]?
     ) async -> (SpeakerReport, [RunAnalysis]) {
@@ -463,7 +522,10 @@ final class DiagnoseFlow {
             return collected.sorted { $0.0 < $1.0 }.map(\.1)
         }
         let moved = result.runs.filter(\.phoneMoved).map(\.run)
-        return (SpeakerDiagnosis.diagnose(runs: analyses, counterpart: counterpart, phoneMovedRuns: moved), analyses)
+        let report = SpeakerDiagnosis.diagnose(
+            runs: analyses, counterpart: counterpart, phoneMovedRuns: moved, source: result.source.soundSource
+        )
+        return (report, analyses)
     }
 
     static func channel(for position: SpeakerPosition) -> SpeakerChannel {
@@ -476,38 +538,22 @@ final class DiagnoseFlow {
 
     // MARK: The live portrait
 
-    /// The envelope is kept at 1 kHz: the portrait only needs the level at each moment of the sweep, and the
-    /// session reports one block every 100 ms.
-    private static let envelopeRate = 1_000.0
-    /// A sweep position this far behind what is drawn means the run started again from the beginning (a resume
-    /// only backs up by the overlap, well under this).
-    private static let restartTolerance = 1.0
-
     private func resetLive() {
-        envelope = LevelEnvelope(sampleRate: Self.envelopeRate)
-        envelopeRun = 1
-        liveWidths = []
-        liveHeardUpTo = nil
+        live.reset()
     }
 
-    /// Adds one block's level at the moment of the sweep it carries, then redraws the portrait from the Kit's
-    /// `PortraitProfile.live`. The delay is 0 because `progress.frequency` is already the frequency arriving now.
+    /// Adds one block's level to the live portrait (`LivePortrait`).
     private func ingest(_ progress: MeasurementProgress) {
-        if progress.run != envelopeRun {
-            resetLive()
-            envelopeRun = progress.run
+        live.ingest(run: progress.run, frequency: progress.frequency, level: progress.inputLevel)
+    }
+}
+
+extension PlaybackSource {
+    /// How the report keeps who played the sound: nothing for this phone (the normal way), "another device" otherwise.
+    nonisolated var soundSource: SoundSource? {
+        switch self {
+        case .thisPhone: nil
+        case .anotherDevice: .anotherDevice
         }
-        guard let frequency = progress.frequency else { return }
-        let moment = sweep.time(of: frequency)
-        if moment < envelope.duration - Self.restartTolerance {
-            envelope = LevelEnvelope(sampleRate: Self.envelopeRate)
-        }
-        let missing = Int(((moment - envelope.duration) * Self.envelopeRate).rounded())
-        guard missing > 0 else { return }
-        let amplitude = Decibels.toAmplitude(progress.inputLevel.dBFS)
-        envelope.append([Float](repeating: amplitude, count: missing))
-        let profile = PortraitProfile.live(envelope: envelope, sweep: sweep, delay: 0)
-        liveWidths = profile.widths.map(Double.init)
-        liveHeardUpTo = profile.heardUpTo.map(Double.init)
     }
 }

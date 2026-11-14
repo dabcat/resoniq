@@ -245,6 +245,51 @@ Do: listen for clicks when a test is paused, cancelled or finished, and when hol
 Expect: none (stops fade over 6 ms).
 Write down: where a click was heard; the phone model.
 
+## 9. Playing the test sound from another device
+
+Needs a second device that plays files into the sound system (a laptop, a streamer, a CD or USB player) and the
+WAV files from Settings → Test sound files, sent over with AirDrop or Files.
+
+**9.1 Getting the files. Blocks.**
+Do: Settings → Test sound files; share each file; play one on the other device.
+Expect: the share sheet opens every time, also the second time; the file plays as a few seconds of silence, a steady tone, then the sweeps, at a moderate level.
+Write down: a file that would not share or play; the player and its format support (24-bit or only 16-bit).
+
+**9.2 A speaker test at 1 m. Blocks.**
+Do: Diagnose → Aim → the link for playing from another device; "I'm ready"; press play on the other device.
+Expect: "Press play now", then the app says it hears the test sound, counts three runs and shows a result with "Measured from a test sound played on another device." The result agrees with a normal test of the same speaker (2.4) within a few decibels.
+Write down: whether it recognised the sound; how the result differs from the normal test; the reason shown when it asked to play again.
+
+**9.3 From the listening seat. Blocks.**
+Do: the same from the seat, 2–4 m away, in a live (reverberant) room.
+Expect: the sound is still recognised. This is where the room's reflections are stronger than the direct sound.
+Write down: "not recognised" at the seat when 1 m worked; the distance and the room.
+
+**9.4 The seat measurement. Blocks.**
+Do: Measure → Sit and aim → the link; play the seat file once at each of the three spots.
+Expect: each spot is captured after its file; the app asks for the next spot; a result like 3.3 with the source note.
+Write down: a spot that needed the file twice and why; the wrong file (a speaker-test file) being accepted.
+
+**9.5 The right file through the real system. Blocks.**
+Do: play the "right" speaker-test file while testing the left speaker, and the reverse; play a file after skipping its first second.
+Expect: the app says which file it heard and asks for the right one; a file started late is refused or asked again, never measured as something else.
+Write down: a wrong file accepted; a player that mutes or fades the first half second.
+
+**9.6 Stopping part-way and noise. Blocks.**
+Do: stop the player during the third sweep; in another try, talk during one sweep; in another, pause and resume the player.
+Expect: an incomplete or spoiled run is not kept; the app keeps the good runs and asks for the file again. A rattle that comes back at the same place in every sweep is treated as the speaker's, not as room noise.
+Write down: a truncated or paused run that produced a result; the reason text shown.
+
+**9.7 The player's clock and format. Tune.**
+Do: use a player with a different sample rate (44.1 kHz output), a Bluetooth link, and a lossy copy of the file (AAC or MP3) if you want to see the effect.
+Expect: a small clock difference is corrected silently; one too large is refused with a reason. A lossy copy may still measure; its top octave and distortion figures are not to be trusted (the screen says to play the WAV).
+Write down: the player, its rate, whether it measured, and how the curve differs from 9.2.
+
+**9.8 Screen and background. Blocks.**
+Do: leave the phone alone for a whole measurement with auto-lock at 30 seconds; in another try, press the lock button during listening.
+Expect: the screen stays on while listening; after the lock button the app says it stopped because it went to the background and offers to start again. The microphone permission alert on the first run does not cancel the measurement.
+Write down: a lock during listening; a silent return to the first screen.
+
 ## Constants to tune
 
 Each is a first guess checked only against simulated rooms and speakers. When a step above says "Tune", change

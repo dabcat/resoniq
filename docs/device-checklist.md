@@ -320,6 +320,23 @@ phone ([plan](plans/phase-9-keep-recordings.md)).
 | 11.7 | Finder, the phone, Files tab | Resoniq is listed (file sharing) with its Documents folder |
 | 11.8 | With the setting off (the default) | No folder is ever written |
 
+## 12. Sharing recordings
+
+The client was tested on the Mac against stubs and a `URLProtocol` stand-in; nothing here has run against the real
+Worker, on a phone or on real Wi-Fi ([plan](plans/phase-10-share-recordings.md)).
+
+| # | Check | Expect |
+|---|---|---|
+| 12.1 | Deploy the Worker (`cloud/share-worker/README.md`); put `RESONIQ_SHARE_URL = https:/$()/<your host>` in `Config/Signing.local.xcconfig`; `make phone DEVICE=…` | Settings, Recordings shows "Share recordings for research", off |
+| 12.2 | A build with the line removed | No sharing row, and the privacy line says "Nothing leaves your iPhone." |
+| 12.3 | Turn it on; read the sheet; Cancel; then turn it on and press Share | Cancel leaves it off; Share turns it on and "Keep recordings" with it, and says so |
+| 12.4 | On Wi-Fi, test one speaker and keep it | Within seconds the status says 1 sent; the bucket has `examples/<installId>/<exampleId>/` with `manifest.json`, `noise-floor.wav`, `run-1.wav` … ; the manifest has no room, system or route name and a `createdAt` at midnight |
+| 12.5 | Wi-Fi off (cellular only), keep a test | The status says it is waiting for Wi-Fi; back on Wi-Fi, reopen the app: it is sent |
+| 12.6 | Turn sharing off; keep a test | Nothing is sent (the bucket does not change); "Send the recordings I already have" appears after turning it on again, and sends it only when pressed |
+| 12.7 | Delete what I shared, confirm | The status clears; the installation's folder and `installs/<installId>.json` are gone from the bucket; works with sharing off too |
+| 12.8 | Turn "Keep recordings" off | Sharing turns off |
+| 12.9 | Local run in the simulator: `wrangler dev --port 8787`, `RESONIQ_SHARE_URL = http:/$()/localhost:8787`, Debug build | 12.4 and 12.7 against `cloud/share-worker/.wrangler/state/` |
+
 ## Constants to tune
 
 Each is a first guess checked only against simulated rooms and speakers. When a step above says "Tune", change
@@ -345,3 +362,4 @@ the constant where it lives, with a test, and note it in the module's note. Path
 | Layout guess and tolerances | wall distance 0.6 m, spacing 1–3 m, angle 10° | [ResoniqRoom constants](modules/ResoniqRoom.md#thresholds-and-constants), e.g. `ListeningGeometry.angleTolerance`, `ResoniqRoom/Geometry/ListeningGeometry.swift:13` | 4.3 |
 | Placement advice weights | penalties, couplings, limits | `PlacementAdvisor` and `PlacementLimits.standard`, `ResoniqRoom/Advice/Suggestion.swift:206` | 5.4 |
 | AR guide | 3 cm, 3°, haptic interval 0.08–0.8 s, dark below 120 lm, alignment residual 0.10 m | `MoveGuidance`, `ARTrackingIssue`, `WorldAlignment`, `ResoniqRoom/Guidance/MoveGuidance.swift:60`, `ARGuidanceState.swift:29`, `WorldAlignment.swift:13` | 5.2, 5.3 |
+| Sharing retry | 1 min doubling to 6 h; request timeout 60 s, resource 10 min | `ShareQueue.retryDelay`, `HTTPShareTransport.configuration`, `ResoniqShare/` | 12.5 |

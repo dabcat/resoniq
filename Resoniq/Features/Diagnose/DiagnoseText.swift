@@ -128,7 +128,7 @@ enum DiagnoseText {
         switch failure {
         case .permissionDenied:
             "I play a test sound and listen to it to see how your speaker behaves, so I need the microphone. "
-                + "Sound stays on this iPhone. You can allow it in Settings."
+                + "Sound stays on this iPhone unless you choose to share your recordings. You can allow the microphone in Settings."
         case .interrupted:
             "A call, an alarm or another app used the audio, so I stopped. Nothing from this test was kept."
         case .routeChanged:

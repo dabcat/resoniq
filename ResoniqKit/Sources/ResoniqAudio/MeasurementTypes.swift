@@ -88,6 +88,29 @@ public struct RunRecording: Sendable, Equatable {
     /// per million; nil otherwise. More than `ExternalListening.clockAgreementPPM` and the spacing was used: the phone
     /// probably moved while the tone played.
     public var clockDisagreementPPM: Double? = nil
+
+    public init(
+        run: Int, samples: [Float], sampleRate: Double, leadIn: Int, arrivalDelay: Double?, verdict: RecordingVerdict,
+        spliceCount: Int, phoneMoved: Bool, attempt: Int, sweepTiedSound: ClosedRange<Double>? = nil,
+        takeOffsets: [Double] = [], measuredDelay: Double? = nil, clockRatio: Double? = nil,
+        clockSource: ClockSource? = nil, clockDisagreementPPM: Double? = nil
+    ) {
+        self.run = run
+        self.samples = samples
+        self.sampleRate = sampleRate
+        self.leadIn = leadIn
+        self.arrivalDelay = arrivalDelay
+        self.verdict = verdict
+        self.spliceCount = spliceCount
+        self.phoneMoved = phoneMoved
+        self.attempt = attempt
+        self.sweepTiedSound = sweepTiedSound
+        self.takeOffsets = takeOffsets
+        self.measuredDelay = measuredDelay
+        self.clockRatio = clockRatio
+        self.clockSource = clockSource
+        self.clockDisagreementPPM = clockDisagreementPPM
+    }
 }
 
 /// Where a run played by another device got its clock from.
@@ -126,6 +149,21 @@ public struct MeasurementResult: Sendable, Equatable {
     public var outputRoute: AudioOutputRoute? = nil
     /// What the phone heard through when the test opened; nil when the IO could not tell.
     public var inputRoute: AudioInputRoute? = nil
+
+    public init(
+        channel: SpeakerChannel, sweep: LogSweep, noiseFloor: NoiseFloorReport, runs: [RunRecording],
+        source: PlaybackSource = .thisPhone, noiseFloorSamples: [Float] = [], outputRoute: AudioOutputRoute? = nil,
+        inputRoute: AudioInputRoute? = nil
+    ) {
+        self.channel = channel
+        self.sweep = sweep
+        self.noiseFloor = noiseFloor
+        self.runs = runs
+        self.source = source
+        self.noiseFloorSamples = noiseFloorSamples
+        self.outputRoute = outputRoute
+        self.inputRoute = inputRoute
+    }
 }
 
 /// What the Listening and Paused screens show while a test runs.

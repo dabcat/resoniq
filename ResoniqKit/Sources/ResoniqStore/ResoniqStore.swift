@@ -17,18 +17,25 @@ public final class ResoniqStore {
     /// Where scan files live. Nil: the store keeps no files and never touches the disk beyond the database.
     public let scanFiles: ScanFileStore?
 
+    /// Where kept tests' recordings live. Nil: no recording is ever kept.
+    public let recordings: RecordingStore?
+
     /// Called after "Delete all results" and "Delete everything" have saved, so whatever the app holds in memory about
     /// deleted data (a comparison memory, an unsaved result, a pushed screen) can be dropped in one place.
     public var onDataReset: (@MainActor () -> Void)?
 
-    public init(container: ModelContainer, scanFiles: ScanFileStore? = nil, context: ModelContext? = nil) {
+    public init(
+        container: ModelContainer, scanFiles: ScanFileStore? = nil, recordings: RecordingStore? = nil,
+        context: ModelContext? = nil
+    ) {
         self.container = container
         self.scanFiles = scanFiles
+        self.recordings = recordings
         self.context = context ?? container.mainContext
     }
 
     /// A store on disk (local only) or, for tests and previews, in memory.
-    public convenience init(inMemory: Bool = false, scanFiles: ScanFileStore? = nil) throws {
+    public convenience init(inMemory: Bool = false, scanFiles: ScanFileStore? = nil, recordings: RecordingStore? = nil) throws {
         let configuration = ModelConfiguration(
             "Resoniq",
             schema: Schema(versionedSchema: ResoniqSchemaV2.self),
@@ -37,7 +44,7 @@ public final class ResoniqStore {
             groupContainer: .none,
             cloudKitDatabase: .none
         )
-        self.init(container: try Self.makeContainer(configuration), scanFiles: scanFiles)
+        self.init(container: try Self.makeContainer(configuration), scanFiles: scanFiles, recordings: recordings)
     }
 
     public static func makeContainer(_ configuration: ModelConfiguration) throws -> ModelContainer {
@@ -104,21 +111,25 @@ public final class ResoniqStore {
         try context.save()
     }
 
-    /// Deletes the room, its systems and everything of theirs (tests, seat measurements, optimisations), and its
-    /// scan file.
+    /// Deletes the room, its systems and everything of theirs (tests and their recordings, seat measurements,
+    /// optimisations), and its scan file.
     public func delete(_ room: Room) throws {
         clearSelection(ifIn: room.systems)
         let scanFile = room.scanFileName
+        let recordingNames = room.systems.flatMap(\.tests).compactMap(\.recordingFileName)
         context.delete(room)
         try context.save()
         if let scanFile { scanFiles?.delete(scanFile) }
+        for name in recordingNames { recordings?.delete(name) }
     }
 
-    /// Deletes the system and its tests, seat measurements and optimisations.
+    /// Deletes the system and its tests (with their recordings), seat measurements and optimisations.
     public func delete(_ system: SoundSystem) throws {
         clearSelection(ifIn: [system])
+        let recordingNames = system.tests.compactMap(\.recordingFileName)
         context.delete(system)
         try context.save()
+        for name in recordingNames { recordings?.delete(name) }
     }
 
     // MARK: Selection
@@ -174,10 +185,12 @@ public final class ResoniqStore {
         try context.save()
     }
 
-    /// "Don't keep".
+    /// "Don't keep": the test and its recording.
     public func discard(_ test: SpeakerTest) throws {
+        let recording = test.recordingFileName
         context.delete(test)
         try context.save()
+        if let recording { recordings?.delete(recording) }
     }
 
     /// The most recent test of that speaker, for the home screen.

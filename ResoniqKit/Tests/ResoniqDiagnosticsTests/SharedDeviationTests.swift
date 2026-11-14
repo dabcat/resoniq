@@ -66,6 +66,21 @@ import Testing
         #expect(dip.isSuspectedDefect)
     }
 
+    @Test func `a peak most of an octave away on the other speaker is not the same peak`() throws {
+        // Seen on two real speakers: a peak at 350–490 Hz on one and at 765–1075 Hz on the other. Their edges are
+        // under two thirds of an octave apart, their middles more than an octave.
+        let report = SpeakerDiagnosis.diagnose(runs: Self.runs([(414, 9)]), counterpart: Self.runs([(907, 9)]))
+        let peak = try #require(report.findings.first { $0.kind == .responsePeak })
+        #expect(peak.sharedWithOtherSpeaker == nil)
+        #expect(peak.isSuspectedDefect)
+    }
+
+    @Test func `a peak a quarter of an octave off on the other speaker is the same peak`() throws {
+        let report = SpeakerDiagnosis.diagnose(runs: Self.runs([(400, 9)]), counterpart: Self.runs([(475, 9)]))
+        let peak = try #require(report.findings.first { $0.kind == .responsePeak })
+        #expect(peak.sharedWithOtherSpeaker == true)
+    }
+
     @Test func `what is shared and what is not are told apart in one report`() throws {
         let report = SpeakerDiagnosis.diagnose(runs: Self.runs([(400, 9), (3000, -9)]), counterpart: Self.runs([(400, 9)]))
         #expect(report.suspectedDefects.map(\.kind) == [.responseDip])

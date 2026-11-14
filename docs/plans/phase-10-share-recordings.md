@@ -68,8 +68,8 @@ Rules:
 | # | Task | Module | Model | Status |
 |---|---|---|---|---|
 | 1 | The Worker, its tests, `wrangler.toml`, and a README with the owner's steps to deploy it | cloud | Sonnet | done |
-| 2 | `ResoniqShare`: client, queue, preference, shared manifest, tests with a stub transport | Kit | Opus | todo |
-| 3 | App: Settings section, consent screen, wiring to kept tests, privacy manifest, the changed privacy sentences | App | Opus | todo |
+| 2 | `ResoniqShare`: client, queue, preference, shared manifest, tests with a stub transport | Kit | Opus | done |
+| 3 | App: Settings section, consent screen, wiring to kept tests, privacy manifest, the changed privacy sentences | App | Opus | done |
 | 4 | Review; CLAUDE.md, ARCHITECTURE, module notes, device checklist | — | Fable | todo |
 
 Done when: `make test` and `make build` pass, the Worker's tests pass, and with a local Worker (`wrangler dev`) a
@@ -94,6 +94,91 @@ Task 1 (the Worker), as built in `cloud/share-worker/`:
   default limit of 10 would refuse the eleventh test registration). Base URL `http://localhost:8787`.
 - Not verified: a real deployment, R2 behaviour on Cloudflare's side (tests and `wrangler dev` use the local
   simulation), and the free-plan 10 ms CPU limit under a 4 MB upload.
+
+Tasks 2 and 3 (the Kit module and the app), as built:
+
+**The shared manifest, field by field** (`RecordingManifest.shared()`; `SharedManifestTests` lists every stored field
+by reflection and fails when one is added, so each new field gets decided here):
+
+| Field | Shared | Why |
+|---|---|---|
+| `schemaVersion`, `kind` | Kept | Needed to read the file; say nothing about anyone |
+| `createdAt` | The day only | The calendar day where the person is, written as midnight UTC: no time of day, and no time zone (which would hint at where they live). The day is kept to order a dataset and to see a change of app version |
+| `sampleRate`, `playback` | Kept | Measurement |
+| `device.model` | Kept | The hardware identifier (`iPhone18,2`): its microphone is what the thresholds are tuned for. Millions of phones share it. The device's given name is never read anywhere in the app |
+| `device.systemName`, `systemVersion`, `appVersion` | Kept | The audio stack and the analysis that made the report |
+| `audioRoute.output`, `.input` | Kind only | The kind (AirPlay, Bluetooth, built-in microphone…) changes the measurement; the name ("Anna's AirPods", "Living Room") can hold a person's or a device's name |
+| `speaker.position`, `.channel` | Kept | Measurement |
+| `speaker.make`, `.model`, `.unitID` | Left out | Never written yet; free text or a serial once they are. To be decided when something writes them |
+| `system.name` | Left out | Typed by the person |
+| `system.kind` | Kept | Stereo pair, soundbar…: part of the measurement |
+| `room` | Left out | Its only field is the name the person typed |
+| `sweep`, `noiseFloor`, `runs` | Kept | The measurement itself: parameters, file names (`run-1.wav`), sample counts, delays, checks, splices, phone movement, clock ratios |
+| `report` | Kept | Made from the runs alone (`SpeakerDiagnosis` takes no names); the test checks the encoded report holds no name |
+| `label.value`, `.how`, `.confidence` | Kept | What a label says (never written yet) |
+| `label.givenBy` | Left out | A person |
+
+The folder's name (`2026-11-14_153012_left_…`) holds the time of day, so it is never sent: each queued test gets a
+fresh random 32-hex `exampleId`, kept in the queue's state.
+
+**Requests the app makes, and when.** None in a build without `RESONIQ_SHARE_URL`: `ShareSetup` returns nil and
+no transport exists. With it and sharing off: none (`ShareQueueTests` runs every entry point against a transport
+that fails the test on any call, and a mutation that drops the consent check makes it fail). With sharing on: when
+a kept test's recording is on disk, `POST /v1/installs` if no installation is kept, then `PUT manifest.json`,
+`noise-floor.wav`, `run-1.wav` … one file at a time; the same at launch and on each return to the foreground for
+what is due; `DELETE /v1/installs/<id>` on "Delete what I shared", only if an installation is kept.
+
+**What differs from the plan, and the choices made:**
+
+- **Foreground uploads, not a background session.** A background `URLSession` needs app-delegate wiring
+  (`handleEventsForBackgroundURLSession`) and delegate callbacks, and a kept test is a few megabytes, seconds on
+  Wi-Fi. The person keeps a test, the result is on screen, and the upload runs while they read it. If they close
+  the app first, the upload stops and is tried again the next time Resoniq opens (or comes back to the
+  foreground). Nothing is said outside Settings.
+- **`waitsForConnectivity` is false.** With no Wi-Fi a request fails at once and the test waits for its backoff,
+  rather than holding a task open for minutes.
+- **Retries happen at moments, not on a timer**: launch, return to the foreground, and each kept test. A failed
+  test waits 1 minute, doubling to 6 hours (first guess), or the service's `Retry-After` if longer.
+- **"Delete what I shared" clears the whole queue**, waiting tests included, not only the sent list: after a delete
+  nothing kept before goes again unless the person asks ("Send the recordings I already have"). Sharing itself is
+  left as it was. It may use cellular (the only request that may): someone who wants their recordings gone should
+  not need Wi-Fi.
+- **A 401 or 404 on upload** forgets the installation, registers once, and sends that example whole again (what it
+  had stored went with the old installation); refused again, the queue stops until sharing is turned on again or
+  the person deletes. The Worker answers 401 for an installation deleted on the service.
+- **A file over 4 MB** (inclusive limit, from the Worker) is never sent; that test is marked refused, the others go
+  on. So are 413 and 400.
+- **Consent has a version** (`SharePreference.currentConsentVersion`, 1): when the consent words change, raising it
+  turns sharing off until the person confirms again.
+- **The consent screen's confirming button** is the design system's primary pill at the foot of the sheet
+  ("Share"), with Cancel at the top leading corner as a sheet's bar has it (HIG). A top-trailing text link would be
+  the HIG's other placement; the design system has one primary action per screen, and this is it.
+- **The queue's state** is `Documents/.share-queue.json` (hidden from Files, excluded from backup): folder names,
+  example ids, sent files, attempts. No token: the token and installation id are one Keychain item, this device
+  only, which survives deleting the app so a reinstall can still delete what was shared.
+- **Debug-only local networking**: `Info.plist` is preprocessed (`INFOPLIST_PREPROCESS`), and an
+  `#if RESONIQ_LOCAL_NETWORKING` block adds `NSAllowsLocalNetworking`; the definition is set for Debug only. The
+  built Release `Info.plist` was checked: no `NSAppTransportSecurity` key. `ShareConfiguration` refuses http to
+  any host but `localhost` and `127.0.0.1`.
+- **Privacy sentences changed**: Settings' privacy line and the Keep recordings sentence (both say "unless you turn
+  on sharing below" only in a build that has sharing), the microphone permission string, the Aim screen's footer,
+  the Diagnose "microphone denied" text ("stays on this iPhone unless you choose to share your recordings"), and the
+  store-unavailable screen ("Your results are kept on this phone", instead of "Everything stays"). Left as they were,
+  because they stay true: the camera string (scans never leave), the live spectrum's and the seat measurement's
+  microphone texts (those are never shared).
+- **Privacy manifest**: `NSPrivacyCollectedDataTypeAudioData` and `NSPrivacyCollectedDataTypeOtherDiagnosticData`,
+  each `Linked` false, `Tracking` false, purposes `AppFunctionality` and `Other` (Apple's list has no "product
+  improvement"; tuning the measurements is improving a feature, the research dataset is "other"). The random
+  installation id is not declared as a data type: it identifies an installation's uploads, not a person or a
+  device. The owner may prefer to declare it.
+- **No schema migration.** The manifest's route, system and room names became optional; the JSON on disk is the same.
+
+**First guesses**: the backoff (1 min to 6 h), the request timeout (60 s) and resource timeout (10 min), the consent
+words, the status sentences.
+
+**Not verified**: the real Worker (the reviewer's `wrangler dev` run), a phone, real Wi-Fi and cellular, what
+iOS does to a foreground upload when the app is suspended, the Keychain store (it has no Mac test), VoiceOver on
+the new rows and sheet, the largest text sizes on the consent sheet.
 
 ## Open for the owner
 

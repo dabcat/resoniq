@@ -279,6 +279,17 @@ func deviations(_ report: SpeakerReport) -> [Finding] {
         #expect(report.findings.first?.kind == .topEndDip)
     }
 
+    /// From a phone test of two speakers: the same roll-off, deepest near 16 kHz, crossed the threshold at 13.9 kHz
+    /// for one speaker and 14.1 kHz for the other, and was "a dip" for one and "could be the phone's angle" for the
+    /// other.
+    @Test(arguments: [10500.0, 11000.0, 11500.0, 12500.0, 14000.0])
+    func `a roll-off that is deepest at the very top is the top-end dip wherever it starts`(corner: Double) throws {
+        let speaker = Bench.healthy(with: [Biquad.lowPass(frequency: corner, q: 0.707, sampleRate: Bench.sampleRate)])
+        let report = SpeakerDiagnosis.diagnose(runs: Bench.runs(speaker), counterpart: nil)
+        #expect(report.findings.contains { $0.kind == .topEndDip }, "\(report.findings.map(\.headline))")
+        #expect(deviations(report).isEmpty, "\(deviations(report).map(\.headline))")
+    }
+
     @Test func `the mockup's result: top-end dip, even tweeter and mid, buzz`() throws {
         let speaker: SimulatedSpeaker = {
             var speaker = Bench.buzzing

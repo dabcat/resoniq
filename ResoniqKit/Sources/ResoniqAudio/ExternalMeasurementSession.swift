@@ -546,7 +546,7 @@ public final class ExternalMeasurementSession {
             clockOffsetPPM: ratio.map { ($0 - 1) * 1e6 },
             roomLevel: room,
             quietEnoughLevel: mark,
-            isRoomQuiet: room.dBFS <= (mark?.dBFS ?? -.infinity),
+            isRoomQuiet: room.dBFS <= (mark?.dBFS ?? .infinity),
             inputLevel: level,
             inputPeakDecibels: LevelMeter.measure(block.samples).peakDecibels,
             isClipping: clipped,

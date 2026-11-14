@@ -113,11 +113,22 @@ struct SimulatedSpeaker {
     var clipLevel: Double?
     var tailSeconds: Double = 0.3
     var seed: UInt64 = 1
+    /// A rub (see `Rub`), acting while the sweep plays `rub.band`; nil for none.
+    var rub: Rub?
 
     func record(_ sweep: LogSweep) -> [Float] {
         let length = sweep.sampleCount + Int(delaySamples.rounded(.up)) + Int(tailSeconds * sweep.sampleRate)
-        var signal = Self.delayedSweep(sweep, by: delaySamples, length: length).map { Double($0) * gain }
+        let drive = Self.delayedSweep(sweep, by: delaySamples, length: length).map { Double($0) * gain }
+        var signal = drive
         for filter in filters { signal = filter.process(signal) }
+        if let rub {
+            let added = rub.sound(drive: drive, peak: gain * Double(sweep.amplitude), sampleRate: sweep.sampleRate) { index in
+                let time = (Double(index) - delaySamples) / sweep.sampleRate
+                guard time >= 0, time <= sweep.duration else { return false }
+                return rub.band.contains(sweep.frequency(at: time))
+            }
+            signal = zip(signal, added).map(+)
+        }
         signal = signal.map { $0 + quadratic * $0 * $0 + cubic * $0 * $0 * $0 }
         if let band = distortionBand {
             for index in signal.indices {
@@ -354,4 +365,45 @@ enum Bench {
         speaker.bandCubic = 8
         return speaker
     }()
+
+    /// `healthy` with a rub while the sweep plays 60–120 Hz: about −27 dB above the tenth harmonic, nearly 20 dB
+    /// clear of what the quiet room's noise reads there, while THD stays at the healthy 1 %.
+    static let rubbing: SimulatedSpeaker = {
+        var speaker = healthy
+        speaker.rub = Rub(band: 60...120)
+        return speaker
+    }()
+}
+
+/// A rubbing voice coil or a buzzing part in a test (as in `ResoniqDSPTests`): once per cycle, while the drive's
+/// excursion is past `threshold` of its peak, a burst of band-limited noise (`burstBand`, hertz) whose amplitude grows
+/// with how far past it is, up to `level` times the peak drive. It is locked to the low-frequency excursion and lies far
+/// above the tone's low harmonics, so it raises the energy above the tenth harmonic and leaves THD over orders 2 to 5
+/// where it was. It acts only while the tone is in `band` (hertz).
+struct Rub {
+    var band: ClosedRange<Double> = 0...Double.infinity
+    var level: Double = 0.1
+    var threshold: Double = 0.7
+    var burstBand: ClosedRange<Double> = 2000...8000
+    var seed: UInt64 = 0xB022
+
+    /// The sound added to a recording driven by `drive` (peak `peak`), at the samples where `active` holds.
+    func sound(drive: [Double], peak: Double, sampleRate: Double, active: (Int) -> Bool) -> [Double] {
+        guard peak > 0 else { return [Double](repeating: 0, count: drive.count) }
+        var generator = SeededGenerator(state: seed)
+        var carrier = generator.noise(count: drive.count, rms: 1)
+        for filter in [
+            Biquad.highPass(frequency: burstBand.lowerBound, q: 0.707, sampleRate: sampleRate),
+            Biquad.highPass(frequency: burstBand.lowerBound, q: 0.707, sampleRate: sampleRate),
+            Biquad.lowPass(frequency: burstBand.upperBound, q: 0.707, sampleRate: sampleRate),
+            Biquad.lowPass(frequency: burstBand.upperBound, q: 0.707, sampleRate: sampleRate),
+        ] { carrier = filter.process(carrier) }
+        let rms = (carrier.reduce(0) { $0 + $1 * $1 } / Double(max(carrier.count, 1))).squareRoot()
+        var added = [Double](repeating: 0, count: drive.count)
+        for index in drive.indices where active(index) {
+            let past = abs(drive[index]) / peak - threshold
+            if past > 0 { added[index] = level * peak * past / (1 - threshold) * carrier[index] / rms }
+        }
+        return added
+    }
 }

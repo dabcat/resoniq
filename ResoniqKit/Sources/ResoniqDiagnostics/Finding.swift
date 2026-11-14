@@ -34,12 +34,17 @@ public struct Finding: Sendable, Codable, Identifiable, Equatable {
         /// (`SweepTiedSound`), and no measured buzz explains it: "Something may be rattling around 200 Hz."
         /// `inferred`, never measured; the room or something near the speaker vibrating would sound the same.
         case rattle
+        /// The level above the tenth harmonic (`RunMeasurement.highOrderDecibels`) measured at or over
+        /// `DiagnosisThresholds.highOrderDecibels` at the same place in at least two runs, where no measured buzz or
+        /// possible rattle already covers it: "Possible rub or buzz at 60–120 Hz". `inferred`, never a confirmed
+        /// defect; something near the speaker buzzing along would read the same.
+        case highOrderDistortion
 
         /// Whether a finding of this kind is a deviation. Whether one finding is a suspected defect is
         /// `Finding.isSuspectedDefect`, which also knows what the other speaker shares.
         public var isDeviation: Bool {
             switch self {
-            case .responseDip, .responsePeak, .distortion, .leftRightDifference, .quietBand, .rattle: true
+            case .responseDip, .responsePeak, .distortion, .leftRightDifference, .quietBand, .rattle, .highOrderDistortion: true
             case .topEndDip, .even, .invalidRecording, .distortionUnclear, .notAssessed: false
             }
         }
@@ -54,6 +59,20 @@ public struct Finding: Sendable, Codable, Identifiable, Equatable {
         public let runsHeard: Int
         public let runsCompared: Int
         /// "I also heard sound tied to the test tone there in 2 of 3 runs."
+        public let statement: String
+    }
+
+    /// The level above the tenth harmonic measured at the same place as a buzz or a possible rattle: the two are one
+    /// finding with both pieces of evidence (`highOrder`).
+    public struct HighOrderEvidence: Sendable, Codable, Equatable {
+        /// Where it was measured, the median of the runs' ranges.
+        public let range: FrequencyRange
+        /// The median over the agreeing runs of each run's highest level, dB relative to the tone.
+        public let extreme: Float
+        /// The valid runs it was measured in, out of the valid runs compared.
+        public let runsMeasured: Int
+        public let runsCompared: Int
+        /// "Above the tenth harmonic it read about 38 dB under the tone there too, in 2 of 3 runs."
         public let statement: String
     }
 
@@ -83,6 +102,9 @@ public struct Finding: Sendable, Codable, Identifiable, Equatable {
             case decibels
             /// Total harmonic distortion, per cent of the fundamental.
             case percent
+            /// The level above the tenth harmonic, dB relative to the tone (negative); the threshold is the level
+            /// itself (`DiagnosisThresholds.highOrderDecibels`, −50), not a magnitude.
+            case toneDecibels
         }
 
         public let unit: Unit
@@ -140,6 +162,9 @@ public struct Finding: Sendable, Codable, Identifiable, Equatable {
     /// place; its `statement` is also the last sentence of `detail`. Nil otherwise; optional, so findings stored
     /// before it still decode.
     public internal(set) var sweepTied: SweepTiedEvidence? = nil
+    /// On a `distortion` or `rattle` finding, the level above the tenth harmonic measured at the same place; its
+    /// `statement` is also a sentence of `detail`. Nil otherwise; optional, so findings stored before it still decode.
+    public internal(set) var highOrder: HighOrderEvidence? = nil
 
     /// On a dip or peak, true when the other speaker of the pair has the same one (same place, about the same size):
     /// the room or the phone's position is then the likelier cause, and the finding is not a suspected defect. Nil

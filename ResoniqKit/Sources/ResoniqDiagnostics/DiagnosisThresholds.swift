@@ -58,8 +58,19 @@ public struct DiagnosisThresholds: Sendable, Equatable {
     /// by `SweepDistortion.measurableMarginDecibels`); the margin is the DSP's, not restated here.
     public var distortionPercent: Float
 
-    /// The narrowest distortion band reported, in octaves. **First guess**: 1/6 octave.
+    /// The narrowest distortion band reported, in octaves. **First guess**: 1/6 octave. It applies to the high orders
+    /// too.
     public var minimumDistortionOctaves: Float
+
+    /// The level above the tenth harmonic, in dB relative to the tone (`HighOrderDistortion`), at or over which a band
+    /// counts as a possible rub or buzz. **First guess**: −50 dB, between the borderline and the bad unit of the three
+    /// real recordings measured on 2026-11-14 (a steady 256 Hz tone, a measurement microphone close to the driver, no
+    /// room), read by `HighOrderDistortion.steadyTone`: good −62.3 dB, borderline −59.4 dB, strong rub and buzz −40.3 dB
+    /// (`ToneDistortion`'s residue gives −61.6, −58.1 and −40.3 dB), and the bad unit's THD only 4.2 %, under
+    /// `distortionPercent`). One recording of each, so nothing is known of the spread; what a phone in a room reads for
+    /// a healthy speaker is not known either. A band counts only where the level is a measurement (clear of the noise
+    /// floor by `SweepDistortion.measurableMarginDecibels`), smoothed as THD is (`distortionSmoothingFraction`).
+    public var highOrderDecibels: Float
 
     // MARK: Repetition
 
@@ -134,9 +145,11 @@ public struct DiagnosisThresholds: Sendable, Equatable {
         minimumBandSignalToNoise: Float,
         quietBandDecibels: Float = 15,
         quietBandLowerFrequency: Float = 100,
-        rollOffToleranceDecibels: Float = 0.5
+        rollOffToleranceDecibels: Float = 0.5,
+        highOrderDecibels: Float = -50
     ) {
         self.rollOffToleranceDecibels = rollOffToleranceDecibels
+        self.highOrderDecibels = highOrderDecibels
         self.quietBandDecibels = quietBandDecibels
         self.quietBandLowerFrequency = quietBandLowerFrequency
         self.smoothingFraction = smoothingFraction
@@ -179,6 +192,7 @@ public struct DiagnosisThresholds: Sendable, Equatable {
         minimumBandSignalToNoise: 10,
         quietBandDecibels: 15,
         quietBandLowerFrequency: 100,
-        rollOffToleranceDecibels: 0.5
+        rollOffToleranceDecibels: 0.5,
+        highOrderDecibels: -50
     )
 }

@@ -24,6 +24,7 @@ launch the app and test a speaker immediately.
 | 7 | Playing the test sound from another device | done | [phase-7-external-playback](plans/phase-7-external-playback.md) | #5 |
 | 8 | Rub and buzz from the high orders | done | [phase-8-rub-buzz](plans/phase-8-rub-buzz.md) | #10 |
 | 9 | Keep the raw recordings of a speaker test | done | [phase-9-keep-recordings](plans/phase-9-keep-recordings.md) | #12 |
+| 10 | Sharing recordings for research (opt-in, Cloudflare R2) | in progress | [phase-10-share-recordings](plans/phase-10-share-recordings.md) | |
 
 Phases 2 to 6 are one pull request: the review fixes for phase 2 were made on the phase 3 branch, and the later
 phases followed on it. "Done" means the code and its tests exist, the screens run in the simulator on simulated

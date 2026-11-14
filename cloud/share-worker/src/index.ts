@@ -6,9 +6,11 @@ export interface Env {
   BUCKET: R2Bucket;
   // Optional override of the registration limit, for local development only (see README).
   RATE_LIMIT_MAX?: string;
+  GLOBAL_DAILY_MAX?: string;
 }
 
-import { MAX_FILE_BYTES, MAX_INSTALL_BYTES, RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_SECONDS } from "./limits";
+import { GLOBAL_DAILY_MAX, MAX_FILE_BYTES, MAX_INSTALL_BYTES, RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_SECONDS } from "./limits";
+import { clientKey } from "./address";
 
 const INSTALL_ID = /^[0-9a-f]{32}$/;
 const TOKEN = /^[0-9a-f]{64}$/;
@@ -71,34 +73,50 @@ async function authenticate(request: Request, env: Env, installId: string): Prom
   return equal && object !== null && wellFormed;
 }
 
-// Per-address counter kept in R2: one small object per hashed address, replaced in place.
-// Read-modify-write is not atomic, so a burst of parallel requests can slip a few past the limit.
-async function rateLimited(request: Request, env: Env): Promise<number | null> {
-  const address = request.headers.get("cf-connecting-ip") ?? "unknown";
-  const key = `ratelimit/${(await sha256Hex(address)).slice(0, 32)}.json`;
-  const now = Math.floor(Date.now() / 1000);
-  let windowStart = now;
-  let count = 0;
-  const existing = await env.BUCKET.get(key);
-  if (existing) {
-    try {
-      const state = (await existing.json()) as { windowStart: number; count: number };
-      if (now - state.windowStart < RATE_LIMIT_WINDOW_SECONDS) {
-        windowStart = state.windowStart;
-        count = state.count;
+// Adds one to a counter object if it is under `max` in the current window; returns the seconds to wait when it
+// is not. The write is conditional on the object not having changed since it was read (its etag), and is tried
+// again when another request got there first, so parallel requests cannot all read the same count. A counter
+// that does not exist yet has no etag to hold, so its very first writes can still race; that lets through at most
+// the number of requests that arrive before the first write lands.
+async function countOne(env: Env, key: string, max: number, windowSeconds: number): Promise<number | null> {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const now = Math.floor(Date.now() / 1000);
+    let windowStart = now;
+    let count = 0;
+    const existing = await env.BUCKET.get(key);
+    if (existing) {
+      try {
+        const state = (await existing.json()) as { windowStart: number; count: number };
+        if (now - state.windowStart < windowSeconds) {
+          windowStart = state.windowStart;
+          count = state.count;
+        }
+      } catch {
+        // A damaged counter starts a fresh window.
       }
-    } catch {
-      // A damaged counter starts a fresh window.
     }
+    if (count >= max) return Math.max(1, windowStart + windowSeconds - now);
+    const written = await env.BUCKET.put(key, JSON.stringify({ windowStart, count: count + 1 }), {
+      httpMetadata: { contentType: "application/json" },
+      onlyIf: existing ? { etagMatches: existing.etag } : undefined,
+    });
+    if (written !== null) return null;
   }
-  const max = Number.parseInt(env.RATE_LIMIT_MAX ?? "", 10) || RATE_LIMIT_MAX;
-  if (count >= max) {
-    return Math.max(1, windowStart + RATE_LIMIT_WINDOW_SECONDS - now);
-  }
-  await env.BUCKET.put(key, JSON.stringify({ windowStart, count: count + 1 }), {
-    httpMetadata: { contentType: "application/json" },
-  });
-  return null;
+  // Five lost races in a row is a burst: refuse rather than let it through uncounted.
+  return 1;
+}
+
+// Two limits on making installations: one per address (per /64 for IPv6), and one for everyone together, so that
+// many addresses cannot fill the bucket with installations.
+async function rateLimited(request: Request, env: Env): Promise<number | null> {
+  const address = clientKey(request.headers.get("cf-connecting-ip") ?? "unknown");
+  const perAddress = Number.parseInt(env.RATE_LIMIT_MAX ?? "", 10) || RATE_LIMIT_MAX;
+  const wait = await countOne(
+    env, `ratelimit/${(await sha256Hex(address)).slice(0, 32)}.json`, perAddress, RATE_LIMIT_WINDOW_SECONDS,
+  );
+  if (wait !== null) return wait;
+  const everyone = Number.parseInt(env.GLOBAL_DAILY_MAX ?? "", 10) || GLOBAL_DAILY_MAX;
+  return countOne(env, "ratelimit/everyone.json", everyone, 24 * 3600);
 }
 
 async function register(request: Request, env: Env): Promise<Response> {
@@ -181,6 +199,12 @@ async function upload(
   await env.BUCKET.put(key, body, {
     httpMetadata: { contentType: file.endsWith(".json") ? "application/json" : "audio/wav" },
   });
+  // Uploads of one installation that arrive together each pass the check above before any of them is stored.
+  // Counting again after the write closes that: whichever write took the installation over its limit is removed.
+  if ((await storedBytes(env, installId, "")) > MAX_INSTALL_BYTES) {
+    await env.BUCKET.delete(key);
+    return fail(507, "quota_exceeded");
+  }
   return json(200, { ok: true });
 }
 

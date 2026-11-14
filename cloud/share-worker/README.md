@@ -73,14 +73,18 @@ same through the Worker.)
 
 - 4 MB a file, refused by `Content-Length` and again while the body streams.
 - 300 MB an installation. The Worker lists the installation's objects on each upload and adds their sizes, so the
-  total cannot drift when an upload fails or two race, and a replaced file is not counted twice. The cost is one
-  list call (Class A) per 1000 objects, normally one.
-- Registration: 10 installations an hour per address. I checked Cloudflare's docs: the Workers Rate Limiting binding
+  total cannot drift when an upload fails, and a replaced file is not counted twice. It counts again after the
+  write and removes the file if the installation is now over, so uploads that arrive together cannot all pass a
+  check made before any of them was stored. The cost is two list calls (Class A) per 1000 objects, normally two.
+- Registration: 10 installations an hour per address (an IPv6 address counts as its /64, since one customer holds
+  the whole prefix), and 500 a day from everyone together (`GLOBAL_DAILY_MAX`), so many addresses cannot fill the
+  bucket with installations. I checked Cloudflare's docs: the Workers Rate Limiting binding
   is in open beta and the pages I read do not say it is free on the Workers Free plan, so I did not rely on it.
   Instead the Worker keeps one tiny object per hashed address at `ratelimit/<hash>.json` (a window start and a
   count) in the same bucket. It costs one read and one write (a Class B and a Class A operation) per registration,
-  and no extra product. It is not atomic: parallel requests can slip a few past the limit, which is fine for
-  this. The address is stored only as a truncated SHA-256. Counters are not cleaned up; add an R2 lifecycle rule
+  and no extra product. Each counter write is conditional on the object not having changed since it was read
+  (its etag) and is tried again when another request got there first, so a burst is counted; only the very first
+  writes of a counter that does not exist yet can race. The address is stored only as a truncated SHA-256. Counters are not cleaned up; add an R2 lifecycle rule
   for the `ratelimit/` prefix (for example expire after 1 day) in the dashboard if they bother you.
 
 ## What it costs on the free plan
@@ -92,8 +96,8 @@ Read on 2026-11-14 from Cloudflare's pages:
 - Workers (<https://developers.cloudflare.com/workers/platform/pricing/>, <https://developers.cloudflare.com/workers/platform/limits/>):
   Free plan: 100,000 requests a day, 10 ms CPU time per request, no charge for duration.
 
-Rough use: an upload is one Class B read (the token check), one Class A list (the quota) and one Class A write,
-so 1 million Class A operations a month is more than 300,000 uploaded files. The 10 GB storage is the first limit
+Rough use: an upload is one Class B read (the token check), two Class A lists (the quota, before and after) and
+one Class A write, so 1 million Class A operations a month is more than 300,000 uploaded files. The 10 GB storage is the first limit
 you would meet: at 300 MB per installation that is about 33 full installations, and a kept test is a few MB.
 Past the free tier R2 bills storage and operations; Workers on the Free plan stop answering at 100,000 requests a
 day instead of billing. Set a billing alert in the dashboard if you move to a paid plan.

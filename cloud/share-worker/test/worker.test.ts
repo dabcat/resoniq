@@ -1,6 +1,7 @@
 import { env, exports } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
-import { MAX_FILE_BYTES, MAX_INSTALL_BYTES, RATE_LIMIT_MAX } from "../src/limits";
+import { GLOBAL_DAILY_MAX, MAX_FILE_BYTES, MAX_INSTALL_BYTES, RATE_LIMIT_MAX } from "../src/limits";
+import { clientKey } from "../src/address";
 
 const BASE = "https://share.test";
 let ipCounter = 0;
@@ -106,6 +107,43 @@ describe("registration", () => {
     const old = Math.floor(Date.now() / 1000) - 7200;
     await env.BUCKET.put(`ratelimit/${hash.slice(0, 32)}.json`, JSON.stringify({ windowStart: old, count: RATE_LIMIT_MAX }));
     await register(ip);
+  });
+
+  it("counts an IPv6 address as its /64", async () => {
+    expect(clientKey("2001:db8:1:2:aaaa:bbbb:cccc:dddd")).toBe("2001:db8:1:2");
+    expect(clientKey("2001:db8:1:2::1")).toBe("2001:db8:1:2");
+    expect(clientKey("2001:0db8::1")).toBe("2001:db8:0:0");
+    expect(clientKey("::1")).toBe("0:0:0:0");
+    expect(clientKey("192.0.2.1")).toBe("192.0.2.1");
+    // Different addresses in one /64 share the limit; the next /64 does not.
+    for (let i = 0; i < RATE_LIMIT_MAX; i++) await register(`2001:db8:5:6::${(i + 1).toString(16)}`);
+    const res = await call("/v1/installs", { method: "POST", headers: { "cf-connecting-ip": "2001:db8:5:6:ffff::9" } });
+    expect(res.status).toBe(429);
+    await register("2001:db8:5:7::1");
+  });
+
+  it("limits registrations from everyone together", async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const before = await env.BUCKET.get("ratelimit/everyone.json");
+    const saved = before ? await before.text() : null;
+    await env.BUCKET.put("ratelimit/everyone.json", JSON.stringify({ windowStart: now, count: GLOBAL_DAILY_MAX }));
+    const res = await call("/v1/installs", { method: "POST", headers: { "cf-connecting-ip": "198.51.100.200" } });
+    expect(res.status).toBe(429);
+    expect(Number(res.headers.get("retry-after"))).toBeGreaterThan(0);
+    if (saved === null) await env.BUCKET.delete("ratelimit/everyone.json");
+    else await env.BUCKET.put("ratelimit/everyone.json", saved);
+    await register("198.51.100.201");
+  });
+
+  it("counts every one of a burst of parallel registrations", async () => {
+    const ip = "203.0.113.50";
+    await register(ip); // the counter exists, so every later write is conditional
+    const results = await Promise.all(
+      Array.from({ length: RATE_LIMIT_MAX + 5 }, () =>
+        call("/v1/installs", { method: "POST", headers: { "cf-connecting-ip": ip } }).then((r) => r.status),
+      ),
+    );
+    expect(results.filter((status) => status === 200).length).toBeLessThanOrEqual(RATE_LIMIT_MAX - 1);
   });
 });
 

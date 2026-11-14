@@ -82,10 +82,14 @@ Task 1 (the Worker), as built in `cloud/share-worker/`:
 
 - Success answers are `200` with `{ "ok": true }` (PUT, DELETE) or `{ "installId", "token" }` (POST); the contract
   names no success codes. An empty body is refused with 400 `empty_body`; the contract is silent on it.
-- Quota is computed by listing the installation's objects on each upload, not kept as a running total: it cannot
-  drift on failed or racing uploads. Cost: one Class A list per 1000 objects.
+- Quota is computed by listing the installation's objects on each upload, not kept as a running total, and counted
+  again after the write (the file is removed if the installation is now over): uploads that arrive together cannot
+  all pass a check made before any was stored. Cost: two Class A lists per 1000 objects. Found by the security
+  review of the first commit.
 - Registration rate limit: 10 an hour per address, a small counter object in R2 (`ratelimit/<hash>.json`), because
-  the Workers Rate Limiting binding is in open beta and Cloudflare's pages do not say it is free. First guess; not atomic.
+  the Workers Rate Limiting binding is in open beta and Cloudflare's pages do not say it is free. First guess. After
+  the security review: an IPv6 address counts as its /64, counter writes are conditional on the etag and retried
+  (a burst of parallel registrations is counted), and 500 installations a day are allowed from everyone together.
 - Local use: `npx wrangler dev --port 8787 --var RATE_LIMIT_MAX:1000` (a local server sees one address, so the
   default limit of 10 would refuse the eleventh test registration). Base URL `http://localhost:8787`.
 - Not verified: a real deployment, R2 behaviour on Cloudflare's side (tests and `wrangler dev` use the local

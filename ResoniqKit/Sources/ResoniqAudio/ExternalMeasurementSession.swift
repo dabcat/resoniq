@@ -210,6 +210,10 @@ public final class ExternalMeasurementSession {
         var phoneMoved: Bool
         /// `valid`, with its level and ratio.
         var verdict: RecordingVerdict
+        /// For `SweepTiedNoise`: the run's number in the session, and where in the sweep, hertz, it heard noise that
+        /// came back at the same place in another run (`RunRecording.sweepTiedSound`).
+        var id = 0
+        var sweepTied: ClosedRange<Double>?
     }
 
     /// Everything one test keeps between blocks.
@@ -236,10 +240,16 @@ public final class ExternalMeasurementSession {
         /// Cuts the finder did not take while their place in the file was unknown: checked again, anchored, once a
         /// later sweep's spacing places them (a speaker that plays only part of the range whose tone was not heard).
         var deferred: [SweepCut] = []
+        /// Runs too noisy so far, waiting for their noise to come back at the same place in another run
+        /// (`SweepTiedNoise`), and where noise was heard in every run.
+        var noisy: [Candidate] = []
+        var tiedNoise: SweepTiedNoise
+        var checkedRuns = 0
 
         init(sampleRate: Double, kind: TestSoundFile.Kind, configuration: MeasurementConfiguration, thresholds: QualityThresholds) {
             self.sampleRate = sampleRate
             self.configuration = configuration
+            tiedNoise = SweepTiedNoise(tolerance: configuration.sweepTiedTolerance)
             sweep = configuration.sweep(sampleRate: sampleRate)
             let blockLength = configuration.samples(configuration.blockDuration, at: sampleRate)
             reblocker = Reblocker(length: blockLength)
@@ -285,6 +295,7 @@ public final class ExternalMeasurementSession {
                 if let final = await recheckDeferred(play: play, floor: floor, in: &test) { return final }
             case .wrongFile(let play, let heard):
                 test.kept.removeAll { $0.play == play }
+                test.noisy.removeAll { $0.play == play }
                 test.lastProblem = .wrongFile(heard: heard)
                 test.latestHearing = .notTheTestSound
                 state = .needsAnotherPlay(have: test.confirmed.count, reason: test.lastProblem)
@@ -328,11 +339,19 @@ public final class ExternalMeasurementSession {
             }
             return nil
         }
-        if let problem = inspection.problem {
+        // The identity may have become known since the cut (a later sweep's spacing).
+        let identity = test.listener.plays.first { $0.id == cut.play }?.sweeps.first { $0.estimate == cut.estimate }?.identity ?? cut.identity
+        test.checkedRuns += 1
+        if case .unusable(.tooNoisy) = inspection.problem, !inspection.noise.isEmpty, let clean = inspection.cleanVerdict {
+            // Too noisy, unless the noise comes back at the same place in another run.
+            test.noisy.append(Candidate(
+                play: cut.play, identity: identity, inspection: inspection, phoneMoved: cut.phoneMoved, verdict: clean, id: test.checkedRuns
+            ))
+            test.tiedNoise.record(id: test.checkedRuns, stretches: inspection.noise)
+            if !keepTied(&test, now: test.checkedRuns), let problem = inspection.problem { test.lastProblem = .run(problem) }
+        } else if let problem = inspection.problem {
             test.lastProblem = .run(problem)
         } else if case .valid = inspection.verdict {
-            // The identity may have become known since the cut (a later sweep's spacing).
-            let identity = test.listener.plays.first { $0.id == cut.play }?.sweeps.first { $0.estimate == cut.estimate }?.identity ?? cut.identity
             test.kept.append(Candidate(
                 play: cut.play, identity: identity, inspection: inspection, phoneMoved: cut.phoneMoved,
                 verdict: inspection.verdict ?? .valid(level: LevelMeter.measure(inspection.samples), signalToNoise: 0)
@@ -349,9 +368,26 @@ public final class ExternalMeasurementSession {
         return nil
     }
 
+    /// Moves the runs waiting for their noise to come back (`Listening.noisy`) whose noise has now been heard at the
+    /// same place in another run to the kept runs, marked with where (`SweepTiedNoise`). Returns whether run `now` was
+    /// among them.
+    @discardableResult
+    private func keepTied(_ test: inout Listening, now: Int) -> Bool {
+        var keptNow = false
+        for candidate in test.noisy where test.tiedNoise.isTied(candidate.id) {
+            var tied = candidate
+            tied.sweepTied = SweepTiedNoise.frequencies(of: candidate.inspection.noise, sweep: test.sweep)
+            test.kept.append(tied)
+            if candidate.id == now { keptNow = true }
+        }
+        test.noisy.removeAll { test.tiedNoise.isTied($0.id) }
+        return keptNow
+    }
+
     /// A play is over: runs that never got a file are dropped, and the file is asked for again if runs are missing.
     private func playEnded(_ play: Int, in test: inout Listening) async -> State? {
         test.deferred.removeAll { $0.play == play }
+        test.noisy.removeAll { $0.play == play && $0.identity == nil }
         refreshIdentities(&test)
         let unknown = test.kept.contains { $0.play == play && $0.identity == nil }
         test.kept.removeAll { $0.play == play && $0.identity == nil }
@@ -405,6 +441,7 @@ public final class ExternalMeasurementSession {
                 spliceCount: 0,
                 phoneMoved: candidate.phoneMoved,
                 attempt: min(candidate.play, 2),
+                sweepTiedSound: candidate.sweepTied,
                 measuredDelay: inspection.measuredDelay,
                 clockRatio: ratio
             ))

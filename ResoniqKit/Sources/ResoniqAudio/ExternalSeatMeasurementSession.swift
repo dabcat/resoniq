@@ -229,6 +229,9 @@ public final class ExternalSeatMeasurementSession {
         var inspection: SweepInspection
         var phoneMoved: Bool
         var verdict: RecordingVerdict
+        /// As in `ExternalMeasurementSession`: the run's number, and where it heard noise tied to the sweep.
+        var id = 0
+        var sweepTied: ClosedRange<Double>?
     }
 
     private struct Listening {
@@ -253,10 +256,15 @@ public final class ExternalSeatMeasurementSession {
         /// As in `ExternalMeasurementSession`.
         var latestHearing: ExternalHearing?
         var deferred: [SweepCut] = []
+        /// As in `ExternalMeasurementSession`: runs too noisy so far, at this spot, and where every run heard noise.
+        var noisy: [Candidate] = []
+        var tiedNoise: SweepTiedNoise
+        var checkedRuns = 0
 
         init(sampleRate: Double, kind: TestSoundFile.Kind, configuration: MeasurementConfiguration, thresholds: QualityThresholds) {
             self.sampleRate = sampleRate
             self.configuration = configuration
+            tiedNoise = SweepTiedNoise(tolerance: configuration.sweepTiedTolerance)
             sweep = configuration.sweep(sampleRate: sampleRate)
             let blockLength = configuration.samples(configuration.blockDuration, at: sampleRate)
             reblocker = Reblocker(length: blockLength)
@@ -283,6 +291,7 @@ public final class ExternalSeatMeasurementSession {
         seat.stillSamples = 0
         seat.waitedSamples = 0
         seat.kept = []
+        seat.noisy = []
         seat.lastProblem = nil
         seat.latestHearing = nil
         seat.deferred = []
@@ -378,6 +387,7 @@ public final class ExternalSeatMeasurementSession {
             return await recheckDeferred(play: play, floor: floor, in: &seat)
         case .wrongFile(let play, let heard):
             seat.kept.removeAll { $0.play == play }
+            seat.noisy.removeAll { $0.play == play }
             seat.lastProblem = .wrongFile(heard: heard)
             seat.latestHearing = .notTheTestSound
             state = .needsAnotherPlay(spot: seat.spot, reason: seat.lastProblem)
@@ -409,7 +419,16 @@ public final class ExternalSeatMeasurementSession {
         let wrong = seat.listener.plays.first { $0.id == cut.play }?.wrongFile
         if inspection.start == nil, wrong == nil, cut.identity == nil { seat.deferred.append(cut) }
         if inspection.start != nil, wrong == nil {
-            if let problem = inspection.problem {
+            seat.checkedRuns += 1
+            if case .unusable(.tooNoisy) = inspection.problem, !inspection.noise.isEmpty, let clean = inspection.cleanVerdict {
+                // Too noisy, unless the noise comes back at the same place in another run (`SweepTiedNoise`).
+                seat.noisy.append(Candidate(
+                    play: cut.play, estimate: cut.estimate, identity: cut.identity, inspection: inspection,
+                    phoneMoved: cut.phoneMoved, verdict: clean, id: seat.checkedRuns
+                ))
+                seat.tiedNoise.record(id: seat.checkedRuns, stretches: inspection.noise)
+                if !keepTied(&seat, now: seat.checkedRuns), let problem = inspection.problem { seat.lastProblem = .run(problem) }
+            } else if let problem = inspection.problem {
                 seat.lastProblem = .run(problem)
             } else if case .valid = inspection.verdict {
                 seat.kept.append(Candidate(
@@ -432,6 +451,20 @@ public final class ExternalSeatMeasurementSession {
             return playEnded(cut.play, in: &seat)
         }
         return nil
+    }
+
+    /// As `ExternalMeasurementSession.keepTied`.
+    @discardableResult
+    private func keepTied(_ seat: inout Listening, now: Int) -> Bool {
+        var keptNow = false
+        for candidate in seat.noisy where seat.tiedNoise.isTied(candidate.id) {
+            var tied = candidate
+            tied.sweepTied = SweepTiedNoise.frequencies(of: candidate.inspection.noise, sweep: seat.sweep)
+            seat.kept.append(tied)
+            if candidate.id == now { keptNow = true }
+        }
+        seat.noisy.removeAll { seat.tiedNoise.isTied($0.id) }
+        return keptNow
     }
 
     /// The usable recording of each channel at this spot, by the file's timing; nil while one is missing.
@@ -475,6 +508,7 @@ public final class ExternalSeatMeasurementSession {
                 spliceCount: 0,
                 phoneMoved: candidate.phoneMoved,
                 attempt: 1,
+                sweepTiedSound: candidate.sweepTied,
                 measuredDelay: inspection.measuredDelay,
                 clockRatio: ratio
             )
@@ -511,6 +545,7 @@ public final class ExternalSeatMeasurementSession {
 
     private func playEnded(_ play: Int, in seat: inout Listening) -> State? {
         seat.deferred.removeAll { $0.play == play }
+        seat.noisy.removeAll { $0.play == play && $0.identity == nil }
         guard case .listening = seat.phase else { return nil }
         _ = recordingsByChannel(&seat)
         let unknown = seat.kept.contains { $0.play == play && $0.identity == nil }

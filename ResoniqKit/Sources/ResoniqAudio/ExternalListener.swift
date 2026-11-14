@@ -362,13 +362,19 @@ struct SweepInspection: Sendable {
     var leadIn: Int = 0
     var measuredDelay: Double?
     var ratio: Double?
+    /// Where in the sweep, seconds from its start, blocks were too noisy (`SweepNoiseDetector`), merged; empty when
+    /// none were. With them `verdict` is `tooNoisy` and `cleanVerdict` what `RecordingQuality.assess` said.
+    var noise: [ClosedRange<Double>] = []
+    var cleanVerdict: RecordingVerdict?
 
     /// Checks `cut`: finds the sweep exactly, cuts it with `leadIn` before and `tail` after, corrects the player's
     /// clock when `ratio` is known, and checks the recording as a normal run is checked (`RunPerformer.inspect`:
     /// `RecordingQuality.assess`, then the whole sweep in the deconvolved response). Between the two, since nothing
     /// paused the sweep for noise, every block of the sweep is put to `detector` (`SweepNoiseDetector`, the normal
     /// test's pause rule): a block too noisy makes the run `tooNoisy`, with the sweep's level over the room's in that
-    /// block as its ratio. Off the main actor: a cut is several seconds of audio and is deconvolved.
+    /// block as its ratio, and every noisy block's place in the sweep is kept (`noise`) so the session can tell noise
+    /// tied to the sweep from the room's (`SweepTiedNoise`). Off the main actor: a cut is several seconds of audio and
+    /// is deconvolved.
     @concurrent nonisolated static func inspect(
         _ cut: SweepCut,
         sweep: LogSweep,
@@ -402,11 +408,20 @@ struct SweepInspection: Sendable {
             inspection.problem = .unusable(verdict)
             return inspection
         }
-        if let detector, let noisy = noisyBlock(in: inspection.raw, from: Int(inspection.rawLeadIn), count: sweep.sampleCount, detector: detector) {
-            let tooNoisy = RecordingVerdict.tooNoisy(signalToNoise: noisy.blockLevel.dBFS - noisy.roomLevel.dBFS, noiseFloor: floor)
-            inspection.verdict = tooNoisy
-            inspection.problem = .unusable(tooNoisy)
-            return inspection
+        if let detector {
+            let noisy = noisyBlocks(in: inspection.raw, from: Int(inspection.rawLeadIn), count: sweep.sampleCount, detector: detector)
+            if let worst = noisy.first {
+                // Too noisy for now; kept aside in case the same noise comes back at the same place of the sweep in
+                // another run, which makes it sound tied to the sweep rather than the room's (`SweepTiedNoise`).
+                let tooNoisy = RecordingVerdict.tooNoisy(signalToNoise: worst.assessment.blockLevel.dBFS - worst.assessment.roomLevel.dBFS, noiseFloor: floor)
+                inspection.cleanVerdict = verdict
+                inspection.verdict = tooNoisy
+                inspection.problem = .unusable(tooNoisy)
+                inspection.noise = SweepTiedNoise.merged(noisy.map { block in
+                    let from = (Double(block.offset) - inspection.rawLeadIn) / sweep.sampleRate
+                    return max(0, from)...min(sweep.duration, from + Double(detector.blockLength) / sweep.sampleRate)
+                })
+            }
         }
         let response = Deconvolution.impulseResponse(recording: inspection.samples, sweep: sweep)
         inspection.measuredDelay = response.delay
@@ -416,15 +431,27 @@ struct SweepInspection: Sendable {
 
     /// The first block of `samples` from `start` over `count` samples that `detector` finds too noisy.
     nonisolated static func noisyBlock(in samples: [Float], from start: Int, count: Int, detector: SweepNoiseDetector) -> SweepNoiseDetector.Assessment? {
+        noisyBlocks(in: samples, from: start, count: count, detector: detector, all: false).first?.assessment
+    }
+
+    /// Every block of `samples` from `start` over `count` samples that `detector` finds too noisy (only the first when
+    /// `all` is false), with its offset in `samples`.
+    nonisolated static func noisyBlocks(
+        in samples: [Float], from start: Int, count: Int, detector: SweepNoiseDetector, all: Bool = true
+    ) -> [(offset: Int, assessment: SweepNoiseDetector.Assessment)] {
         let length = detector.blockLength
         var position = max(0, start)
         let end = min(samples.count, start + count)
+        var noisy: [(offset: Int, assessment: SweepNoiseDetector.Assessment)] = []
         while position + length <= end {
             let assessment = detector.assess(Array(samples[position..<(position + length)]))
-            if assessment.isTooNoisy { return assessment }
+            if assessment.isTooNoisy {
+                noisy.append((position, assessment))
+                if !all { break }
+            }
             position += length
         }
-        return nil
+        return noisy
     }
 
     /// `raw` corrected by `ratio`: `samples`, `leadIn` and `ratio` set.
@@ -440,5 +467,64 @@ struct SweepInspection: Sendable {
         corrected.apply(ratio: ratio, sweep: sweep)
         corrected.measuredDelay = Deconvolution.impulseResponse(recording: corrected.samples, sweep: sweep).delay
         return corrected
+    }
+}
+
+/// Tells noise tied to the sweep from the room's in the listening sessions, which cannot pause the player to find out
+/// as the normal test does (`RunRecorder`, `RunRecording.sweepTiedSound`): noise heard at the same place of the sweep
+/// in two or more runs, within a play or across plays, follows the sweep (a rattle, a buzz, the room's reverberation
+/// beyond the detector's allowance), while the room's noise does not come back where it was.
+///
+/// Every run with noisy blocks is recorded with where in the sweep they were (`SweepInspection.noise`). A run is tied
+/// once every one of its noisy stretches overlaps, within `MeasurementConfiguration.sweepTiedTolerance`, a noisy
+/// stretch of another recorded run: it is then kept, marked with the frequencies of those stretches. A run with a
+/// stretch heard nowhere else (a door, a voice) stays room noise and is not kept.
+struct SweepTiedNoise {
+    struct Entry {
+        var id: Int
+        var stretches: [ClosedRange<Double>]
+    }
+
+    let tolerance: Double
+    private(set) var entries: [Entry] = []
+
+    init(tolerance: Double) {
+        self.tolerance = tolerance
+    }
+
+    mutating func record(id: Int, stretches: [ClosedRange<Double>]) {
+        guard !stretches.isEmpty else { return }
+        entries.removeAll { $0.id == id }
+        entries.append(Entry(id: id, stretches: stretches))
+    }
+
+    /// Whether every noisy stretch of run `id` was heard at the same place in another run.
+    func isTied(_ id: Int) -> Bool {
+        guard let entry = entries.first(where: { $0.id == id }) else { return false }
+        return entry.stretches.allSatisfy { stretch in
+            entries.contains { other in
+                other.id != id && other.stretches.contains { $0.lowerBound - tolerance <= stretch.upperBound && stretch.lowerBound - tolerance <= $0.upperBound }
+            }
+        }
+    }
+
+    /// The frequencies the sweep passes through over `stretches`, hertz: from the first's start to the last's end, as
+    /// `RunRecording.sweepTiedSound` holds them.
+    static func frequencies(of stretches: [ClosedRange<Double>], sweep: LogSweep) -> ClosedRange<Double>? {
+        guard let low = stretches.map(\.lowerBound).min(), let high = stretches.map(\.upperBound).max() else { return nil }
+        return sweep.frequency(at: max(0, low))...sweep.frequency(at: min(sweep.duration, high))
+    }
+
+    /// `stretches` joined where they touch or overlap, in order.
+    static func merged(_ stretches: [ClosedRange<Double>]) -> [ClosedRange<Double>] {
+        var merged: [ClosedRange<Double>] = []
+        for stretch in stretches.sorted(by: { $0.lowerBound < $1.lowerBound }) {
+            if let last = merged.last, stretch.lowerBound <= last.upperBound + 1e-6 {
+                merged[merged.count - 1] = last.lowerBound...max(last.upperBound, stretch.upperBound)
+            } else {
+                merged.append(stretch)
+            }
+        }
+        return merged
     }
 }

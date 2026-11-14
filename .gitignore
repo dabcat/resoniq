@@ -27,3 +27,6 @@ docs/.obsidian/plugins/
 docs/.obsidian/themes/
 docs/.obsidian/appearance.json
 docs/.obsidian/hotkeys.json
+
+# Third-party audio for tests and training: fetched or copied in, never committed (docs/research).
+data/

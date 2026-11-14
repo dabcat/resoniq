@@ -45,7 +45,7 @@ public struct SpeakerReport: Sendable, Codable, Equatable {
 ///   (never high from one microphone position). In fewer runs, but at least `minimumAgreeingRuns`, it is
 ///   `inferred` with low confidence. In one run it is dropped.
 /// - A dip that is deepest above `topEndFrequency` is `inconclusive`: it could be the phone's angle.
-/// - A dip or peak the other speaker has too, at the same place and within `leftRightDecibels` of the same size, is
+/// - A dip or peak the other speaker has too, its middle within `samePlaceOctaves` and within `leftRightDecibels` of the same size, is
 ///   still reported (`inferred`), but not as a suspected defect (`Finding.sharedWithOtherSpeaker`): two speakers
 ///   rarely fail the same way, so the room or the phone's position is the likelier cause, and the words say so.
 /// - A buzz is claimed only where THD is a measurement (`DistortionReading.measured`: clear of the noise floor by
@@ -522,12 +522,15 @@ public enum SpeakerDiagnosis {
         )
     }
 
-    /// Whether the other speaker has the same deviation: at the same place (`samePlaceOctaves`) and within
-    /// `leftRightDecibels` of the same size. A deviation far deeper here than there is still this speaker's.
+    /// Whether the other speaker has the same deviation: its middle within `samePlaceOctaves` of this one's, and
+    /// within `leftRightDecibels` of the same size. The middles are compared, not the ranges: two ranges each
+    /// widened by the tolerance still "overlap" with their edges two thirds of an octave apart, which paired a peak
+    /// at 350–490 Hz with one at 765–1075 Hz on two real speakers. A deviation far deeper here than there is still
+    /// this speaker's.
     static func isShared(_ cluster: Cluster, among theirs: [Cluster]?, thresholds: DiagnosisThresholds) -> Bool {
         guard let theirs else { return false }
         return theirs.contains { other in
-            other.range.overlaps(cluster.range, toleranceOctaves: thresholds.samePlaceOctaves)
+            abs(log2(other.range.centre / cluster.range.centre)) <= thresholds.samePlaceOctaves
                 && abs(other.extreme - cluster.extreme) <= thresholds.leftRightDecibels
         }
     }

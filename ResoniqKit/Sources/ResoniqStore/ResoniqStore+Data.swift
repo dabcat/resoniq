@@ -10,13 +10,19 @@ public struct StoreCounts: Equatable, Sendable {
     public var seatMeasurements: Int
     /// Rooms that keep a scan file.
     public var roomScans: Int
+    /// Speaker tests that keep their recordings.
+    public var recordings: Int
 
-    public init(rooms: Int = 0, systems: Int = 0, speakerTests: Int = 0, seatMeasurements: Int = 0, roomScans: Int = 0) {
+    public init(
+        rooms: Int = 0, systems: Int = 0, speakerTests: Int = 0, seatMeasurements: Int = 0, roomScans: Int = 0,
+        recordings: Int = 0
+    ) {
         self.rooms = rooms
         self.systems = systems
         self.speakerTests = speakerTests
         self.seatMeasurements = seatMeasurements
         self.roomScans = roomScans
+        self.recordings = recordings
     }
 
     /// Speaker tests and seat measurements together: what "Delete all results" removes.
@@ -57,7 +63,8 @@ extension ResoniqStore {
             systems: try context.fetchCount(FetchDescriptor<SoundSystem>()),
             speakerTests: try context.fetchCount(FetchDescriptor<SpeakerTest>()),
             seatMeasurements: try context.fetchCount(FetchDescriptor<SeatMeasurement>()),
-            roomScans: rooms.filter { $0.scanFileName != nil }.count
+            roomScans: rooms.filter { $0.scanFileName != nil }.count,
+            recordings: try context.fetchCount(FetchDescriptor<SpeakerTest>(predicate: #Predicate { $0.recordingFileName != nil }))
         )
     }
 
@@ -71,17 +78,18 @@ extension ResoniqStore {
         (system.room?.systems.count ?? 0) > 1
     }
 
-    /// "Delete all results": every speaker test, seat measurement and optimisation. Rooms, systems, layouts and scans
-    /// stay.
+    /// "Delete all results": every speaker test with its recording, seat measurement and optimisation. Rooms, systems,
+    /// layouts and scans stay.
     public func deleteAllResults() throws {
         try deleteAllObjects(of: Optimization.self)
         try deleteAllObjects(of: SeatMeasurement.self)
         try deleteAllObjects(of: SpeakerTest.self)
         try context.save()
+        recordings?.deleteAll()
         onDataReset?()
     }
 
-    /// "Delete everything": all rooms with their systems, results and scan files. "My room" and "My speakers" are
+    /// "Delete everything": all rooms with their systems, results, recordings and scan files. "My room" and "My speakers" are
     /// created again and selected, so the app is never without a room and a system.
     public func deleteEverything() throws {
         let scanFileNames = try rooms().compactMap(\.scanFileName)
@@ -93,6 +101,7 @@ extension ResoniqStore {
         try deleteAllObjects(of: Room.self)
         try context.save()
         for name in scanFileNames { scanFiles?.delete(name) }
+        recordings?.deleteAll()
         try select(try defaultContext().system)
         onDataReset?()
     }

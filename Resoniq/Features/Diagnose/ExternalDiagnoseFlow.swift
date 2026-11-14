@@ -366,7 +366,7 @@ final class ExternalDiagnoseFlow {
         guard !Task.isCancelled, case .running(let current) = phase, current === session else { return }
         phase = .finished(DiagnoseFlow.Completed(
             report: report, analyses: analyses, position: position, isQuickCheck: isQuickCheck,
-            movedRuns: result.runs.filter(\.phoneMoved).map(\.run)
+            movedRuns: result.runs.filter(\.phoneMoved).map(\.run), recorded: DiagnoseFlow.Recorded(result)
         ))
     }
 }

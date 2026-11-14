@@ -24,11 +24,15 @@
 	<false/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>I use the camera to scan your room and to show you where a speaker should go. The pictures never leave this iPhone.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>I play a test sound through your speaker and listen to it with the microphone. The sound never leaves this iPhone.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
+	<true/>
+	<key>UIFileSharingEnabled</key>
 	<true/>
 	<key>UILaunchScreen</key>
 	<dict>

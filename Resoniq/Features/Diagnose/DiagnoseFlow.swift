@@ -229,6 +229,20 @@ final class DiagnoseFlow {
         /// kept; the Result screen says so with the Kit's sentence (`ReadingText.phoneMovedNote`). Not stored with a kept
         /// report, so a result opened later does not carry it.
         var movedRuns: [Int] = []
+        /// The recordings the report was made from, for "Keep recordings"; nil in a fixture.
+        var recorded: Recorded? = nil
+    }
+
+    /// A finished test's recordings. Compared by identity, so comparing two steps never compares megabytes of samples.
+    struct Recorded: Equatable {
+        let result: MeasurementResult
+        private let id = UUID()
+
+        init(_ result: MeasurementResult) {
+            self.result = result
+        }
+
+        static func == (lhs: Recorded, rhs: Recorded) -> Bool { lhs.id == rhs.id }
     }
 
     /// Why a test ended without a report.
@@ -495,7 +509,7 @@ final class DiagnoseFlow {
         guard !Task.isCancelled, case .running(let current) = phase, current === session else { return }
         phase = .finished(Completed(
             report: report, analyses: analyses, position: position, isQuickCheck: isQuickCheck,
-            movedRuns: result.runs.filter(\.phoneMoved).map(\.run)
+            movedRuns: result.runs.filter(\.phoneMoved).map(\.run), recorded: Recorded(result)
         ))
     }
 

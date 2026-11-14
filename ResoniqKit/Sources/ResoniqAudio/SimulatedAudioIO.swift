@@ -168,6 +168,8 @@ public final class SimulatedAudioIO: AudioIO {
         public var room: SimulatedRoom?
         /// The output route the IO reports.
         public var outputRoute: AudioOutputRoute
+        /// The input route the IO reports.
+        public var inputRoute: AudioInputRoute
 
         public init(
             sampleRate: Double = 48000,
@@ -181,7 +183,8 @@ public final class SimulatedAudioIO: AudioIO {
             pacing: Pacing = .realTime,
             seed: UInt64 = 1,
             room: SimulatedRoom? = nil,
-            outputRoute: AudioOutputRoute = .simulatedSpeakers
+            outputRoute: AudioOutputRoute = .simulatedSpeakers,
+            inputRoute: AudioInputRoute = .simulatedMicrophone
         ) {
             self.sampleRate = sampleRate
             self.blockSize = blockSize
@@ -195,6 +198,7 @@ public final class SimulatedAudioIO: AudioIO {
             self.seed = seed
             self.room = room
             self.outputRoute = outputRoute
+            self.inputRoute = inputRoute
         }
     }
 
@@ -301,6 +305,7 @@ public final class SimulatedAudioIO: AudioIO {
     }
 
     public var outputRoute: AudioOutputRoute? { configuration.outputRoute }
+    public var inputRoute: AudioInputRoute? { configuration.inputRoute }
 }
 
 // MARK: - The simulation

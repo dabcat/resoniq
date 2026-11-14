@@ -6,7 +6,7 @@ import Testing
 /// speakers, so the reverberant tail after each arrival is legitimately large. The grid runs the finder (both rules)
 /// and the follower over direct-to-reverberant ratios from +6 to −12 dB, three reverberation times, two noise levels
 /// and three player clocks. The results and the limit are stated in `docs/modules/ResoniqDSP.md`.
-@Suite struct ReverberantFinderTests {
+@Suite(.serialized) struct ReverberantFinderTests {
     static let sampleRate = 48000.0
     static let sweep = LogSweep.measurement(sampleRate: 48000)
     static let ratios: [Double] = [6, 3, 0, -3, -6, -9, -12]

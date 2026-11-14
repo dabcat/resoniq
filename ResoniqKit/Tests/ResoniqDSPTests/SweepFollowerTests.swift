@@ -30,7 +30,7 @@ import Testing
         #expect(tone.count == 1)
         if let (start, end) = tone.first {
             #expect(abs(Double(start) - 1.5 * Self.sampleRate) <= 4800)
-            #expect(abs(Double(end) - 3.5 * Self.sampleRate) <= 4800)
+            #expect(abs(Double(end) - (1.5 + SweepFinder.clockToneDuration) * Self.sampleRate) <= 4800)
         }
         let started = events.compactMap { if case .sweepStarted(let start) = $0.event { (start, $0.at) } else { nil } }
         let ended = events.compactMap { if case .sweepEnded(let start) = $0.event { (start, $0.at) } else { nil } }

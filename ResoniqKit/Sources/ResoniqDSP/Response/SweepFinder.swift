@@ -30,7 +30,8 @@ public struct FoundSweep: Sendable, Equatable {
 /// of large transforms. A peak counts when its short-time energy (`envelopeDuration`) stands `minimumStrength` over
 /// the median energy of the second and a half around it, so a recording that is louder in places (music, a voice)
 /// does not raise peaks by its loudness alone. Peaks closer than the sweep's length are one sweep (the harmonics of a
-/// distorting speaker arrive before the linear response, inside that span).
+/// distorting speaker arrive before the linear response, inside that span). Each is placed at the direct sound
+/// (`arrival`: the earliest strong peak, not a stronger reflection) and checked band by band there (`spansEveryBand`).
 ///
 /// **What rejects what.** Stationary sound (pink noise, a hum, a held note) passes through the matched filter as
 /// stationary sound and makes no peak. Music makes no peak either: only a rising exponential chirp with this sweep's
@@ -132,31 +133,62 @@ public enum SweepFinder {
 
         // One sweep per sweep length, the strongest; the rest are its harmonics, its reverberation or its neighbours.
         candidates.sort { $0.strength > $1.strength }
-        // Each is then checked band by band, so a chirp that matches the sweep over part of its range only (a
-        // gliding note in music) is not taken for it.
-        var kept: [(index: Int, strength: Float)] = []
+        // Each is placed at its arrival (`arrival(in:near:window:)`: the direct sound, not the strongest reflection)
+        // and then checked band by band there, so a chirp that matches the sweep over part of its range only (a gliding
+        // note in music) is not taken for it.
+        var kept: [(index: Int, arrival: Int, strength: Float)] = []
         var rejected: [Int] = []
         for candidate in candidates where !kept.contains(where: { abs($0.index - candidate.index) < offset }) {
             if rejected.contains(where: { abs($0 - candidate.index) < blockLength }) { continue }
-            guard spansEveryBand(recording, start: candidate.index - offset, sweep: sweep, sweepSamples: sweepSamples, anchored: anchored) else {
+            let arrival = arrival(in: correlation, near: candidate.index, window: window, sampleRate: sampleRate)
+            guard spansEveryBand(recording, start: arrival - offset, sweep: sweep, sweepSamples: sweepSamples, anchored: anchored) else {
                 rejected.append(candidate.index)
                 continue
             }
-            kept.append(candidate)
+            kept.append((candidate.index, arrival, candidate.strength))
             if let expectedCount, kept.count == expectedCount { break }
         }
 
         let span = Double(sweepSamples.count) * (1 + maximumClockOffset)
         return kept.map { candidate -> FoundSweep in
-            // The envelope's window ends at its index; the peak sample lies inside it.
-            let first = max(0, candidate.index)
-            let last = min(correlation.count - 1, candidate.index + window)
-            var best = first
-            for index in first...last where abs(correlation[index]) > abs(correlation[best]) { best = index }
-            let start = Double(best - offset) + parabolicOffset(correlation, at: best)
+            let start = Double(candidate.arrival - offset) + parabolicOffset(correlation, at: candidate.arrival)
             return FoundSweep(start: start, strength: candidate.strength, isComplete: start >= 0 && start + span <= Double(recording.count))
         }
         .sorted { $0.start < $1.start }
+    }
+
+    /// How far before the strongest sample of a candidate the direct sound is looked for, seconds: the first
+    /// reflections at a listening seat (the floor, a side wall, the ceiling) arrive within about 15 ms of it.
+    public static let arrivalLookBack: Double = 0.02
+    /// How far under the strongest sample the direct sound may be and still be taken for the arrival, dB: a reflection
+    /// can be stronger than the direct sound (a speaker toed away from the seat), but not by this much. *First guess*.
+    public static let arrivalMargin: Float = 10
+    /// How far before the strongest sample an earlier peak must be to count as a separate arrival, seconds: more than
+    /// the peak's own width, so the strongest arrival's own oscillation is not taken for an earlier one.
+    public static let arrivalSeparation: Double = 0.0005
+
+    /// Where a candidate arrived, an index of `correlation`: the strongest sample of the envelope's window at `index`
+    /// (the window ends at its index, so the peak lies inside it), or an earlier local peak at least
+    /// `arrivalSeparation` and at most `arrivalLookBack` before it, no more than `arrivalMargin` under it, the earliest
+    /// such. In a reverberant room the strongest sample can be a reflection; the arrival is the direct sound, which
+    /// comes first.
+    static func arrival(in correlation: [Float], near index: Int, window: Int, sampleRate: Double) -> Int {
+        let first = max(0, index)
+        let last = min(correlation.count - 1, index + window)
+        guard first <= last else { return max(0, min(index, correlation.count - 1)) }
+        var best = first
+        for position in first...last where abs(correlation[position]) > abs(correlation[best]) { best = position }
+        let threshold = abs(correlation[best]) * pow(10, -arrivalMargin / 20)
+        let back = max(1, best - Int((arrivalLookBack * sampleRate).rounded()))
+        let end = best - Int((arrivalSeparation * sampleRate).rounded())
+        guard back < end else { return best }
+        for position in back..<end {
+            let value = abs(correlation[position])
+            if value >= threshold, value >= abs(correlation[position - 1]), value >= abs(correlation[position + 1]) {
+                return position
+            }
+        }
+        return best
     }
 
     /// The player's clock against the phone's (above 1: the player runs fast and the sweeps arrive closer together),
@@ -329,9 +361,16 @@ public enum SweepFinder {
     /// The bands a candidate is checked in (`spansEveryBand`), hertz: `detectionBand` in four, each about 1.6
     /// octaves, so a match over one or two octaves only fails at least two of them.
     public static let verificationBands: [ClosedRange<Double>] = [150...500, 500...1500, 1500...4500, 4500...12000]
-    /// How far a band's matched-filter peak must stand over the largest output around it (from 20 ms to a quarter of
-    /// a second away on either side), dB, for the band to agree. A sweep's band is a short peak; music and noise in
-    /// that band are smeared over the band's quarter to half second of sweep. *First guess*.
+    /// How far a band's matched-filter peak must stand, dB, for the band to agree: over the largest output before it
+    /// (from a quarter of a second to 20 ms before), and over the median output after it (from 20 ms to a quarter of a
+    /// second after). A sweep's band is a short peak with only noise before it; music and noise in that band are
+    /// smeared over the band's quarter to half second of sweep, so a peak of theirs stands over neither side.
+    ///
+    /// **Why the two sides differ.** After an arrival the room's reverberation of it follows, legitimately large: at
+    /// the listening seat the room's sound outweighs the direct sound by 3–10 dB, and in a band of an octave or less the
+    /// largest sample of that tail beats the direct peak (a check against the largest sample after it lost every sweep
+    /// from about −6 dB). The median of the quarter second after it falls with the decay, so it holds down to a
+    /// direct-to-reverberant ratio of −24 dB at reverberation times up to 1.5 s (`ReverberantFinderTests`). *First guess*.
     public static let minimumBandStrength: Float = 6
 
     /// The finer bands an anchored candidate is checked in: `detectionBand` in eight of about 0.8 octave each, so how
@@ -349,24 +388,29 @@ public enum SweepFinder {
 
     /// Whether a sweep starting at `start` (in recording samples) is there across the verification bands whose part of
     /// the sweep the recording holds. Each band's matched filter must peak within 5 ms of `start` (room for a
-    /// dispersion of `maximumClockOffset`) by `minimumBandStrength`.
+    /// dispersion of `maximumClockOffset`) by `minimumBandStrength` over what precedes it and over the median of what
+    /// follows it.
     ///
-    /// **The rule.** Unanchored: every band, all but one when there are three or more, so only something that rises
-    /// at the sweep's rate over most of 150 Hz to 12 kHz passes; a gliding note covers an octave or two. Anchored (the
-    /// file's timing says a sweep is due): `minimumAnchoredBands` neighbouring `anchoredBands`, about three octaves at the
-    /// sweep's exact rate and timing, so a speaker missing its tweeter (nothing above 2 kHz), its woofer (nothing
-    /// under 500 Hz) or both (200 Hz to 2 kHz) is still found, while a tone followed by a glissando is not. A speaker
+    /// **The rule.** Strict: every band, all but one when there are three or more, so only something that rises at
+    /// the sweep's rate over most of 150 Hz to 12 kHz passes; a gliding note covers an octave or two. Anchored (the
+    /// file's timing says a sweep is due): the strict rule, or else `minimumAnchoredBands` neighbouring
+    /// `anchoredBands`, about three octaves at the sweep's exact rate and timing, so the anchored rule is never the
+    /// stricter of the two, a speaker missing its tweeter, its woofer or both (heard only from 60 Hz to 1.25 kHz,
+    /// `FaultySpeakerFinderTests`) is still found, and a tone followed by a glissando is not. A speaker
     /// heard only under 150 Hz (a subwoofer alone) is never found: the detection band starts there. A sweep cut so
     /// short that fewer than two bands are held cannot be checked and passes; it is not complete anyway.
     static func spansEveryBand(_ recording: [Float], start: Int, sweep: LogSweep, sweepSamples: [Float], anchored: Bool = false) -> Bool {
         let length = sweepSamples.count
         let sampleRate = sweep.sampleRate
-        let available = (anchored ? anchoredBands : verificationBands).filter { band in
-            let opening = Double(start) + sweep.time(of: band.lowerBound) * sampleRate
-            let closing = Double(start) + sweep.time(of: band.upperBound) * sampleRate
-            return opening >= 0 && closing <= Double(recording.count)
+        func held(_ bands: [ClosedRange<Double>]) -> [ClosedRange<Double>] {
+            bands.filter { band in
+                let opening = Double(start) + sweep.time(of: band.lowerBound) * sampleRate
+                let closing = Double(start) + sweep.time(of: band.upperBound) * sampleRate
+                return opening >= 0 && closing <= Double(recording.count)
+            }
         }
-        guard available.count >= 2 else { return true }
+        let strictBands = held(verificationBands)
+        guard strictBands.count >= 2 else { return true }
         let around = Int((0.25 * sampleRate).rounded())
         let first = max(0, start - around)
         let last = min(recording.count, start + length + around)
@@ -380,27 +424,33 @@ public enum SweepFinder {
         func value(_ power: [Float], at offset: Int) -> Float {
             power[((lag + offset) % plan.size + plan.size) % plan.size]
         }
-        var agreeing: [Bool] = []
-        for band in available {
-            let filter = whitenedFilter(sweepSpectrum, sweep: sweep, size: plan.size, band: band)
-            let power = vDSP.square(correlate(spectrum, with: filter, plan: plan))
-            let peak = (-reach...reach).map { value(power, at: $0) }.max() ?? 0
-            let nearby = stride(from: exclusion, through: around, by: 2).map { max(value(power, at: $0), value(power, at: -$0)) }.max() ?? 0
-            agreeing.append(peak > 0 && Decibels.fromPower(peak / max(nearby, .leastNormalMagnitude)) >= minimumBandStrength)
-        }
-        if anchored {
-            // The longest run of neighbouring bands that agree. `available` keeps the table's order and drops bands
-            // only at its ends, so neighbours in it are neighbours in the table.
-            var longest = 0
-            var run = 0
-            for agrees in agreeing {
-                run = agrees ? run + 1 : 0
-                longest = max(longest, run)
+        /// Whether each band's matched filter peaks at `start`: over the largest output before it (only noise
+        /// precedes an arrival) and over the median after it (the room's reverberation follows it).
+        func agreement(_ bands: [ClosedRange<Double>]) -> [Bool] {
+            bands.map { band in
+                let filter = whitenedFilter(sweepSpectrum, sweep: sweep, size: plan.size, band: band)
+                let power = vDSP.square(correlate(spectrum, with: filter, plan: plan))
+                let peak = (-reach...reach).map { value(power, at: $0) }.max() ?? 0
+                let before = stride(from: exclusion, through: around, by: 2).map { value(power, at: -$0) }.max() ?? 0
+                let after = Statistics.median(stride(from: exclusion, through: around, by: 2).map { value(power, at: $0) })
+                guard peak > 0 else { return false }
+                return Decibels.fromPower(peak / max(before, .leastNormalMagnitude)) >= minimumBandStrength
+                    && Decibels.fromPower(peak / max(after, .leastNormalMagnitude)) >= minimumBandStrength
             }
-            return longest >= minimumAnchoredBands
         }
-        let count = agreeing.filter { $0 }.count
-        return count >= (available.count >= 3 ? available.count - 1 : available.count)
+        // The strict rule: every band the recording holds, all but one when there are three or more.
+        let strictCount = agreement(strictBands).filter { $0 }.count
+        if strictCount >= (strictBands.count >= 3 ? strictBands.count - 1 : strictBands.count) { return true }
+        guard anchored else { return false }
+        // The anchored rule, which is never stricter: the longest run of neighbouring bands that agree. `held` keeps
+        // the table's order and drops bands only at its ends, so neighbours in it are neighbours in the table.
+        var longest = 0
+        var run = 0
+        for agrees in agreement(held(anchoredBands)) {
+            run = agrees ? run + 1 : 0
+            longest = max(longest, run)
+        }
+        return longest >= minimumAnchoredBands
     }
 
     /// `S / (|S|² + ε)` on `size` bins from the sweep's spectrum `spectrum`, inside `band` (`detectionBand` unless

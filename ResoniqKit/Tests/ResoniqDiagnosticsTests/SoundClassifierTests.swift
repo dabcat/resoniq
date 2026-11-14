@@ -317,7 +317,7 @@ struct SoundClassifierTimeoutTests {
         let start = ContinuousClock.now
         task.cancel()
         let result = await task.result
-        #expect(ContinuousClock.now - start < .seconds(2))
+        #expect(ContinuousClock.now - start < Self.slack)
         #expect(throws: CancellationError.self) { try result.get() }
         #expect(backend.snapshot.resumed <= 1 && backend.snapshot.ended == backend.snapshot.started)
     }

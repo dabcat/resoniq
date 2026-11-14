@@ -39,7 +39,7 @@ files it names, and port the pattern instead of inventing one. Never edit iosar 
 - At most 3 agents at a time. The strongest model does architecture and checks, cheaper models build: the
   table is in the `resoniq-stack` skill ("Agents and models"). Parallel agents work in worktrees under
   `.claude/worktrees/`, removed once merged.
-- Write the test first for Kit code. Run `make test` (Mac, seconds) while working and `make build` before a PR.
+- Write the test first for Kit code. Run `make test` (Mac, about five minutes; one test target at a time) while working and `make build` before a PR.
   Anything that needs a microphone, LiDAR or AR is verified on a device; say in the PR what was and was not.
 - The Xcode project is generated: edit `project.yml`, run `make project`, never commit `*.xcodeproj`.
 

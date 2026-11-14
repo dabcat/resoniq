@@ -16,7 +16,7 @@ extension ExternalSeatMeasurementSession.State {
 }
 
 @MainActor
-@Suite(.timeLimit(.minutes(3))) struct ExternalSeatMeasurementSessionTests {
+@Suite(.timeLimit(.minutes(8))) struct ExternalSeatMeasurementSessionTests {
     static func session(io: SimulatedAudioIO, channels: [SpeakerChannel] = [.left, .right]) -> ExternalSeatMeasurementSession {
         ExternalSeatMeasurementSession(
             io: io, channels: channels, permission: SimulatedMicrophonePermission(.granted),

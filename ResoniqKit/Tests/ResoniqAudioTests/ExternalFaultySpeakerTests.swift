@@ -6,7 +6,7 @@ import Testing
 /// The speakers the app exists to diagnose, played from another device: each must still be found, measured and
 /// handed to the analysis, or, when this mode cannot test it, told truthfully.
 @MainActor
-@Suite(.timeLimit(.minutes(3))) struct ExternalFaultySpeakerTests {
+@Suite(.timeLimit(.minutes(8))) struct ExternalFaultySpeakerTests {
     /// An edge of `order` sections (12 dB an octave each).
     static func edge(_ filter: SimulatedFilter, order: Int = 4) -> [SimulatedFilter] { Array(repeating: filter, count: order) }
 

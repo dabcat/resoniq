@@ -61,6 +61,7 @@ Markdown links, so they work in both. Design files live outside the vault, in [`
 | [research/](research/) | Dated measurements and investigations (`YYYY-MM-DD-topic.md`) | `research` |
 | [reference/](reference/) | Knowledge brought in from elsewhere, e.g. RoomPlan and ARKit patterns from the RoomScan repo | `reference` |
 | this folder | [device-checklist.md](device-checklist.md): what only a phone can verify, as steps with expected results | `checklist` |
+| this folder | [how-we-measure.md](how-we-measure.md): why the app plays its own test sound and cannot use music, with candidate copy for the intro | `explanation` |
 | this folder | The product spec, architecture and plan | `spec`, `architecture`, `plan-index` |
 
 ## Conventions

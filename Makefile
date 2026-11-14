@@ -35,8 +35,16 @@ help: ## List the targets
 project: ## Generate Resoniq.xcodeproj from project.yml
 	xcodegen generate --quiet
 
+# One target at a time: in one run the DSP suites' heavy synchronous work starved the audio sessions' tests of
+# threads on a three-core CI runner, and they ran past their time limits.
+TEST_TARGETS := ResoniqDesignTests ResoniqDSPTests ResoniqAudioTests ResoniqDiagnosticsTests ResoniqRoomTests ResoniqStoreTests
+
 test: ## Run the ResoniqKit tests on the Mac
-	swift test --package-path $(PKG)
+	swift build --package-path $(PKG) --build-tests
+	@for target in $(TEST_TARGETS); do \
+		echo "== $$target"; \
+		swift test --package-path $(PKG) --skip-build --filter "^$$target\." || exit 1; \
+	done
 
 build: project ## Build the app for the iOS simulator
 	xcodebuild -project $(PROJECT) -scheme $(SCHEME) -configuration Debug \

@@ -14,7 +14,7 @@ and the one way it is used here.
 |---|---|---|
 | Swift 6, strict concurrency | All code | The app target is main-actor by default (`project.yml`); the Kit is not, so its APIs stay callable from anywhere |
 | `ResoniqKit` (Swift package) | Everything that decides something | Six modules, each with a test target; map in [ARCHITECTURE.md](../../../docs/ARCHITECTURE.md), interfaces in [docs/modules/](../../../docs/modules/) |
-| Swift Testing | Kit tests, on the Mac | `make test`, a few seconds |
+| Swift Testing | Kit tests, on the Mac | `make test`, about five minutes (one test target at a time) |
 | XcodeGen | The Xcode project | Edit `project.yml`, then `make project`. `Resoniq.xcodeproj` is generated and ignored by git |
 | SwiftUI, iOS 26 minimum | Screens, in `Resoniq/Features/<Tab>/` | Built from the mockup in `design/screens/`, with `ResoniqDesign` tokens and components only |
 | `make` | Every routine command | `make help` lists the targets |

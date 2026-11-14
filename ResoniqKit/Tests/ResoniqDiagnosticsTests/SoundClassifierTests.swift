@@ -66,7 +66,9 @@ enum ClassifierSignals {
               let file = try? AVAudioFile(forReading: url),
               let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(file.length)),
               (try? file.read(into: buffer)) != nil,
-              let channel = buffer.floatChannelData?[0], buffer.frameLength > 0
+              let channel = buffer.floatChannelData?[0],
+              // A CI runner's `say` once exited cleanly with a file of a few frames: no voice to test with.
+              Double(buffer.frameLength) >= file.processingFormat.sampleRate
         else { return nil }
         return Array(UnsafeBufferPointer(start: channel, count: Int(buffer.frameLength)))
     }

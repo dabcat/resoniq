@@ -70,10 +70,7 @@ struct ExternalListeningScreen: View {
         .onChange(of: display.announcement) { _, announcement in
             if let announcement { AccessibilityNotification.Announcement(announcement).post() }
         }
-        .onChange(of: display.notice) { _, notice in
-            guard let notice, !(display.announcement ?? "").contains(notice.text) else { return }
-            AccessibilityNotification.Announcement(notice.text).post()
-        }
+        .announcesNotice(display.notice, alongside: display.announcement)
         .onChange(of: display.run.level.hint) { _, hint in
             if let hint { AccessibilityNotification.Announcement("\(display.run.level.value). \(hint)").post() }
         }
@@ -93,6 +90,30 @@ struct ExternalListeningScreen: View {
         static let headlineSize: CGFloat = 26
         static let headlineTracking: CGFloat = -0.02
         static let footerHeight: CGFloat = 52
+    }
+}
+
+private struct AnnouncesNotice: ViewModifier {
+    let notice: ExternalNotice?
+    let alongside: String?
+    /// The sentence said last: a notice that comes and goes with the same words (the microphone catching a note of
+    /// music, then not) is not said again each time.
+    @State private var lastSpoken: String?
+
+    func body(content: Content) -> some View {
+        content.onChange(of: notice) { _, notice in
+            guard let notice, notice.text != lastSpoken, !(alongside ?? "").contains(notice.text) else { return }
+            lastSpoken = notice.text
+            AccessibilityNotification.Announcement(notice.text).post()
+        }
+    }
+}
+
+extension View {
+    /// Tells VoiceOver a notice's sentence when it appears or changes, once for the same words, and not when
+    /// `alongside` (an announcement being made for the same moment) already carries it.
+    func announcesNotice(_ notice: ExternalNotice?, alongside: String? = nil) -> some View {
+        modifier(AnnouncesNotice(notice: notice, alongside: alongside))
     }
 }
 

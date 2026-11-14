@@ -40,7 +40,9 @@ extension SeatRunDisplay {
         case .idle, .measuringNoiseFloor, .waitingForStillness: footer = TestSoundText.seatStillLine
         case .waitingForSound: footer = ExternalSessionText.seatWaitingLine(isSilenceLong: false, file: file)
         case .hearing: footer = progress?.isHearingTone == true ? ExternalSessionText.toneLine : ExternalSessionText.hearingLine
-        case .checking, .needsAnotherPlay, .finished, .failed: footer = ExternalSessionText.hearingLine
+        // The file is to be played again at this spot: the line that says to play it, not "Stay quiet while it plays."
+        case .needsAnotherPlay: footer = ExternalSessionText.seatWaitingLine(isSilenceLong: false, file: file)
+        case .checking, .finished, .failed: footer = ExternalSessionText.hearingLine
         case .spotCaptured: footer = TestSoundText.nextSpotLine
         }
 

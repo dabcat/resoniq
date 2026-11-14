@@ -160,10 +160,12 @@ final class ExternalDiagnoseFlow {
         case analysing
         case finished(DiagnoseFlow.Completed)
         case failed(ExternalMeasurementFailure)
+        /// The scene left the foreground while it listened; listening was stopped, and the screen says why.
+        case stopped
 
         /// Which screen shows, for transitions: two steps with the same screen are not a change of screen.
         enum Screen: Hashable {
-            case files, listening, analysing, finished, denied, failed
+            case files, listening, analysing, finished, denied, failed, stopped
         }
 
         var screen: Screen {
@@ -174,6 +176,15 @@ final class ExternalDiagnoseFlow {
             case .finished: .finished
             case .failed(.measurement(.permissionDenied)): .denied
             case .failed: .failed
+            case .stopped: .stopped
+            }
+        }
+
+        /// Whether the screen must stay on: the phone listens for the file, or the runs are being put together.
+        var needsScreenAwake: Bool {
+            switch self {
+            case .listening, .analysing: true
+            default: false
             }
         }
     }
@@ -182,6 +193,8 @@ final class ExternalDiagnoseFlow {
         case files
         case running(ExternalMeasurementSession)
         case finished(DiagnoseFlow.Completed)
+        /// Stopped because the app left the foreground; `start()` listens again.
+        case stopped
     }
 
     /// The speaker to test. Fixed once the test starts.
@@ -226,6 +239,7 @@ final class ExternalDiagnoseFlow {
         switch phase {
         case .files: .files
         case .finished(let completed): .finished(completed)
+        case .stopped: .stopped
         case .running(let session): Self.step(for: session.state)
         }
     }
@@ -316,6 +330,15 @@ final class ExternalDiagnoseFlow {
     /// Stops listening without changing the screen: for leaving the flow.
     func cancel() {
         stopWork()
+    }
+
+    /// The app left the foreground. A listening is stopped and says why (`.stopped`), instead of quietly going back
+    /// to the files; one that has ended, or not begun, is left as it is. Not while the microphone is being asked for
+    /// (`.idle`): the system's alert takes the scene's focus.
+    func suspend() {
+        guard case .running(let session) = phase, session.state != .idle, !session.state.isFinal else { return }
+        stopWork()
+        phase = .stopped
     }
 
     /// Debug: the simulated player presses play on the file this test listens for.

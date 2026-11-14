@@ -92,10 +92,12 @@ final class ExternalSeatFlow {
         case analysing
         case finished(SeatReport)
         case failed(ExternalMeasurementFailure)
+        /// The scene left the foreground during the measurement; listening was stopped, and the screen says why.
+        case stopped
 
         /// Which screen shows, for transitions: two steps with the same screen are not a change of screen.
         enum Screen: Hashable {
-            case files, running, analysing, finished, denied, failed
+            case files, running, analysing, finished, denied, failed, stopped
         }
 
         var screen: Screen {
@@ -106,6 +108,15 @@ final class ExternalSeatFlow {
             case .finished: .finished
             case .failed(.measurement(.permissionDenied)): .denied
             case .failed: .failed
+            case .stopped: .stopped
+            }
+        }
+
+        /// Whether the screen must stay on: the phone listens at a spot, or the spots are being put together.
+        var needsScreenAwake: Bool {
+            switch self {
+            case .running, .analysing: true
+            default: false
             }
         }
     }
@@ -114,6 +125,8 @@ final class ExternalSeatFlow {
         case files
         case running(ExternalSeatMeasurementSession)
         case finished(SeatReport)
+        /// Stopped because the app left the foreground; `start()` listens again.
+        case stopped
     }
 
     let kind: SoundSystemKind
@@ -148,6 +161,7 @@ final class ExternalSeatFlow {
         switch phase {
         case .files: .files
         case .finished(let report): .finished(report)
+        case .stopped: .stopped
         case .running(let session): Self.step(for: session.state)
         }
     }
@@ -224,6 +238,15 @@ final class ExternalSeatFlow {
     /// Stops listening without changing the screen: for leaving the flow.
     func cancel() {
         stopWork()
+    }
+
+    /// The app left the foreground. A listening under way is stopped and says why (`.stopped`), instead of quietly
+    /// going back to the file; one that has ended, or not begun, is left as it is. Not while the microphone is being
+    /// asked for (`.idle`): the system's alert takes the scene's focus.
+    func suspend() {
+        guard case .running(let session) = phase, session.state != .idle, !session.state.isFinal else { return }
+        stopWork()
+        phase = .stopped
     }
 
     /// "Skip to result": ends with the spots captured so far. With fewer than three the report says it is inconclusive.

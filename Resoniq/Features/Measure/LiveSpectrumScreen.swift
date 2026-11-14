@@ -172,6 +172,7 @@ struct LiveSpectrumScreen: View {
             }
         }
         .accessibilityAction(.escape, onClose)
+        .keepsScreenAwake(while: model.state == .starting || model.state == .listening)
         .onAppear { model.start() }
         .onDisappear { model.stop() }
         .onChange(of: scenePhase) { _, phase in

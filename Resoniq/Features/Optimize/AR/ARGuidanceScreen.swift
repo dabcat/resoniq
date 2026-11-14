@@ -53,6 +53,8 @@ struct ARGuidanceScreen: View {
             switch readiness {
             case .ready:
                 GuidingView(model: model, onFixLayout: fixLayout, onClose: close)
+                    // The guide is followed with the phone in the hand and no touch: the screen stays on.
+                    .keepsScreenAwake()
                     .onAppear { model.start() }
                     .onDisappear { model.stop() }
                     .onChange(of: model.state.phase) { _, phase in

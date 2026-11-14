@@ -447,9 +447,18 @@ final class DiagnoseCoordinator {
         close()
     }
 
-    /// Stops a test that is listening or playing, wherever the cover is: the scene left the foreground, or the cover is
-    /// closing. A result on screen stays.
+    /// The scene left the foreground: a test that is listening or playing stops and its screen says why (the flow's
+    /// `suspend()`). A result on screen stays.
     func suspendFlow() {
+        switch content {
+        case .test(let flow): flow.suspend()
+        case .external(let flow): flow.suspend()
+        case .stored, .unreadable, nil: break
+        }
+    }
+
+    /// Stops a test that is listening or playing, without a word: the cover is closing.
+    private func stopFlow() {
         switch content {
         case .test(let flow): flow.cancel()
         case .external(let flow): flow.cancel()
@@ -459,7 +468,7 @@ final class DiagnoseCoordinator {
 
     /// Leaves the cover from anywhere: stops the flow and with it the sound, then goes home.
     func close() {
-        suspendFlow()
+        stopFlow()
         isRenaming = false
         path = []
         outcome = nil

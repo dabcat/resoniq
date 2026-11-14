@@ -1,7 +1,7 @@
 ---
 type: "plan"
 phase: 8
-status: "in progress"
+status: "done"
 tags:
   - "plan/phase-8"
 ---
@@ -51,8 +51,8 @@ Rules the finding must follow:
 |---|---|---|---|---|
 | 1 | `HighOrderDistortion` with tests: simulated clean, rubbing and noisy speakers; agreement with `ToneDistortion` on a steady tone; the three real recordings where present | DSP | Opus | done |
 | 2 | `RunMeasurement` fields, `RunAnalyzer`, the finding, threshold, words, verdict clause, golden files | Diagnostics | Opus | done |
-| 3 | App: the new kind in the displays (Result, Finding, numbers sheet), no new screen | App | Sonnet | todo |
-| 4 | Review; module notes; device checklist entry | — | Fable | todo |
+| 3 | App: the new kind in the displays (Result, Finding, numbers sheet), no new screen | App | Opus (with task 2) | done: shown like a buzz; on the Finding screen the run traces draw the response, not the level above the tenth harmonic |
+| 4 | Review; module notes; device checklist entry | — | Fable | done: the review sent back the noise that starts after the floor was measured (a false alarm, fixed with a test that failed first) and the lower limit (80 Hz, from real healthy speakers) |
 
 Done when: `make test` and `make build` pass, a simulated rubbing speaker with low THD gets the finding and a
 healthy one in noise does not. What a phone in a real room reads for a healthy speaker is not known and is verified

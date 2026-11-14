@@ -290,6 +290,20 @@ Do: leave the phone alone for a whole measurement with auto-lock at 30 seconds; 
 Expect: the screen stays on while listening; after the lock button the app says it stopped because it went to the background and offers to start again. The microphone permission alert on the first run does not cancel the measurement.
 Write down: a lock during listening; a silent return to the first screen.
 
+## 10. Rub and buzz from the high orders
+
+Nothing here has been measured with a phone. The measure was checked on a simulated rub, on three real steady-tone
+recordings and on healthy studio monitors in a real room with measurement microphones
+([plan](plans/phase-8-rub-buzz.md), [research](research/2026-11-14-rub-buzz-recordings.md)).
+
+| # | Check | Expect |
+|---|---|---|
+| 10.1 | Test a healthy speaker from about 1 m in a quiet room, then read the kept report's `highOrderDecibels` and `highOrderNoiseFloorDecibels` | The floor from 80 Hz to 1.7 kHz, in dB under the tone. If it is not well under −50 dB, the measure cannot work on a phone at that distance and level |
+| 10.2 | The same speaker, three times, with a television or music on in the room | No "Possible rub or buzz"; the even statement says it could not check |
+| 10.3 | A speaker with something loose on or in it (a coin on the cone of a cheap driver) | "Possible rub or buzz" near where it rattles, `inferred`, in at least two runs |
+| 10.4 | The same from the listening seat | Expected not to be found (the simulation loses it where the room is louder than the direct sound); note what is said |
+| 10.5 | A small speaker played loud | No finding from its own bass distortion above 80 Hz; if there is one, the lower limit or the threshold is wrong for small speakers |
+
 ## Constants to tune
 
 Each is a first guess checked only against simulated rooms and speakers. When a step above says "Tune", change

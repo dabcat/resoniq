@@ -5,3 +5,4 @@ export const MAX_INSTALL_BYTES = 300 * 1024 * 1024;
 export const RATE_LIMIT_MAX = 10; // installations per address per window
 export const RATE_LIMIT_WINDOW_SECONDS = 3600;
 export const GLOBAL_DAILY_MAX = 500; // installations a day from everywhere, so many addresses cannot fill the bucket
+export const GLOBAL_SHARDS = 8; // counters the shared limit is spread over, so one address cannot contend them all

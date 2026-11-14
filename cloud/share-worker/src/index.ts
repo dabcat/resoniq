@@ -9,7 +9,7 @@ export interface Env {
   GLOBAL_DAILY_MAX?: string;
 }
 
-import { GLOBAL_DAILY_MAX, MAX_FILE_BYTES, MAX_INSTALL_BYTES, RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_SECONDS } from "./limits";
+import { GLOBAL_DAILY_MAX, GLOBAL_SHARDS, MAX_FILE_BYTES, MAX_INSTALL_BYTES, RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_SECONDS } from "./limits";
 import { clientKey } from "./address";
 
 const INSTALL_ID = /^[0-9a-f]{32}$/;
@@ -73,57 +73,79 @@ async function authenticate(request: Request, env: Env, installId: string): Prom
   return equal && object !== null && wellFormed;
 }
 
-// Adds one to a counter object if it is under `max` in the current window; returns the seconds to wait when it
-// is not. The write is conditional on the object not having changed since it was read (its etag), and is tried
-// again when another request got there first, so parallel requests cannot all read the same count. A counter
-// that does not exist yet has no etag to hold, so its very first writes can still race; that lets through at most
-// the number of requests that arrive before the first write lands.
+interface Counter {
+  windowStart: number;
+  count: number;
+  etag: string | null;
+}
+
+// A counter object's count in the current window (zero when it is missing, damaged or from an earlier window).
+async function readCounter(env: Env, key: string, windowSeconds: number, now: number): Promise<Counter> {
+  const existing = await env.BUCKET.get(key);
+  if (existing) {
+    try {
+      const state = (await existing.json()) as { windowStart: number; count: number };
+      if (now - state.windowStart < windowSeconds) {
+        return { windowStart: state.windowStart, count: state.count, etag: existing.etag };
+      }
+    } catch {
+      // A damaged counter starts a fresh window.
+    }
+    return { windowStart: now, count: 0, etag: existing.etag };
+  }
+  return { windowStart: now, count: 0, etag: null };
+}
+
+// Adds one to the counter at `key` unless the total is at `max`; returns the seconds to wait when it is. The
+// total is this counter plus `others` (the counters that share the limit, empty for a limit with one counter).
+// The write is conditional on the object not having changed since it was read (its etag) and is tried again when
+// another request got there first, so parallel requests cannot all read the same count. Five lost races in a row
+// are refused, never let through uncounted. A counter that does not exist yet has no etag to hold, so its very
+// first writes can still race; that lets through at most the requests that arrive before the first write lands.
 async function countOne(
-  env: Env, key: string, max: number, windowSeconds: number, whenContended: "refuse" | "allow",
+  env: Env, key: string, max: number, windowSeconds: number, others: string[] = [],
 ): Promise<number | null> {
   for (let attempt = 0; attempt < 5; attempt++) {
     const now = Math.floor(Date.now() / 1000);
-    let windowStart = now;
-    let count = 0;
-    const existing = await env.BUCKET.get(key);
-    if (existing) {
-      try {
-        const state = (await existing.json()) as { windowStart: number; count: number };
-        if (now - state.windowStart < windowSeconds) {
-          windowStart = state.windowStart;
-          count = state.count;
-        }
-      } catch {
-        // A damaged counter starts a fresh window.
-      }
+    const [own, ...rest] = await Promise.all(
+      [key, ...others].map((each) => readCounter(env, each, windowSeconds, now)),
+    );
+    const total = own.count + rest.reduce((sum, counter) => sum + counter.count, 0);
+    if (total >= max) {
+      const oldest = Math.min(own.windowStart, ...rest.filter((c) => c.count > 0).map((c) => c.windowStart));
+      return Math.max(1, oldest + windowSeconds - now);
     }
-    if (count >= max) return Math.max(1, windowStart + windowSeconds - now);
-    const written = await env.BUCKET.put(key, JSON.stringify({ windowStart, count: count + 1 }), {
-      httpMetadata: { contentType: "application/json" },
-      onlyIf: existing ? { etagMatches: existing.etag } : undefined,
-    });
+    const written = await env.BUCKET.put(
+      key,
+      JSON.stringify({ windowStart: own.windowStart, count: own.count + 1 }),
+      { httpMetadata: { contentType: "application/json" }, onlyIf: own.etag ? { etagMatches: own.etag } : undefined },
+    );
     if (written !== null) return null;
   }
-  // Five lost races in a row. For one address that is a burst from that address, and it is refused rather than let
-  // through uncounted. For the counter everyone shares it only means many honest requests arrived together, and
-  // refusing there would let a few clients keep everyone else out, so the request passes uncounted.
-  return whenContended === "refuse" ? 1 : null;
+  return 1;
 }
 
 // Two limits on making installations: one per address (per /64 for IPv6), and one for everyone together, so that
-// many addresses cannot fill the bucket with installations. The shared limit is a deliberate trade: someone with
-// many addresses can use it up and keep new installations out until the next day (existing ones keep working),
-// which is preferred to unbounded storage on the owner's account. Registration is not authenticated; App Attest
-// is what removes both problems, and is needed before this is opened beyond the owner's own builds.
+// many addresses cannot fill the bucket with installations.
+//
+// The shared limit is kept in `GLOBAL_SHARDS` counters, and an address always writes to the same one (chosen by
+// its hash). Every request reads them all and refuses at the total, so nothing passes uncounted; but a burst from
+// one address contends only on that address's counter, so it cannot make everyone else's writes lose their race.
+//
+// The shared limit itself is a deliberate trade: someone with many addresses can use it up and keep new
+// installations out until the next day (existing ones keep working), which is preferred to unbounded storage on
+// the owner's account. Registration is not authenticated; App Attest is what removes the problem, and is needed
+// before this is opened beyond the owner's own builds.
 async function rateLimited(request: Request, env: Env): Promise<number | null> {
   const address = clientKey(request.headers.get("cf-connecting-ip") ?? "unknown");
+  const hash = await sha256Hex(address);
   const perAddress = Number.parseInt(env.RATE_LIMIT_MAX ?? "", 10) || RATE_LIMIT_MAX;
-  const wait = await countOne(
-    env, `ratelimit/${(await sha256Hex(address)).slice(0, 32)}.json`, perAddress, RATE_LIMIT_WINDOW_SECONDS, "refuse",
-  );
+  const wait = await countOne(env, `ratelimit/${hash.slice(0, 32)}.json`, perAddress, RATE_LIMIT_WINDOW_SECONDS);
   if (wait !== null) return wait;
   const everyone = Number.parseInt(env.GLOBAL_DAILY_MAX ?? "", 10) || GLOBAL_DAILY_MAX;
-  return countOne(env, "ratelimit/everyone.json", everyone, 24 * 3600, "allow");
+  const shard = Number.parseInt(hash.slice(32, 40), 16) % GLOBAL_SHARDS;
+  const keys = Array.from({ length: GLOBAL_SHARDS }, (_, index) => `ratelimit/everyone-${index}.json`);
+  return countOne(env, keys[shard], everyone, 24 * 3600, keys.filter((_, index) => index !== shard));
 }
 
 async function register(request: Request, env: Env): Promise<Response> {

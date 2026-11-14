@@ -1,6 +1,6 @@
 import { env, exports } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
-import { GLOBAL_DAILY_MAX, MAX_FILE_BYTES, MAX_INSTALL_BYTES, RATE_LIMIT_MAX } from "../src/limits";
+import { GLOBAL_DAILY_MAX, GLOBAL_SHARDS, MAX_FILE_BYTES, MAX_INSTALL_BYTES, RATE_LIMIT_MAX } from "../src/limits";
 import { clientKey } from "../src/address";
 
 const BASE = "https://share.test";
@@ -122,17 +122,26 @@ describe("registration", () => {
     await register("2001:db8:5:7::1");
   });
 
-  it("limits registrations from everyone together", async () => {
+  it("limits registrations from everyone together, whichever counter an address writes to", async () => {
     const now = Math.floor(Date.now() / 1000);
-    const before = await env.BUCKET.get("ratelimit/everyone.json");
-    const saved = before ? await before.text() : null;
-    await env.BUCKET.put("ratelimit/everyone.json", JSON.stringify({ windowStart: now, count: GLOBAL_DAILY_MAX }));
-    const res = await call("/v1/installs", { method: "POST", headers: { "cf-connecting-ip": "198.51.100.200" } });
+    const keys = Array.from({ length: GLOBAL_SHARDS }, (_, index) => `ratelimit/everyone-${index}.json`);
+    const saved = await Promise.all(keys.map(async (key) => (await env.BUCKET.get(key))?.text() ?? null));
+    // The whole allowance sits in one counter; addresses that write to the others are refused too.
+    for (const key of keys) await env.BUCKET.delete(key);
+    await env.BUCKET.put(keys[3], JSON.stringify({ windowStart: now, count: GLOBAL_DAILY_MAX }));
+    for (const ip of ["198.51.100.200", "198.51.100.201", "198.51.100.202", "198.51.100.203"]) {
+      const res = await call("/v1/installs", { method: "POST", headers: { "cf-connecting-ip": ip } });
+      expect(res.status).toBe(429);
+      expect(Number(res.headers.get("retry-after"))).toBeGreaterThan(0);
+    }
+    // One short of the allowance, spread over two counters: one more passes, the next is refused.
+    await env.BUCKET.put(keys[3], JSON.stringify({ windowStart: now, count: GLOBAL_DAILY_MAX - 3 }));
+    await env.BUCKET.put(keys[5], JSON.stringify({ windowStart: now, count: 2 }));
+    await register("198.51.100.210");
+    const res = await call("/v1/installs", { method: "POST", headers: { "cf-connecting-ip": "198.51.100.211" } });
     expect(res.status).toBe(429);
-    expect(Number(res.headers.get("retry-after"))).toBeGreaterThan(0);
-    if (saved === null) await env.BUCKET.delete("ratelimit/everyone.json");
-    else await env.BUCKET.put("ratelimit/everyone.json", saved);
-    await register("198.51.100.201");
+    await Promise.all(keys.map((key, index) => (saved[index] === null ? env.BUCKET.delete(key) : env.BUCKET.put(key, saved[index]!))));
+    await register("198.51.100.212");
   });
 
   it("counts every one of a burst of parallel registrations", async () => {

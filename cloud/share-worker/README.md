@@ -80,7 +80,9 @@ same through the Worker.)
   the whole prefix), and 500 a day from everyone together (`GLOBAL_DAILY_MAX`), so many addresses cannot fill the
   bucket with installations. That shared limit is a trade: someone with many addresses can use it up and keep new
   installations out until the next day (existing ones keep uploading). That is preferred to unbounded storage on
-  your account. Contention on the shared counter never refuses a request. Raise `GLOBAL_DAILY_MAX` with
+  your account. The shared limit is kept in 8 counters; an address always writes to the same one and every
+  request reads them all, so nothing passes uncounted and a burst from one address cannot make everyone else's
+  writes lose their race. Raise `GLOBAL_DAILY_MAX` with
   `--var` or in `wrangler.toml` if honest use reaches it; App Attest is what removes the problem. I checked Cloudflare's docs: the Workers Rate Limiting binding
   is in open beta and the pages I read do not say it is free on the Workers Free plan, so I did not rely on it.
   Instead the Worker keeps one tiny object per hashed address at `ratelimit/<hash>.json` (a window start and a

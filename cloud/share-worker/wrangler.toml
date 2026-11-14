@@ -1,0 +1,10 @@
+name = "resoniq-share"
+main = "src/index.ts"
+compatibility_date = "2026-08-01"
+
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "resoniq-recordings"
+# Used by `wrangler dev --remote` only; plain `wrangler dev` uses a simulated
+# bucket under .wrangler/state.
+preview_bucket_name = "resoniq-recordings-preview"

@@ -22,6 +22,9 @@ public enum ShareError: Error, Sendable, Equatable, Codable {
     case unreachable
     /// A success that did not hold what the contract says.
     case badResponse
+    /// The installation's token could not be kept on this device (the Keychain refused it). Not the service's doing:
+    /// nothing is sent, since an installation whose token is lost can never be deleted.
+    case tokenNotKept
     /// The task was cancelled (sharing turned off, the app closed): not a failure of the service.
     case cancelled
 

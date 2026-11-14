@@ -118,6 +118,7 @@ enum SettingsText {
         case .unreachable?: line += " I send over Wi-Fi only, and will try again when Resoniq is open on Wi-Fi."
         case .serviceError?: line += " Resoniq's storage did not answer; I will try again later."
         case .overQuota?: line += " I stopped: the space for this iPhone's recordings is full. Delete what you shared to start again."
+        case .tokenNotKept?: line += " I stopped: I could not keep this iPhone's key for Resoniq's storage, so I sent nothing. Turn sharing off and on to try again."
         case .rejected?: line += " I stopped: Resoniq's storage would not accept this iPhone. Turn sharing off and on to try again."
         case .refused?, nil: break
         }

@@ -139,3 +139,11 @@ final class TestClock: Sendable {
     var now: Date { value.withLock { $0 } }
     func advance(_ seconds: TimeInterval) { value.withLock { $0 = $0.addingTimeInterval(seconds) } }
 }
+
+/// A credential store that refuses every save, as the Keychain does for an app without its entitlement.
+final class RefusingCredentials: ShareCredentialStore {
+    struct Refused: Error {}
+    func load() -> ShareInstallation? { nil }
+    func save(_ installation: ShareInstallation) throws { throw Refused() }
+    func delete() {}
+}

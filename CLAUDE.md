@@ -1,7 +1,8 @@
 # Resoniq — rules for agents
 
 Resoniq is a native iOS app that diagnoses speakers, measures how a system sounds at the seat, and guides
-speaker placement with RoomPlan and AR. Everything runs on the device: no accounts, no backend, no network.
+speaker placement with RoomPlan and AR. Everything runs on the device: no accounts, and no network unless the
+person turns on sharing their recordings for research (see "Offline and private").
 
 Read first: `docs/index.md` (map of the notes), the `resoniq-stack` skill (the tools and how we use them), `docs/ARCHITECTURE.md` (modules and decisions), `docs/PLAN.md`
 (phases and status). The product is defined in `docs/PRODUCT_SPEC.md`, the look in `design/DESIGN_SYSTEM.md`,
@@ -19,7 +20,12 @@ the screens in `design/DESIGN_SPEC.md`.
   defect. For a state with no mockup, follow `design/DESIGN_SYSTEM.md` and say so in the PR.
 - **Safe signals.** Test signals stay at a level that cannot damage a driver; recordings are checked for
   clipping and noise before they are analysed.
-- **Offline and private.** No networking code, no analytics, no third-party SDKs without the owner's say.
+- **Offline and private, with one opt-in exception.** No analytics and no third-party SDKs without the owner's
+  say. The only network code is `ResoniqShare`: it sends the recordings of kept speaker tests only after the
+  person turns on "Share recordings for research" and confirms its consent screen, only over Wi-Fi, and only in a
+  build that sets `RESONIQ_SHARE_URL`. Nothing else leaves the phone. `NetworkUseTests` fails if any other module
+  or the app names a networking API. A change to what is sent raises `SharePreference.currentConsentVersion` and
+  changes the consent words in the same PR.
 
 ## RoomPlan and ARKit
 

@@ -13,12 +13,12 @@ struct ShareQueueTests {
         let queue: ShareQueue
         let sharing: Switch
         let clock: TestClock
-        let credentials: MemoryShareCredentials
+        let credentials: any ShareCredentialStore
     }
 
     private func rig(
         examples: Int = 1, sharing: Bool = true, transport: some ShareTransport,
-        credentials: MemoryShareCredentials = MemoryShareCredentials(), stateFile: URL? = nil
+        credentials: any ShareCredentialStore = MemoryShareCredentials(), stateFile: URL? = nil
     ) throws -> Rig {
         let (store, names) = try ShareFixtures.store(examples: examples)
         let sharing = Switch(sharing)
@@ -239,6 +239,21 @@ struct ShareQueueTests {
         #expect(ShareQueue.retryDelay(afterAttempts: 2) == 120)
         #expect(ShareQueue.retryDelay(afterAttempts: 5) == 960)
         #expect(ShareQueue.retryDelay(afterAttempts: 30) == 6 * 3600)
+    }
+
+    @Test func `a token that cannot be kept is taken off the service again, nothing is sent, and the queue stops`() async throws {
+        let transport = StubTransport { request, _ in .success(StubTransport.success(request, ShareFixtures.installation)) }
+        let rig = try rig(transport: transport, credentials: RefusingCredentials())
+        await rig.queue.kept(rig.names[0])
+        await rig.queue.send()
+        // Made, then deleted with the token it was given; no file went.
+        #expect(transport.lines.map { String($0.prefix(4)) } == ["POST", "DELE"])
+        #expect(transport.requests[1].headers["Authorization"] == "Bearer \(ShareFixtures.installation.token)")
+        #expect(await rig.queue.status().problem == ShareProblem.tokenNotKept)
+        // Stopped: later drains do not make another installation.
+        rig.clock.advance(24 * 3600)
+        await rig.queue.send()
+        #expect(transport.requests.count == 2)
     }
 
     @Test(arguments: [401, 404])

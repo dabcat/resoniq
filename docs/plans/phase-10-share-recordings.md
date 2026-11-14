@@ -1,7 +1,7 @@
 ---
 type: "plan"
 phase: 10
-status: "in progress"
+status: "done"
 tags:
   - "plan/phase-10"
 ---
@@ -70,7 +70,7 @@ Rules:
 | 1 | The Worker, its tests, `wrangler.toml`, and a README with the owner's steps to deploy it | cloud | Sonnet | done |
 | 2 | `ResoniqShare`: client, queue, preference, shared manifest, tests with a stub transport | Kit | Opus | done |
 | 3 | App: Settings section, consent screen, wiring to kept tests, privacy manifest, the changed privacy sentences | App | Opus | done |
-| 4 | Review; CLAUDE.md, ARCHITECTURE, module notes, device checklist | — | Fable | todo |
+| 4 | Review; CLAUDE.md, ARCHITECTURE, module notes, device checklist | — | Fable | done: see "Review" below |
 
 Done when: `make test` and `make build` pass, the Worker's tests pass, and with a local Worker (`wrangler dev`) a
 kept test from the simulator arrives in the local bucket and "Delete what I shared" removes it. The deployed
@@ -179,6 +179,28 @@ words, the status sentences.
 **Not verified**: the real Worker (the reviewer's `wrangler dev` run), a phone, real Wi-Fi and cellular, what
 iOS does to a foreground upload when the app is suspended, the Keychain store (it has no Mac test), VoiceOver on
 the new rows and sheet, the largest text sizes on the consent sheet.
+
+## Review
+
+**Run end to end against the local Worker (2026-11-14).** With `RESONIQ_SHARE_URL` pointing at `wrangler dev`, a
+simulated speaker test kept in the simulator with sharing on arrived whole: `POST /v1/installs`, then
+`manifest.json`, `noise-floor.wav` and `run-1…3.wav`, each 200. The stored manifest held no name: the routes as a
+kind only, the day at midnight UTC, the device as `iPhone18,1`. `LocalWorkerTests` (opt-in, `RESONIQ_SHARE_LOCAL_URL`)
+runs the real client and transport against the same Worker: register, upload, a forged token refused with 401,
+delete, and the token dead afterwards.
+
+**Found by that run.** An app with no code signature (what `make build` makes for the simulator) cannot write to
+the data-protection Keychain, so the token could not be kept. The queue then reported a service error and made a
+new installation on every retry, leaving one behind each time. Now the installation is deleted again while its
+token is in hand, the queue stops with `tokenNotKept`, and Settings says so. To see sharing work in the simulator
+the app must be signed (`CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES`); on a phone it always is.
+
+**Found by the security review of the Worker's commits.** The quota is counted again after a write; an IPv6
+address counts as its /64; counter writes are conditional on the etag; the limit for everyone is spread over
+eight counters and fails closed.
+
+**Not run.** "Delete what I shared" from the app's own button (the simulator could not be tapped without
+installing a tool); the deployed Worker; a phone; Wi-Fi against mobile data.
 
 ## Open for the owner
 

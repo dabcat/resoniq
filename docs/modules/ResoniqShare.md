@@ -20,7 +20,7 @@ Paths are relative to `ResoniqKit/Sources/ResoniqShare/`.
 - **The example id** is 32 random hex digits made when a test is queued (`newExampleID()`), kept in the queue's state; never the folder's name, which holds the time of day.
 - **Wi-Fi only** for registration and uploads; only `DELETE` may use cellular or Low Data Mode (`allowsExpensiveNetwork`).
 - **Foreground uploads.** No background session: uploads run while the app is open; one cut off is sent again at the next launch or return to the foreground.
-- **Failures** wait `retryDelay(afterAttempts:)` (1 min doubling to 6 h), or the service's `Retry-After` if longer; a drain ends at the first failure. 401/404 on upload: forget the installation, register once, send the example whole again; refused again: stop (`ShareProblem.rejected`). 507: stop (`overQuota`). 413, 400, or a file over 4 MB before sending: that test is `refused`, the others go on. A stop is lifted by "Delete what I shared" or by turning sharing on again.
+- **Failures** wait `retryDelay(afterAttempts:)` (1 min doubling to 6 h), or the service's `Retry-After` if longer; a drain ends at the first failure. 401/404 on upload: forget the installation, register once, send the example whole again; refused again: stop (`ShareProblem.rejected`). 507: stop (`overQuota`). A token the device cannot keep (the Keychain refuses it, as it does for an unsigned simulator build): the new installation is deleted again while the token is in hand and the queue stops (`tokenNotKept`), so a retry never leaves an installation behind. 413, 400, or a file over 4 MB before sending: that test is `refused`, the others go on. A stop is lifted by "Delete what I shared" or by turning sharing on again.
 
 ## Public interface
 
@@ -35,7 +35,7 @@ Paths are relative to `ResoniqKit/Sources/ResoniqShare/`.
 | `ShareCredentialStore`, `KeychainShareCredentials`, `MemoryShareCredentials` | `ShareCredentials.swift` | `load`, `save`, `delete`. The Keychain item: generic password, service `com.matovic.resoniq.share`, the id and token together as JSON, after first unlock, this device only, not synchronizable (it outlives the app's deletion, so "Delete what I shared" still works after a reinstall) |
 | `SharePreference` | `SharePreference.swift` | `isOn` (the flag and `currentConsentVersion` both), `consent` (date, version), `turnOn(consentedAt:)`, `turnOff()`; keys `shareRecordings`, `shareRecordings.consentDate`, `shareRecordings.consentVersion`. Reading writes nothing |
 | `ShareQueue` (actor) | `ShareQueue.swift` | `kept(_:)`, `queueExisting()`, `forget(_:)`, `forgetMissing()`, `start()`, `send()`, `sharingTurnedOn()`, `stop()`, `deleteShared()`, `status()`, `updates` (an `AsyncStream<ShareStatus>`); `stateFile(for:)` (`<Documents>/.share-queue.json`), `retryDelay(afterAttempts:)` |
-| `ShareStatus`, `ShareProblem` | `ShareQueue.swift` | sent, waiting, refused, not queued, the last problem (`unreachable`, `serviceError`, `overQuota`, `rejected`, `refused`) |
+| `ShareStatus`, `ShareProblem` | `ShareQueue.swift` | sent, waiting, refused, not queued, the last problem (`unreachable`, `serviceError`, `overQuota`, `rejected`, `refused`, `tokenNotKept`) |
 | `HTTPShareTransport` | `HTTPShareTransport.swift` | Two ephemeral sessions (Wi-Fi only; any network for delete): no cookies, cache or credential store, `waitsForConnectivity` false, TLS 1.2+, fixed headers `User-Agent: Resoniq`, `Accept: application/json`, `Accept-Language: en`; `.file` bodies through `upload(for:fromFile:)` |
 
 ## What one kept test sends

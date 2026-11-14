@@ -36,6 +36,9 @@ public enum ShareProblem: String, Sendable, Equatable, Codable {
     case rejected
     /// A test the service would not take; the others go on.
     case refused
+    /// This device could not keep the installation's token (the Keychain refused it): the queue stopped, and nothing
+    /// was sent.
+    case tokenNotKept
 }
 
 /// Which kept tests are waiting to be shared, which went and which failed, and the sending itself: the shared manifest
@@ -315,6 +318,10 @@ public actor ShareQueue {
                 return .done
             } catch .cancelled {
                 return .later
+            } catch .tokenNotKept {
+                // Trying again would only make and delete another installation.
+                stopQueue(.tokenNotKept)
+                return .later
             } catch .rateLimited(let retryAfter) {
                 failed(folder, .serviceError, notBefore: retryAfter)
                 return .later
@@ -336,8 +343,10 @@ public actor ShareQueue {
         do {
             try credentials.save(installation)
         } catch {
-            // A token that cannot be kept would make an installation nobody can delete: do not use it.
-            throw .badResponse
+            // A token that cannot be kept would make an installation nobody can delete: do not use it, and take it
+            // off the service again while the token is still in hand, so a retry does not leave one behind each time.
+            try? await client.delete(installation)
+            throw .tokenNotKept
         }
         return installation
     }

@@ -335,7 +335,7 @@ Worker, on a phone or on real Wi-Fi ([plan](plans/phase-10-share-recordings.md))
 | 12.6 | Turn sharing off; keep a test | Nothing is sent (the bucket does not change); "Send the recordings I already have" appears after turning it on again, and sends it only when pressed |
 | 12.7 | Delete what I shared, confirm | The status clears; the installation's folder and `installs/<installId>.json` are gone from the bucket; works with sharing off too |
 | 12.8 | Turn "Keep recordings" off | Sharing turns off |
-| 12.9 | Local run in the simulator: `wrangler dev --port 8787`, `RESONIQ_SHARE_URL = http:/$()/localhost:8787`, Debug build | 12.4 and 12.7 against `cloud/share-worker/.wrangler/state/` |
+| 12.9 | Local run in the simulator: `wrangler dev --port 8787 --var RATE_LIMIT_MAX:1000`, `RESONIQ_SHARE_URL = http:/$()/localhost:8787`, a Debug build that is signed (`xcodebuild … CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES`; the unsigned app `make build` makes cannot keep the token and Settings says so) | 12.4 and 12.7 against `cloud/share-worker/.wrangler/state/` |
 
 ## Constants to tune
 

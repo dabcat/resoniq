@@ -44,7 +44,7 @@ public struct SpeakerReport: Sendable, Codable, Equatable {
 /// - A deviation found in every valid run at the same place is `inferred`, basis "3 of 3 runs", medium confidence
 ///   (never high from one microphone position). In fewer runs, but at least `minimumAgreeingRuns`, it is
 ///   `inferred` with low confidence. In one run it is dropped.
-/// - A dip above `topEndFrequency` is `inconclusive`: it could be the phone's angle.
+/// - A dip that is deepest above `topEndFrequency` is `inconclusive`: it could be the phone's angle.
 /// - A buzz is claimed only where THD is a measurement (`DistortionReading.measured`: clear of the noise floor by
 ///   the DSP's margin). Where THD reads above `distortionPercent` but not clear of the noise, the finding is
 ///   `inconclusive` ("too noisy to tell"), never a buzz.
@@ -127,7 +127,9 @@ public enum SpeakerDiagnosis {
         // A dip inside a driver that could barely be heard is that driver, already reported.
         for cluster in response.dips where cluster.runs >= thresholds.minimumAgreeingRuns
             && !quietRanges.contains(where: { $0.contains(cluster.range.centre) }) {
-            if cluster.coreLower >= thresholds.topEndFrequency {
+            // Where the dip is deepest decides, not where it starts: the same roll-off starts a little under or
+            // over the mark from one speaker to the next.
+            if cluster.extremeFrequency >= thresholds.topEndFrequency {
                 findings.append(topEndFinding(cluster, compared: compared, runCount: records.count, thresholds: thresholds))
             } else {
                 findings.append(deviationFinding(.responseDip, cluster, compared: compared, runCount: records.count, thresholds: thresholds))

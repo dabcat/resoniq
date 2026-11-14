@@ -32,7 +32,7 @@ Markdown links, so they work in both. Design files live outside the vault, in [`
 
 **Plans:** [Phase 0 · Setup](plans/phase-0-setup.md) · [Phase 1 · DSP core](plans/phase-1-dsp.md) · [Phase 2 · Diagnose](plans/phase-2-diagnose.md) · [Phase 3 · Measure](plans/phase-3-measure.md) · [Phase 4 · Room](plans/phase-4-room.md) · [Phase 5 · AR](plans/phase-5-ar.md) · [Phase 6 · AI and finish](plans/phase-6-ai-finish.md) · [Phase 7 · External playback](plans/phase-7-external-playback.md)
 
-**Research** ([how research notes are written](research/README.md)): [Audio datasets for testing the AI models](research/2026-11-13-audio-datasets.md) · [Plan for the first defect dataset](research/2026-11-13-defect-dataset-plan.md)
+**Research** ([how research notes are written](research/README.md)): [Audio datasets for testing the AI models](research/2026-11-13-audio-datasets.md) · [Plan for the first defect dataset](research/2026-11-13-defect-dataset-plan.md) · [First speaker tests on an iPhone](research/2026-11-14-first-device-speaker-tests.md)
 
 **Reference:** [RoomPlan and ARKit lessons from RoomScan](reference/iosar-roomplan-arkit.md)
 

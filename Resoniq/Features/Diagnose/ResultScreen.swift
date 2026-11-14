@@ -230,9 +230,9 @@ private struct FindingNote: View {
 
     private var text: some View {
         VStack(alignment: .leading, spacing: 3) {
-            ResoniqEvidenceTag(finding.evidenceKind, basis: finding.tagBasis, isDeviation: finding.kind.isDeviation)
+            ResoniqEvidenceTag(finding.evidenceKind, basis: finding.tagBasis, isDeviation: finding.isSuspectedDefect)
             Text(finding.headline)
-                .font(finding.kind.isDeviation ? ResoniqFont.bodySemibold : ResoniqFont.bodyMedium)
+                .font(finding.isSuspectedDefect ? ResoniqFont.bodySemibold : ResoniqFont.bodyMedium)
                 .foregroundStyle(ResoniqColor.ivory)
                 .fixedSize(horizontal: false, vertical: true)
             // The mockup gives a finding with something to hear its title and the way to hear it, no more.

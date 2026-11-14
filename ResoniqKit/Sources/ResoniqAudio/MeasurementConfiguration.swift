@@ -31,8 +31,8 @@ public struct MeasurementConfiguration: Sendable, Equatable {
     /// position a little late cannot cut the sweep's start. The recording's first sample is this long before the
     /// sweep's scheduled start.
     public var leadIn: Double
-    /// The longest delay a route to the speakers may add. AirPlay is documented at about two seconds.
-    /// *First guess*: 2.5 s.
+    /// The longest delay a route to the speakers may add. AirPlay is documented at about two seconds, and the first
+    /// AirPlay route measured on a device came to 2.06 s, so 2.5 s left too little room. *First guess*: 4 s.
     public var maximumRouteDelay: Double
     /// After the sweep's end has arrived, the room must be quiet enough for this long before the recording stops.
     /// *First guess*: 0.3 s.
@@ -92,7 +92,7 @@ public struct MeasurementConfiguration: Sendable, Equatable {
         settleDuration: Double = 0.2,
         noiseFloorDuration: Double = 1,
         leadIn: Double = 0.05,
-        maximumRouteDelay: Double = 2.5,
+        maximumRouteDelay: Double = 4,
         decayHold: Double = 0.3,
         minimumTail: Double = HarmonicDistortion.minimumTail,
         maximumDecay: Double = 1,

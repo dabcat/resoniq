@@ -131,7 +131,7 @@ extension MeasurementConfiguration {
     ///
     /// `ResoniqDSP`'s `Decay` needs, after the sweep, the decay itself plus a stretch of noise (a 1 s bass decay
     /// wants about 2 s), and the room window (`ImpulseResponse.roomPostWindow`) at least 0.5 s. So `minimumTail` is
-    /// 2 s, and `maximumDecay` is 3 s so even the longest route delay (`maximumRouteDelay`, 2.5 s) leaves time for
+    /// 2 s, and `maximumDecay` is 3 s so even the longest route delay (`maximumRouteDelay`, 4 s) leaves time for
     /// that tail and the `decayHold` before the timeout (`maximumRouteDelay + maximumDecay` after the sweep was
     /// sent). `runCount` is 1: each channel plays once per spot. *First guess* against real rooms,
     /// where a bass decay over 1 s would want more.

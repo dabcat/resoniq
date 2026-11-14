@@ -35,7 +35,8 @@ public struct Finding: Sendable, Codable, Identifiable, Equatable {
         /// `inferred`, never measured; the room or something near the speaker vibrating would sound the same.
         case rattle
 
-        /// Whether the finding is a suspected defect (drawn as a deviation, named in the verdict).
+        /// Whether a finding of this kind is a deviation. Whether one finding is a suspected defect is
+        /// `Finding.isSuspectedDefect`, which also knows what the other speaker shares.
         public var isDeviation: Bool {
             switch self {
             case .responseDip, .responsePeak, .distortion, .leftRightDifference, .quietBand, .rattle: true
@@ -139,6 +140,15 @@ public struct Finding: Sendable, Codable, Identifiable, Equatable {
     /// place; its `statement` is also the last sentence of `detail`. Nil otherwise; optional, so findings stored
     /// before it still decode.
     public internal(set) var sweepTied: SweepTiedEvidence? = nil
+
+    /// On a dip or peak, true when the other speaker of the pair has the same one (same place, about the same size):
+    /// the room or the phone's position is then the likelier cause, and the finding is not a suspected defect. Nil
+    /// otherwise; optional, so findings stored before it still decode.
+    public internal(set) var sharedWithOtherSpeaker: Bool? = nil
+
+    /// Whether the finding is a suspected defect (drawn as a deviation, named in the verdict): a deviation by kind
+    /// that the other speaker does not share.
+    public var isSuspectedDefect: Bool { kind.isDeviation && sharedWithOtherSpeaker != true }
 
     /// The one driver concerned, when there is one.
     public var band: DriverBand? { bands.count == 1 ? bands[0] : nil }

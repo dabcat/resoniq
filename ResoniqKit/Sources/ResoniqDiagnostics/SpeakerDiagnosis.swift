@@ -35,8 +35,8 @@ public struct SpeakerReport: Sendable, Codable, Equatable {
     /// run moved.
     public var phoneMovedNote: String? { phoneMovedRuns.flatMap(DiagnosisText.phoneMovedNote(runs:)) }
 
-    /// The findings that are suspected defects.
-    public var suspectedDefects: [Finding] { findings.filter(\.kind.isDeviation) }
+    /// The findings that are suspected defects: deviations the other speaker does not share.
+    public var suspectedDefects: [Finding] { findings.filter(\.isSuspectedDefect) }
 }
 
 /// Turns a test's runs into findings, following the plan's rules of evidence:
@@ -45,6 +45,9 @@ public struct SpeakerReport: Sendable, Codable, Equatable {
 ///   (never high from one microphone position). In fewer runs, but at least `minimumAgreeingRuns`, it is
 ///   `inferred` with low confidence. In one run it is dropped.
 /// - A dip that is deepest above `topEndFrequency` is `inconclusive`: it could be the phone's angle.
+/// - A dip or peak the other speaker has too, at the same place and within `leftRightDecibels` of the same size, is
+///   still reported (`inferred`), but not as a suspected defect (`Finding.sharedWithOtherSpeaker`): two speakers
+///   rarely fail the same way, so the room or the phone's position is the likelier cause, and the words say so.
 /// - A buzz is claimed only where THD is a measurement (`DistortionReading.measured`: clear of the noise floor by
 ///   the DSP's margin). Where THD reads above `distortionPercent` but not clear of the noise, the finding is
 ///   `inconclusive` ("too noisy to tell"), never a buzz.
@@ -73,19 +76,60 @@ public enum SpeakerDiagnosis {
         source: SoundSource? = nil,
         thresholds: DiagnosisThresholds = .standard
     ) -> SpeakerReport {
-        var report = diagnosis(runs: runs, counterpart: counterpart, thresholds: thresholds)
+        var report = diagnosis(
+            records: runs.map(\.record), counterpart: counterpart?.map(\.record), reportsDifferences: true, thresholds: thresholds
+        )
         let moved = Array(Set(phoneMovedRuns)).sorted()
         report.phoneMovedRuns = moved.isEmpty ? nil : moved
         report.source = source
         return report
     }
 
+    /// A kept report read again now that the other speaker of the pair has been tested: a dip or peak both speakers
+    /// have is no longer a suspected defect, and the verdict says so. For the speaker tested first, whose report was
+    /// made with nothing to compare with. Everything is recomputed from the runs the report holds, so nothing else
+    /// changes: the report keeps how its sound was played, the runs the phone moved in and what a model added, and it
+    /// gains no left/right difference (that is reported once, on the speaker tested second). A report that is not
+    /// conclusive, or an `other` that is not, comes back unchanged.
+    public static func compared(
+        _ report: SpeakerReport,
+        with other: SpeakerReport,
+        thresholds: DiagnosisThresholds = .standard
+    ) -> SpeakerReport {
+        guard report.isConclusive, other.isConclusive else { return report }
+        let again = diagnosis(
+            records: report.runs,
+            counterpart: other.runs,
+            reportsDifferences: report.findings.contains { $0.kind == .leftRightDifference },
+            thresholds: thresholds
+        )
+        let support = Dictionary(report.findings.compactMap { finding in finding.modelSupport.map { (finding.id, $0) } }) { first, _ in first }
+        var updated = SpeakerReport(
+            verdict: again.verdict,
+            findings: again.findings.map { finding in
+                var finding = finding
+                finding.modelSupport = support[finding.id]
+                return finding
+            },
+            profile: again.profile,
+            runs: again.runs,
+            consensusResponse: again.consensusResponse,
+            isConclusive: again.isConclusive
+        )
+        updated.modelFindings = report.modelFindings
+        updated.phoneMovedRuns = report.phoneMovedRuns
+        updated.source = report.source
+        return updated
+    }
+
+    /// - Parameter reportsDifferences: Whether a response unlike the counterpart's is a finding here
+    ///   (`leftRightDifference`); what the two share is marked either way.
     private static func diagnosis(
-        runs: [RunAnalysis],
-        counterpart: [RunAnalysis]?,
+        records: [RunRecord],
+        counterpart: [RunRecord]?,
+        reportsDifferences: Bool,
         thresholds: DiagnosisThresholds
     ) -> SpeakerReport {
-        let records = runs.map(\.record)
         let invalid = invalidFindings(records)
         let valid = records.enumerated().compactMap { index, record in record.measurement.map { (index, $0) } }
         guard valid.count >= thresholds.minimumValidRuns else {
@@ -124,6 +168,7 @@ public enum SpeakerDiagnosis {
 
         var findings: [Finding] = quiet + unchecked
         let response = responseClusters(measurements, assessed: assessed, thresholds: thresholds)
+        let theirs = counterpart.flatMap { counterpartDeviations($0, thresholds: thresholds) }
         // A dip inside a driver that could barely be heard is that driver, already reported.
         for cluster in response.dips where cluster.runs >= thresholds.minimumAgreeingRuns
             && !quietRanges.contains(where: { $0.contains(cluster.range.centre) }) {
@@ -132,11 +177,17 @@ public enum SpeakerDiagnosis {
             if cluster.extremeFrequency >= thresholds.topEndFrequency {
                 findings.append(topEndFinding(cluster, compared: compared, runCount: records.count, thresholds: thresholds))
             } else {
-                findings.append(deviationFinding(.responseDip, cluster, compared: compared, runCount: records.count, thresholds: thresholds))
+                findings.append(deviationFinding(
+                    .responseDip, cluster, compared: compared, runCount: records.count, thresholds: thresholds,
+                    sharedWithOther: isShared(cluster, among: theirs?.dips, thresholds: thresholds)
+                ))
             }
         }
         for cluster in response.peaks where cluster.runs >= thresholds.minimumAgreeingRuns {
-            findings.append(deviationFinding(.responsePeak, cluster, compared: compared, runCount: records.count, thresholds: thresholds))
+            findings.append(deviationFinding(
+                .responsePeak, cluster, compared: compared, runCount: records.count, thresholds: thresholds,
+                sharedWithOther: isShared(cluster, among: theirs?.peaks, thresholds: thresholds)
+            ))
         }
         // Nor is distortion read in a driver that could barely be heard: what was there is noise.
         let distortion = distortionClusters(measurements, audible: audible, thresholds: thresholds)
@@ -161,12 +212,12 @@ public enum SpeakerDiagnosis {
             && !buzzes.contains(where: { $0.range.overlaps(cluster.range, toleranceOctaves: thresholds.samePlaceOctaves) }) {
             findings.append(distortionUnclearFinding(cluster, compared: compared, runCount: records.count, thresholds: thresholds))
         }
-        if let counterpart {
+        if let counterpart, reportsDifferences {
             let explained = findings.filter { $0.kind == .responseDip || $0.kind == .responsePeak }.compactMap(\.frequencyRange)
             findings += leftRightFindings(
                 measurements,
                 assessed: assessed,
-                counterpart: counterpart.map(\.record),
+                counterpart: counterpart,
                 explained: explained,
                 runCount: records.count,
                 thresholds: thresholds
@@ -181,14 +232,23 @@ public enum SpeakerDiagnosis {
         if let finding = even.finding { findings.append(finding) }
 
         let ordered = invalid + findings.sorted { ($0.frequencyRange?.centre ?? 0) > ($1.frequencyRange?.centre ?? 0) }
-        let suspected = ordered.filter(\.kind.isDeviation)
+        let suspected = ordered.filter(\.isSuspectedDefect)
+        let shared = ordered.filter { $0.sharedWithOtherSpeaker == true }
         let uncheckedBands = unchecked.compactMap(\.band)
+        // A driver that a deviation both speakers have reaches into is not called healthy, and not faulted (the even
+        // statement leaves it out the same way); one that also holds a suspected defect is named by that.
+        let sharedBands = DriverBand.allCases.reversed().filter { band in
+            let judged = judgedRange(band, thresholds: thresholds)
+            return shared.contains { $0.frequencyRange?.overlaps(judged) == true || $0.bands.contains(band) }
+                && !suspected.contains { $0.bands.contains(band) }
+        }
         return SpeakerReport(
             verdict: DiagnosisText.verdict(
                 suspected: suspected,
                 unchecked: uncheckedBands,
                 checked: DriverBand.allCases.reversed().filter { !uncheckedBands.contains($0) },
-                uncleared: even.leftOut
+                uncleared: DriverBand.allCases.reversed().filter { even.leftOut.contains($0) || sharedBands.contains($0) },
+                shared: shared.count
             ),
             findings: ordered,
             profile: PortraitProfile(
@@ -358,6 +418,29 @@ public enum SpeakerDiagnosis {
         )
     }
 
+    /// The other speaker's own dips and peaks, where enough of its runs agree; nil when too few of its runs are valid
+    /// to compare with.
+    static func counterpartDeviations(_ counterpart: [RunRecord], thresholds: DiagnosisThresholds) -> (dips: [Cluster], peaks: [Cluster])? {
+        let others = Dictionary(uniqueKeysWithValues: counterpart.enumerated().compactMap { index, record in record.measurement.map { (index, $0) } })
+        guard others.count >= thresholds.minimumValidRuns else { return nil }
+        let assessed = assessedPoints(others, audible: audiblePoints(others, thresholds: thresholds))
+        let clusters = responseClusters(others, assessed: assessed, thresholds: thresholds)
+        return (
+            clusters.dips.filter { $0.runs >= thresholds.minimumAgreeingRuns },
+            clusters.peaks.filter { $0.runs >= thresholds.minimumAgreeingRuns }
+        )
+    }
+
+    /// Whether the other speaker has the same deviation: at the same place (`samePlaceOctaves`) and within
+    /// `leftRightDecibels` of the same size. A deviation far deeper here than there is still this speaker's.
+    static func isShared(_ cluster: Cluster, among theirs: [Cluster]?, thresholds: DiagnosisThresholds) -> Bool {
+        guard let theirs else { return false }
+        return theirs.contains { other in
+            other.range.overlaps(cluster.range, toleranceOctaves: thresholds.samePlaceOctaves)
+                && abs(other.extreme - cluster.extreme) <= thresholds.leftRightDecibels
+        }
+    }
+
     static func leftRightFindings(
         _ measurements: [Int: RunMeasurement],
         assessed: [Bool],
@@ -457,7 +540,8 @@ public enum SpeakerDiagnosis {
         compared: Int,
         runCount: Int,
         thresholds: DiagnosisThresholds,
-        sweepTied: Cluster? = nil
+        sweepTied: Cluster? = nil,
+        sharedWithOther: Bool = false
     ) -> Finding {
         let range = cluster.range
         let basis = Finding.Basis(runsAgreeing: cluster.runs, runsCompared: compared)
@@ -486,6 +570,7 @@ public enum SpeakerDiagnosis {
             )
         }
         if let evidence { words.detail += " " + evidence.statement }
+        if sharedWithOther { words.detail += " " + DiagnosisText.sharedWithOther(isPeak: kind == .responsePeak) }
         var finding = Finding(
             id: identifier(kind, range),
             kind: kind,
@@ -498,13 +583,16 @@ public enum SpeakerDiagnosis {
             detail: words.detail,
             sentence: words.sentence,
             tagLine: DiagnosisText.tagLine(tag: .inferred, basis: basis),
-            confidenceStatement: DiagnosisText.confidenceStatement(kind: kind, confidence: confidence, basis: basis),
+            confidenceStatement: sharedWithOther
+                ? DiagnosisText.sharedConfidence
+                : DiagnosisText.confidenceStatement(kind: kind, confidence: confidence, basis: basis),
             repeatability: DiagnosisText.repeatability(basis),
             listenFrequency: DiagnosisText.rounded(range.centre),
             context: range.widened(octaves: 0.85),
             numbers: numbers,
             recordingProblem: nil
         )
+        if sharedWithOther { finding.sharedWithOtherSpeaker = true }
         finding.sweepTied = evidence
         return finding
     }

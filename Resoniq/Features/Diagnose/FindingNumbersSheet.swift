@@ -35,7 +35,7 @@ struct FindingNumbersSheet: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: ResoniqSpace.s2) {
-            ResoniqEvidenceTag(finding.evidenceKind, basis: finding.tagBasis, isDeviation: finding.kind.isDeviation)
+            ResoniqEvidenceTag(finding.evidenceKind, basis: finding.tagBasis, isDeviation: finding.isSuspectedDefect)
             Text(finding.headline)
                 .font(ResoniqFont.headline)
                 .foregroundStyle(ResoniqColor.ivory)

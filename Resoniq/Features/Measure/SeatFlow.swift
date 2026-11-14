@@ -275,10 +275,12 @@ final class SeatFlow {
         case analysing
         case finished(SeatReport)
         case failed(Failure)
+        /// The scene left the foreground during the measurement; it was stopped, and the screen says why.
+        case stopped
 
         /// Which screen shows, for transitions: two steps with the same screen are not a change of screen.
         enum Screen: Hashable {
-            case guide, running, paused, analysing, finished, denied, failed
+            case guide, running, paused, analysing, finished, denied, failed, stopped
         }
 
         var screen: Screen {
@@ -290,6 +292,15 @@ final class SeatFlow {
             case .finished: .finished
             case .failed(.permissionDenied): .denied
             case .failed: .failed
+            case .stopped: .stopped
+            }
+        }
+
+        /// Whether the screen must stay on: the phone is held still at a spot, or the spots are being put together.
+        var needsScreenAwake: Bool {
+            switch self {
+            case .running, .paused, .analysing: true
+            default: false
             }
         }
     }
@@ -298,6 +309,8 @@ final class SeatFlow {
         case guide
         case running(SeatMeasurementSession)
         case finished(SeatReport)
+        /// Stopped because the app left the foreground; `start()` measures again.
+        case stopped
     }
 
     let kind: SoundSystemKind
@@ -346,6 +359,7 @@ final class SeatFlow {
         switch phase {
         case .guide: .guide
         case .finished(let report): .finished(report)
+        case .stopped: .stopped
         case .running(let session): Self.step(for: session.state)
         }
     }
@@ -433,6 +447,15 @@ final class SeatFlow {
     /// Stops playback and the session without changing the screen: for leaving the flow.
     func cancel() {
         stopWork()
+    }
+
+    /// The app left the foreground. A measurement under way is stopped and says why (`.stopped`), instead of quietly
+    /// going back to Sit and aim; one that has ended, or not begun, is left as it is. Not while the microphone is
+    /// being asked for (`.idle`): the system's alert takes the scene's focus.
+    func suspend() {
+        guard case .running(let session) = phase, session.state != .idle, !session.state.isFinal else { return }
+        stopWork()
+        phase = .stopped
     }
 
     /// "Skip to result": ends with the spots captured so far. With fewer than three the report says it is

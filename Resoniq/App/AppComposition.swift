@@ -41,6 +41,8 @@ struct AppComposition {
         // No scan is in progress at launch: a scan file no room refers to (the app stopped on Confirm layout) and a
         // temporary export RoomPlan left behind go.
         _ = try? store.sweepScanFiles()
+        // The test sound files a share sheet handed out last session are not needed any more.
+        TestSoundFolder.sweep()
         if !inMemory { ScanFileStore.removeTemporaryExports(in: URL.temporaryDirectory) }
         let memory = ComparisonMemory()
         let coordinator = DiagnoseCoordinator(store: store, memory: memory, audio: audio)

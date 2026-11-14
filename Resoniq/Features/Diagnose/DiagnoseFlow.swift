@@ -256,10 +256,12 @@ final class DiagnoseFlow {
         case analysing
         case finished(Completed)
         case failed(Failure)
+        /// The scene left the foreground while it listened; the test was stopped, and the screen says why.
+        case stopped
 
         /// Which screen shows, for transitions: two steps with the same screen are not a change of screen.
         enum Screen: Hashable {
-            case aim, listening, paused, analysing, finished, denied, failed
+            case aim, listening, paused, analysing, finished, denied, failed, stopped
         }
 
         var screen: Screen {
@@ -271,6 +273,15 @@ final class DiagnoseFlow {
             case .finished: .finished
             case .failed(.permissionDenied): .denied
             case .failed: .failed
+            case .stopped: .stopped
+            }
+        }
+
+        /// Whether the screen must stay on: the phone listens, or the runs are being put together.
+        var needsScreenAwake: Bool {
+            switch self {
+            case .listening, .paused, .analysing: true
+            default: false
             }
         }
     }
@@ -279,6 +290,8 @@ final class DiagnoseFlow {
         case aim
         case running(MeasurementSession)
         case finished(Completed)
+        /// Stopped because the app left the foreground; `start()` listens again.
+        case stopped
     }
 
     /// The speaker to test. Chosen on Aim, fixed once the test starts.
@@ -339,6 +352,7 @@ final class DiagnoseFlow {
         switch phase {
         case .aim: .aim
         case .finished(let completed): .finished(completed)
+        case .stopped: .stopped
         case .running(let session): Self.step(for: session.state)
         }
     }
@@ -432,6 +446,15 @@ final class DiagnoseFlow {
     /// Stops playback and the session without changing the screen: for leaving the flow.
     func cancel() {
         stopWork()
+    }
+
+    /// The app left the foreground. A test that was listening is stopped and says why (`.stopped`), instead of
+    /// quietly going back to Aim; a test that has ended, or not begun, is left as it is.
+    func suspend() {
+        // `.idle` is the moment the microphone is being asked for, and the system's own alert takes the scene's focus.
+        guard case .running(let session) = phase, session.state != .idle, !session.state.isFinal else { return }
+        stopWork()
+        phase = .stopped
     }
 
     // MARK: Following the session

@@ -241,10 +241,15 @@ final class MeasureCoordinator {
         onSeatKept?(kept)
     }
 
-    /// The scene left the foreground: stop anything that plays or listens. A measurement goes back to Sit and aim, the
-    /// live view stops until it is shown again.
+    /// The scene left the foreground: stop anything that plays or listens. A measurement stops and its screen says why
+    /// (the flow's `suspend()`); the live view stops until it is shown again.
     func suspend() {
-        stopWork()
+        switch content {
+        case .measurement(let flow): flow.suspend()
+        case .externalMeasurement(let flow): flow.suspend()
+        case .live(let model): model.stop()
+        case nil: break
+        }
     }
 
     /// "Delete all results" or "Delete everything": the cover closes, and an unsaved result, a comparison, The numbers

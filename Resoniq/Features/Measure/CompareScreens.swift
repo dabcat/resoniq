@@ -148,6 +148,9 @@ struct ComparisonScreen: View {
                         .font(ResoniqFont.caption)
                         .foregroundStyle(ResoniqColor.muted)
                         .fixedSize(horizontal: false, vertical: true)
+                    // One measured from another device and one by the phone: both valid, but taken differently.
+                    SourceCaptions(lines: SourceWords.lines(
+                        (CompareWords.earlier, earlier.report.source), (CompareWords.latest, latest.report.source)))
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, ResoniqSpace.screenInset)

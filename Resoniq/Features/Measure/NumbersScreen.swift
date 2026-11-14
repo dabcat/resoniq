@@ -41,6 +41,12 @@ struct NumbersScreen: View {
                     case .distortion: distortion
                     case .decay: decay
                     }
+                    if let sourceNote = report.sourceNote {
+                        Text(sourceNote)
+                            .font(ResoniqFont.caption)
+                            .foregroundStyle(ResoniqColor.muted)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                     Text(report.footnote)
                         .font(ResoniqFont.caption)
                         .foregroundStyle(ResoniqColor.muted)

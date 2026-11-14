@@ -81,9 +81,7 @@ struct ThreeSpotsScreen: View {
             if let hint { AccessibilityNotification.Announcement("\(display.level.value). \(hint)").post() }
         }
         // What the phone hears that is not the test sound, or why the file is to be played again at this spot.
-        .onChange(of: display.externalNotice) { _, notice in
-            if let notice { AccessibilityNotification.Announcement(notice.text).post() }
-        }
+        .announcesNotice(display.externalNotice)
         // The haptic marks a spot captured; the headline changes to "Got the seat spot." and is announced above.
         .sensoryFeedback(.impact(flexibility: .rigid), trigger: display.capturedCount) { old, new in new > old }
     }

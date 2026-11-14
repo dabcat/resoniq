@@ -93,6 +93,8 @@ struct ScanScreen: View {
                 onClose: onClose)
         default:
             ScanningView(model: model, onManualEntry: onManualEntry, onClose: close)
+                // The scan is done with the phone in the hand and no touch: the screen stays on while it runs.
+                .keepsScreenAwake()
                 // A new scan gets a new camera view (and with it a new RoomPlan session).
                 .id(ObjectIdentifier(model))
                 .onAppear { model.start() }

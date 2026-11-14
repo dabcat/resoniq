@@ -41,6 +41,7 @@ struct SeatFlowView<Finished: View>: View {
                 .transition(.opacity)
         }
         .animation(reduceMotion ? nil : ResoniqMotion.enter, value: step.screen)
+        .keepsScreenAwake(while: step.needsScreenAwake)
         .onDisappear { flow.cancel() }
     }
 
@@ -57,6 +58,8 @@ struct SeatFlowView<Finished: View>: View {
             SeatAnalysingScreen()
         case .finished(let report):
             finished(report)
+        case .stopped:
+            StoppedInBackgroundScreen(onStartAgain: flow.start, onClose: onClose)
         case .failed(.permissionDenied):
             MicrophoneDeniedScreen(onOpenSettings: openSettings, onBack: flow.stop)
         case .failed(let failure):

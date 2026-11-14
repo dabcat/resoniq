@@ -232,6 +232,7 @@ private struct ResultRoot: View {
                 keptIn: coordinator.keptIn,
                 phoneMovedNote: ReadingText.phoneMovedNote(runs: outcome.movedRuns),
                 sourceNote: DiagnosisText.sourceNote(outcome.report.source),
+                counterpartSourceLines: outcome.sourceLines,
                 primaryTitle: outcome.next.title,
                 onPrimary: coordinator.primary,
                 onOpenFinding: coordinator.openFinding,

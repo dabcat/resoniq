@@ -33,6 +33,7 @@ struct ExternalDiagnoseFlowView<Result: View>: View {
                 .transition(.opacity)
         }
         .animation(reduceMotion ? nil : ResoniqMotion.enter, value: step.screen)
+        .keepsScreenAwake(while: step.needsScreenAwake)
         .onDisappear { flow.cancel() }
         #if DEBUG
         .simulatedPlayer(
@@ -57,6 +58,8 @@ struct ExternalDiagnoseFlowView<Result: View>: View {
             AnalysingScreen()
         case .finished(let completed):
             result(completed)
+        case .stopped:
+            StoppedInBackgroundScreen(onStartAgain: flow.start, onClose: onClose)
         case .failed(.measurement(.permissionDenied)):
             MicrophoneDeniedScreen(
                 headline: ExternalSessionText.failureHeadline(.measurement(.permissionDenied)),
